@@ -101,4 +101,20 @@ interface WhatsAppProviderInterface
      * @return bool true quando a exclusão foi aceita pelo provedor
      */
     public function deleteMessage(array $connection, string $messageId): bool;
+
+    /**
+     * Resolve o número de telefone real de um contato a partir do ID do provedor (ex.: LID -> telefone).
+     * Retorna null se não for possível resolver.
+     */
+    public function resolvePhone(array $connection, string $contactId): ?string;
+
+    /**
+     * Envia uma reação (emoji) a uma mensagem existente.
+     *
+     * @param array  $connection Linha de whatsapp_connections
+     * @param string $messageId  ID da mensagem a ser reagida (channel_message_id)
+     * @param string $reaction   Emoji da reação (string vazia para remover)
+     * @return bool true se a reação foi aceita pelo provedor
+     */
+    public function sendReaction(array $connection, string $messageId, string $reaction): bool;
 }

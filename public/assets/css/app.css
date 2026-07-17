@@ -4477,3 +4477,35 @@ body.light-theme {
 body.light-theme .app-header { border-bottom-color: var(--border-strong); }
 body.light-theme .sidebar-btn:hover { background: var(--bg-content); color: var(--text-main); }
 body.light-theme .sidebar-btn.active { background: var(--primary-light); }
+
+/* ==========================================
+   Reações (WhatsApp) — badges no balão
+   ========================================== */
+.msg-reactions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    padding: 4px 8px 2px;
+    margin-top: -2px;
+}
+.reaction-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+    background: var(--bg-card);
+    border: 1px solid var(--border-strong);
+    border-radius: 999px;
+    padding: 1px 6px;
+    font-size: 0.85em;
+    line-height: 1.4;
+    cursor: default;
+    box-shadow: var(--shadow-sm);
+}
+.reaction-badge .reaction-count {
+    font-size: 0.75em;
+    color: var(--text-muted);
+    margin-left: 1px;
+}
+.message-in .msg-reactions .reaction-badge {
+    background: var(--bg-content);
+}
