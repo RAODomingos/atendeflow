@@ -19,17 +19,18 @@ class IncomingMessage
         public ?int $timestamp = null,
         public bool $fromMe = false,
         public ?string $senderName = null,
-        public ?string $avatarUrl = null
+        public ?string $avatarUrl = null,
+        public array $extra = []
     ) {
     }
 
-    public static function text(string $providerId, string $messageId, string $from, string $body, ?int $timestamp = null, bool $fromMe = false, ?string $senderName = null, ?string $avatarUrl = null): self
+    public static function text(string $providerId, string $messageId, string $from, string $body, ?int $timestamp = null, bool $fromMe = false, ?string $senderName = null, ?string $avatarUrl = null, array $extra = []): self
     {
-        return new self($providerId, $messageId, $from, 'text', $body, null, null, null, $timestamp, $fromMe, $senderName, $avatarUrl);
+        return new self($providerId, $messageId, $from, 'text', $body, null, null, null, $timestamp, $fromMe, $senderName, $avatarUrl, $extra);
     }
 
-    public static function media(string $providerId, string $messageId, string $from, string $type, string $mediaUrl, ?string $mediaMime = null, ?string $caption = null, ?int $timestamp = null, bool $fromMe = false, ?string $senderName = null, ?string $avatarUrl = null): self
+    public static function media(string $providerId, string $messageId, string $from, string $type, string $mediaUrl, ?string $mediaMime = null, ?string $caption = null, ?int $timestamp = null, bool $fromMe = false, ?string $senderName = null, ?string $avatarUrl = null, array $extra = []): self
     {
-        return new self($providerId, $messageId, $from, $type, $caption ?? '', $mediaUrl, $mediaMime, $caption, $timestamp, $fromMe, $senderName, $avatarUrl);
+        return new self($providerId, $messageId, $from, $type, $caption ?? '', $mediaUrl, $mediaMime, $caption, $timestamp, $fromMe, $senderName, $avatarUrl, $extra);
     }
 }

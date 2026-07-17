@@ -66,7 +66,7 @@ class WahaProvider implements WhatsAppProviderInterface
         } catch (\Throwable $e) {
         }
 
-        $resp = $this->client->post("/api/{$session}/auth/qr", null, $this->authHeaders());
+        $resp = $this->client->get("/api/{$session}/auth/qr", $this->authHeaders());
         $this->guard($resp);
 
         $body = $resp['body'] ?? [];
@@ -93,12 +93,27 @@ class WahaProvider implements WhatsAppProviderInterface
             $phone = $this->normalizePhone($body['me']['id']);
         }
 
+        $qr = null;
+        if ($this->needsQr($status)) {
+            try {
+                $qrResp = $this->client->get("/api/{$session}/auth/qr", $this->authHeaders());
+                $qrBody = $qrResp['body'] ?? null;
+                $qr = $this->extractQr($qrBody);
+            } catch (\Throwable $e) {
+            }
+        }
+
         return [
             'status' => $status,
             'phone_number' => $phone,
             'instance_id' => $body['name'] ?? null,
-            'qr_code' => null,
+            'qr_code' => $qr,
         ];
+    }
+
+    private function needsQr(string $status): bool
+    {
+        return in_array($status, ['waiting_qr', 'disconnected'], true);
     }
 
     public function disconnect(array $connection): void
@@ -128,13 +143,13 @@ class WahaProvider implements WhatsAppProviderInterface
         $session = $connection['instance_name'] ?? '';
 
         try {
-            $this->client->post("/api/sessions/{$session}", [
+            $this->client->put("/api/sessions/{$session}", [
                 'name' => $session,
                 'config' => [
                     'webhooks' => [
                         [
                             'url' => $url,
-                            'events' => ['message', 'session.status'],
+                            'events' => ['message', 'message.reaction', 'message.edited', 'message.revoked', 'session.status'],
                         ],
                     ],
                 ],
@@ -147,57 +162,70 @@ class WahaProvider implements WhatsAppProviderInterface
     public function send(array $connection, string $to, string $type, string $content, array $options = []): array
     {
         $session = $connection['instance_name'] ?? '';
-        $chatId = $this->normalizePhone($to) . '@c.us';
+        $phone = $this->normalizePhone($to);
         $headers = $this->authHeaders();
 
-        if ($type === 'text') {
-            $resp = $this->client->post('/api/sendText', [
-                'session' => $session,
-                'chatId' => $chatId,
-                'text' => $content,
-            ], $headers);
+        $sendWithSuffix = function (string $suffix) use ($session, $phone, $type, $content, $options, $headers) {
+            $chatId = $phone . $suffix;
 
-            return [
-                'provider_message_id' => $this->extractMessageId($resp['body'] ?? []),
-                'raw' => $resp['body'],
-            ];
-        }
+            if ($type === 'text') {
+                $resp = $this->client->post('/api/sendText', [
+                    'session' => $session,
+                    'chatId' => $chatId,
+                    'text' => $content,
+                ], $headers);
+                return $resp;
+            }
 
-        $meta = json_decode($content, true) ?: [];
-        $mediaRef = $meta['url'] ?? $content;
-        $mime = $options['mimetype'] ?? ($meta['mime'] ?? null);
-        $caption = $options['caption'] ?? ($meta['name'] ?? '');
+            $meta = json_decode($content, true) ?: [];
+            $mediaRef = $meta['url'] ?? $content;
+            $mime = $options['mimetype'] ?? ($meta['mime'] ?? null);
+            $caption = $options['caption'] ?? ($meta['name'] ?? '');
+            if (!empty($options['caption'])) {
+                $caption = $options['caption'];
+            }
 
-        $filePayload = [];
-        if (!preg_match('#^https?://#', (string) $mediaRef)) {
-            $absPath = upload_dir() . '/' . ltrim((string) $mediaRef, '/');
-            if (is_file($absPath)) {
-                $mime = $mime ?: $this->guessMime((string) $mediaRef);
+            $filePayload = [];
+            if (!preg_match('#^https?://#', (string) $mediaRef)) {
+                $absPath = upload_dir() . '/' . ltrim((string) $mediaRef, '/');
+                if (is_file($absPath)) {
+                    $mime = $mime ?: $this->guessMime((string) $mediaRef);
+                    $filePayload = [
+                        'data' => base64_encode((string) file_get_contents($absPath)),
+                        'mimetype' => $mime,
+                        'filename' => basename((string) $mediaRef),
+                    ];
+                }
+            }
+            if (empty($filePayload)) {
                 $filePayload = [
-                    'data' => base64_encode((string) file_get_contents($absPath)),
-                    'mimetype' => $mime,
+                    'url' => $this->absoluteUrl((string) $mediaRef),
+                    'mimetype' => $mime ?: 'application/octet-stream',
                     'filename' => basename((string) $mediaRef),
                 ];
             }
-        }
-        if (empty($filePayload)) {
-            $filePayload = [
-                'url' => $this->absoluteUrl((string) $mediaRef),
-                'mimetype' => $mime ?: 'application/octet-stream',
-                'filename' => basename((string) $mediaRef),
+
+            $body = [
+                'session' => $session,
+                'chatId' => $chatId,
+                'file' => $filePayload,
             ];
-        }
+            if ($caption !== '') {
+                $body['caption'] = $caption;
+            }
 
-        $body = [
-            'session' => $session,
-            'chatId' => $chatId,
-            'file' => $filePayload,
-        ];
-        if ($caption !== '') {
-            $body['caption'] = $caption;
-        }
+            return $this->client->post($this->wahaSendEndpoint($type), $body, $headers);
+        };
 
-        $resp = $this->client->post($this->wahaSendEndpoint($type), $body, $headers);
+        // Try @c.us first; fall back to @lid if WAHA returns "No LID for user"
+        $resp = $sendWithSuffix('@c.us');
+        if (($resp['status'] ?? 0) === 500) {
+            $body = $resp['body'] ?? [];
+            $errMsg = is_array($body) ? (string) ($body['exception']['message'] ?? '') : '';
+            if (str_contains($errMsg, 'No LID for user')) {
+                $resp = $sendWithSuffix('@lid');
+            }
+        }
 
         return [
             'provider_message_id' => $this->extractMessageId($resp['body'] ?? []),
@@ -248,15 +276,14 @@ class WahaProvider implements WhatsAppProviderInterface
         $session = $payload['session'] ?? '';
         $msg = $payload['payload'] ?? [];
 
-        if (!in_array($event, ['message', 'message.any'], true)) {
+        if (!in_array($event, ['message', 'message.reaction', 'message.edited', 'message.revoked'], true)) {
             return null;
         }
 
-        if (!empty($msg['fromMe'])) {
-            return null;
-        }
+        // message.edited e message.revoked podem vir de mensagens próprias (fromMe=true)
+        $isFromMe = !empty($msg['fromMe']);
 
-        $from = $msg['from'] ?? '';
+        $from = $msg['from'] ?? ($msg['to'] ?? '');
         if (str_ends_with($from, '@g.us')) {
             return null;
         }
@@ -264,12 +291,80 @@ class WahaProvider implements WhatsAppProviderInterface
         $messageId = $msg['id'] ?? '';
         $timestamp = isset($msg['timestamp']) ? (int) $msg['timestamp'] : null;
 
-        $fromPhone = $this->normalizePhone($from);
+        // Para edit/revoke, o from pode ser o ID da própria conta (fromMe),
+        // então usamos 'to' para identificar o contato
+        $effectiveFrom = $isFromMe ? ($msg['to'] ?? $from) : $from;
+        $fromPhone = $this->normalizePhone($effectiveFrom);
         if (!$fromPhone) {
             return null;
         }
 
-        $senderName = $msg['pushName'] ?? ($payload['me']['pushName'] ?? null);
+        // Nome do contato: WAHA 2026 envia em _data.notifyName
+        $senderName = $msg['_data']['notifyName'] ?? $msg['pushName'] ?? ($payload['me']['pushName'] ?? null);
+
+        // Preserva o ID original do remetente (com sufixo @lid/@c.us) para resolução de telefone
+        $originalFrom = $from;
+
+        // Reaction event
+        if ($event === 'message.reaction') {
+            $reaction = $msg['reaction']['text'] ?? $msg['reaction'] ?? $msg['text'] ?? '';
+            $parentMsgId = $msg['reaction']['messageId'] ?? $msg['parentMessageId'] ?? $msg['key']['id'] ?? '';
+            $content = json_encode([
+                'reaction' => $reaction,
+                'parent_message_id' => $parentMsgId,
+            ], JSON_UNESCAPED_UNICODE);
+
+            return IncomingMessage::text(
+                $session,
+                $messageId,
+                $fromPhone,
+                $content,
+                $timestamp,
+                false,
+                $senderName,
+                null,
+                ['original_from' => $originalFrom, 'event_type' => $event]
+            );
+        }
+
+        // Edit event: cliente editou a mensagem
+        if ($event === 'message.edited') {
+            $body = $msg['body'] ?? '';
+            return IncomingMessage::text(
+                $session,
+                $messageId,
+                $fromPhone,
+                $body,
+                $timestamp,
+                false,
+                $senderName,
+                null,
+                ['original_from' => $originalFrom, 'event_type' => $event]
+            );
+        }
+
+        // Revoke event: cliente apagou a mensagem
+        if ($event === 'message.revoked') {
+            return IncomingMessage::text(
+                $session,
+                $messageId,
+                $fromPhone,
+                '',
+                $timestamp,
+                $isFromMe,
+                $senderName,
+                null,
+                ['original_from' => $originalFrom, 'event_type' => $event]
+            );
+        }
+
+        // Pula mensagens enviadas pela própria API
+        if ($isFromMe) {
+            return null;
+        }
+
+        // Detect type from _data.type (WAHA 2026+ includes msg type in _data)
+        $dataType = $msg['_data']['type'] ?? '';
 
         $hasMedia = !empty($msg['hasMedia']);
         $media = $msg['media'] ?? [];
@@ -278,7 +373,21 @@ class WahaProvider implements WhatsAppProviderInterface
             $mediaUrl = $media['url'] ?? '';
             $mediaMime = $media['mimetype'] ?? '';
             $caption = $msg['body'] ?? '';
-            $type = $this->inferTypeFromMime($mediaMime) ?? 'file';
+
+            // Sticker: detect by _data.type or by mime
+            $type = ($dataType === 'sticker') ? 'sticker' : ($this->inferTypeFromMime($mediaMime) ?? 'file');
+
+            // Extract WhatsApp CDN URL for fallback media download
+            $cdnUrl = $msg['_data']['deprecatedMms3Url'] ?? '';
+
+            $extra = ['original_from' => $originalFrom];
+            if ($cdnUrl) {
+                $extra['cdn_url'] = $cdnUrl;
+            }
+            if ($dataType === 'sticker') {
+                $extra['is_animated'] = !empty($msg['_data']['isAnimated']);
+                $extra['is_lottie'] = !empty($msg['_data']['isLottie']);
+            }
 
             return IncomingMessage::media(
                 $session,
@@ -290,7 +399,9 @@ class WahaProvider implements WhatsAppProviderInterface
                 $caption,
                 $timestamp,
                 false,
-                $senderName
+                $senderName,
+                null,
+                $extra
             );
         }
 
@@ -303,7 +414,9 @@ class WahaProvider implements WhatsAppProviderInterface
             $body,
             $timestamp,
             false,
-            $senderName
+            $senderName,
+            null,
+            ['original_from' => $originalFrom]
         );
     }
 
@@ -357,6 +470,58 @@ class WahaProvider implements WhatsAppProviderInterface
         }
     }
 
+    public function resolvePhone(array $connection, string $contactId): ?string
+    {
+        if ($contactId === '' || !str_ends_with($contactId, '@lid')) {
+            return null;
+        }
+
+        $session = $connection['instance_name'] ?? '';
+
+        try {
+            $resp = $this->client->get("/api/{$session}/contacts/{$contactId}", $this->authHeaders());
+            if (($resp['status'] ?? 0) !== 200) {
+                return null;
+            }
+            $body = $resp['body'] ?? [];
+            $realId = $body['id'] ?? '';
+            if ($realId === '' || !str_ends_with($realId, '@c.us')) {
+                return null;
+            }
+            return $this->normalizePhone($realId);
+        } catch (\Throwable $e) {
+            error_log('WAHA resolvePhone error: ' . $e->getMessage());
+            return null;
+        }
+    }
+
+    public function sendReaction(array $connection, string $messageId, string $reaction): bool
+    {
+        if ($messageId === '') {
+            return false;
+        }
+
+        $session = $connection['instance_name'] ?? '';
+        $chatId = $this->chatIdFromMessageId($messageId);
+        if (!$chatId) {
+            return false;
+        }
+
+        try {
+            $resp = $this->client->put('/api/reaction', [
+                'session' => $session,
+                'chatId' => $chatId,
+                'messageId' => $messageId,
+                'reaction' => $reaction,
+            ], $this->authHeaders());
+            $this->guard($resp);
+            return ($resp['status'] ?? 0) === 200;
+        } catch (\Throwable $e) {
+            error_log('WAHA sendReaction error: ' . $e->getMessage());
+            return false;
+        }
+    }
+
     private function chatIdFromMessageId(string $messageId): ?string
     {
         $parts = explode('_', $messageId);
@@ -380,11 +545,21 @@ class WahaProvider implements WhatsAppProviderInterface
         }
     }
 
-    private function extractQr(?array $body): ?string
+    private function extractQr(array|string|null $body): ?string
     {
         if (!$body) {
             return null;
         }
+
+        // Raw binary PNG (WAHA 2026+ returns PNG directly)
+        if (is_string($body) && str_starts_with($body, "\x89PNG")) {
+            return 'data:image/png;base64,' . base64_encode($body);
+        }
+
+        if (!is_array($body)) {
+            return null;
+        }
+
         $raw = $body['qr'] ?? $body['data'] ?? ($body['base64'] ?? null);
         if (!$raw) {
             return null;
@@ -409,7 +584,11 @@ class WahaProvider implements WhatsAppProviderInterface
         if (!is_array($body)) {
             return null;
         }
-        return $body['id'] ?? $body['messageId'] ?? $body['key']['id'] ?? null;
+        $id = $body['id'] ?? $body['messageId'] ?? $body['key']['id'] ?? null;
+        if (is_array($id)) {
+            return $id['_serialized'] ?? $id['id'] ?? null;
+        }
+        return $id;
     }
 
     private function normalizeStatus(array $body): string
@@ -417,7 +596,7 @@ class WahaProvider implements WhatsAppProviderInterface
         $status = strtoupper((string) ($body['status'] ?? ''));
         return match ($status) {
             'WORKING' => 'connected',
-            'STARTING', 'STOPPED' => 'waiting_qr',
+            'STARTING', 'STOPPED', 'SCAN_QR_CODE' => 'waiting_qr',
             'FAILED' => 'error',
             default => 'disconnected',
         };
@@ -440,6 +619,7 @@ class WahaProvider implements WhatsAppProviderInterface
             'audio' => '/api/sendVoice',
             'video' => '/api/sendVideo',
             'file', 'document' => '/api/sendFile',
+            'sticker' => '/api/sendImage',
             default => '/api/sendText',
         };
     }

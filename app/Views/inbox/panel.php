@@ -143,6 +143,16 @@ $csat = $conversation['csat'] ?? null;
                                     <a href="<?= e($csatUrl) ?>" target="_blank" rel="noopener">Avaliar</a>
                                 <?php endif; ?>
                             </div>
+                        <?php elseif ($msg['type'] === 'reaction'): ?>
+                            <?php
+                                $rData = json_decode($msg['content'], true) ?: [];
+                                $rEmoji = $rData['reaction'] ?? '';
+                                $rParentId = $rData['parent_message_id'] ?? '';
+                            ?>
+                            <div class="message-content message-reaction">
+                                <span class="reaction-emoji"><?= e($rEmoji) ?></span>
+                                <span class="reaction-label">reagiu a uma mensagem</span>
+                            </div>
                         <?php elseif ($isFile && $meta): ?>
                             <div class="message-content">
                                 <?php if ($mediaType === 'image' || $mediaType === 'sticker'): ?>
@@ -173,6 +183,24 @@ $csat = $conversation['csat'] ?? null;
                                 <span class="msg-edited" title="Editada"> (editada)</span>
                             <?php endif; ?>
                         </div>
+                        <?php if (!$isDeleted && !empty($msg['reactions'])): ?>
+                        <?php
+                            $rxs = json_decode($msg['reactions'], true) ?: [];
+                            $rGroups = [];
+                            foreach ($rxs as $rx) {
+                                $e = $rx['emoji'] ?? '';
+                                if (!$e) continue;
+                                if (!isset($rGroups[$e])) $rGroups[$e] = ['emoji' => $e, 'count' => 0, 'senders' => []];
+                                $rGroups[$e]['count']++;
+                                $rGroups[$e]['senders'][] = $rx['sender_name'] ?? $rx['from'] ?? '';
+                            }
+                        ?>
+                        <div class="msg-reactions">
+                            <?php foreach ($rGroups as $rg): ?>
+                            <span class="reaction-badge" title="<?= e(implode(', ', $rg['senders'])) ?>"><?= e($rg['emoji']) ?><?= $rg['count'] > 1 ? '<span class="reaction-count">' . $rg['count'] . '</span>' : '' ?></span>
+                            <?php endforeach; ?>
+                        </div>
+                        <?php endif; ?>
                         <?php if (!$isDeleted): ?>
                         <div class="msg-actions">
                             <button type="button" class="msg-act" title="Copiar" onclick="copyMessage(<?= $msg['id'] ?>)"><i class="fas fa-copy"></i></button>
@@ -997,6 +1025,27 @@ function mediaTypeOf(m) {
     } catch (e) {}
     return null;
 }
+function renderReactions(reactionsJson) {
+    if (!reactionsJson) return '';
+    var rxs;
+    try { rxs = JSON.parse(reactionsJson); } catch (e) { return ''; }
+    if (!rxs || !rxs.length) return '';
+    // Group by emoji, show count
+    var groups = {};
+    rxs.forEach(function(r) {
+        if (!r.emoji) return;
+        if (!groups[r.emoji]) groups[r.emoji] = {emoji: r.emoji, count: 0, senders: []};
+        groups[r.emoji].count++;
+        groups[r.emoji].senders.push(r.sender_name || r.from || '');
+    });
+    var html = '<div class="msg-reactions">';
+    for (var emo in groups) {
+        var g = groups[emo];
+        html += '<span class="reaction-badge" title="' + esc(g.senders.join(', ')) + '">' + esc(emo) + (g.count > 1 ? '<span class="reaction-count">' + g.count + '</span>' : '') + '</span>';
+    }
+    html += '</div>';
+    return html;
+}
 function isAbsoluteUrl(u) { return /^https?:\/\//i.test(u); }
 function fileContentHtml(type, content, uploadsBase) {
     var m = fileMeta(content); var url = isAbsoluteUrl(m.url) ? m.url : (uploadsBase + '/' + m.url);
@@ -1047,11 +1096,13 @@ function renderMessageHtml(m, uploadsBase) {
                        '<button type="button" class="msg-act msg-act-danger" title="Excluir" onclick="deleteMessage(' + m.id + ')"><i class="fas fa-trash"></i></button>';
         }
     }
+    var reactionsHtml = renderReactions(m.reactions);
     return '<div class="' + cls + '" data-mid="' + m.id + '" data-text="' + esc((m.content || '').replace(/<[^>]+>/g, '')) + '">' +
         '<div class="msg-avatar msg-avatar-' + (m.direction === 'outbound' ? 'agent' : 'contact') + '">' + avHtml + '</div>' +
         '<div class="message-body' + (deleted ? ' is-deleted' : '') + '">' + body +
         '<div class="message-time">' + time + '</div>' +
         '<div class="msg-actions">' + actions + '</div>' +
+        reactionsHtml +
         '</div></div>';
 }
 function appendMessage(m, uploadsBase) {

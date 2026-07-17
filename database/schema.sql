@@ -233,6 +233,10 @@ CREATE TABLE conversations (
     signature_enabled TINYINT(1) NOT NULL DEFAULT 1,
     last_message_at DATETIME NULL,
     closed_at DATETIME NULL,
+    close_reason VARCHAR(255) NULL,
+    close_description TEXT NULL,
+    csat_requested TINYINT(1) NOT NULL DEFAULT 0,
+    message_count_cache INT UNSIGNED NOT NULL DEFAULT 0,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     INDEX idx_conversation_status (status),
@@ -246,6 +250,16 @@ CREATE TABLE conversations (
     FOREIGN KEY (assigned_user_id) REFERENCES users(id) ON DELETE SET NULL,
     FOREIGN KEY (channel_id) REFERENCES channels(id) ON DELETE CASCADE,
     FOREIGN KEY (inbox_id) REFERENCES inboxes(id) ON DELETE SET NULL
+);
+
+-- Conversation CSAT ratings
+CREATE TABLE IF NOT EXISTS conversation_csats (
+    id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    conversation_id BIGINT UNSIGNED NOT NULL,
+    rating TINYINT UNSIGNED NOT NULL,
+    comment TEXT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE
 );
 
 -- Conversation tags (N:N)

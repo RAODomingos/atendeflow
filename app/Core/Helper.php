@@ -450,7 +450,7 @@ function download_remote_image(string $url, string $subdir = 'avatars'): ?string
  *
  * @return array{data:string, size:int}|null
  */
-function download_remote_file(string $url, int $maxBytes = 0): ?array
+function download_remote_file(string $url, int $maxBytes = 0, ?array $extraHeaders = null): ?array
 {
     if (!filter_var($url, FILTER_VALIDATE_URL)) {
         return null;
@@ -469,6 +469,9 @@ function download_remote_file(string $url, int $maxBytes = 0): ?array
             CURLOPT_SSL_VERIFYPEER => false,
             CURLOPT_SSL_VERIFYHOST => 0,
         ]);
+        if ($extraHeaders) {
+            curl_setopt($ch, CURLOPT_HTTPHEADER, $extraHeaders);
+        }
         $raw = (string) curl_exec($ch);
         $status = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
         curl_close($ch);
@@ -476,9 +479,17 @@ function download_remote_file(string $url, int $maxBytes = 0): ?array
             return null;
         }
     } else {
+        $httpOpts = [
+            'timeout' => 60,
+            'user_agent' => 'Mozilla/5.0 (AtendeFlow)',
+            'ignore_errors' => true,
+        ];
+        if ($extraHeaders) {
+            $httpOpts['header'] = implode("\r\n", $extraHeaders);
+        }
         $ctx = stream_context_create([
-            'http' => ['timeout' => 60, 'user_agent' => 'Mozilla/5.0 (AtendeFlow)', 'ignore_errors' => true],
-            'https' => ['timeout' => 60, 'user_agent' => 'Mozilla/5.0 (AtendeFlow)', 'ignore_errors' => true],
+            'http' => $httpOpts,
+            'https' => $httpOpts,
         ]);
         $raw = (string) @file_get_contents($url, false, $ctx);
         if ($raw === '') {

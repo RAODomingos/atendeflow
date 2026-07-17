@@ -197,7 +197,10 @@ class WhatsAppService
             return false;
         }
         try {
-            $provider->getStatus($connection);
+            $state = $provider->getStatus($connection);
+            if (in_array($state['status'] ?? '', ['disconnected', 'error'], true)) {
+                return false;
+            }
             return true;
         } catch (WhatsAppAuthException $e) {
             return false;
@@ -213,6 +216,7 @@ class WhatsAppService
         $path = $integrations['whatsapp']['webhook_path'] ?? '/webhooks/whatsapp';
         $secret = $connection['webhook_secret'] ?? bin2hex(random_bytes(16));
         $url = base_url(ltrim($path, '/')) . '?secret=' . $secret;
+        $url = str_replace('://localhost/', '://host.docker.internal/', $url);
 
         try {
             $provider->setWebhook($connection, $url);
@@ -280,15 +284,92 @@ class WhatsAppService
             ]);
         }
 
-        $contact = Contact::findOrCreate($message->senderName ?? $message->from, null, $message->from);
+        // Se o número for LID, tenta resolver o telefone real via WAHA
+        $phone = $message->from;
+        $originalFrom = $message->extra['original_from'] ?? '';
+        if ($originalFrom !== '' && str_ends_with($originalFrom, '@lid')) {
+            $realPhone = $provider->resolvePhone($connection, $originalFrom);
+            if ($realPhone) {
+                $phone = $realPhone;
+                $this->logWebhook('PHONE_RESOLVED', ['lid' => $originalFrom, 'phone' => $realPhone]);
+            }
+        }
+        $contact = Contact::findOrCreate($message->senderName ?? $message->from, null, $phone);
 
         // Atualiza nome e foto de perfil do WhatsApp (se disponíveis e ainda não definidos).
         $this->syncContactProfile($contact, $message);
 
         $conversation = $this->findOrCreateConversation((int) $connection['channel_id'], $contact['id']);
 
-        $isMedia = in_array($message->type, ['image', 'audio', 'video', 'file', 'sticker'], true);
-        if ($isMedia) {
+        // Reaction message: atualiza o balão da mensagem original
+        if ($message->type === 'text' && str_starts_with($message->content, '{"reaction":')) {
+            $meta = json_decode($message->content, true);
+            $reaction = $meta['reaction'] ?? '';
+            $parentMsgId = $meta['parent_message_id'] ?? '';
+
+            if ($parentMsgId) {
+                $parentMsg = Database::getInstance()->fetch(
+                    "SELECT id, reactions FROM messages WHERE channel_message_id = ? AND conversation_id = ? LIMIT 1",
+                    [$parentMsgId, $conversation['id']]
+                );
+                if ($parentMsg) {
+                    $existing = json_decode((string) ($parentMsg['reactions'] ?? '[]'), true) ?: [];
+                    // Remove reaction from same sender if exists (toggle)
+                    $existing = array_values(array_filter($existing, fn($r) => ($r['from'] ?? '') !== $phone));
+                    if ($reaction !== '') {
+                        $existing[] = [
+                            'emoji' => $reaction,
+                            'from' => $phone,
+                            'sender_name' => $message->senderName ?? $contact['name'] ?? '',
+                            'timestamp' => time(),
+                        ];
+                    }
+                    Database::getInstance()->update('messages', [
+                        'reactions' => json_encode($existing, JSON_UNESCAPED_UNICODE),
+                        'updated_at' => date('Y-m-d H:i:s'),
+                    ], 'id = ?', [$parentMsg['id']]);
+                    $this->logWebhook('REACTION_UPDATED', ['parent_msg_id' => $parentMsg['id'], 'emoji' => $reaction, 'from' => $phone]);
+                } else {
+                    $this->logWebhook('REACTION_PARENT_NOT_FOUND', ['parent_channel_msg_id' => $parentMsgId]);
+                }
+            }
+            return;
+        }
+
+        // Message edit (cliente editou a mensagem)
+        if ($message->extra['event_type'] ?? '' === 'message.edited') {
+            $existing = Database::getInstance()->fetch(
+                "SELECT id FROM messages WHERE channel_message_id = ? AND conversation_id = ? LIMIT 1",
+                [$message->messageId, $conversation['id']]
+            );
+            if ($existing) {
+                Database::getInstance()->update('messages', [
+                    'content' => $message->content,
+                    'updated_at' => date('Y-m-d H:i:s'),
+                ], 'id = ?', [$existing['id']]);
+                $this->logWebhook('MESSAGE_EDITED', ['msg_id' => $existing['id']]);
+            }
+            return;
+        }
+
+        // Message revoke (cliente apagou a mensagem)
+        if ($message->extra['event_type'] ?? '' === 'message.revoked') {
+            $existing = Database::getInstance()->fetch(
+                "SELECT id FROM messages WHERE channel_message_id = ? AND conversation_id = ? LIMIT 1",
+                [$message->messageId, $conversation['id']]
+            );
+            if ($existing) {
+                Database::getInstance()->update('messages', [
+                    'content' => '',
+                    'deleted_at' => date('Y-m-d H:i:s'),
+                    'updated_at' => date('Y-m-d H:i:s'),
+                ], 'id = ?', [$existing['id']]);
+                $this->logWebhook('MESSAGE_REVOKED', ['msg_id' => $existing['id']]);
+            }
+            return;
+        }
+
+        if (in_array($message->type, ['image', 'audio', 'video', 'file', 'sticker'], true)) {
             $resolved = $this->resolveInboundMedia($provider, $connection, $message);
             if ($resolved) {
                 $type = $resolved['type'];
@@ -299,8 +380,6 @@ class WhatsAppService
                     'mime' => $resolved['mime'],
                 ], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
             } else {
-                // Não foi possível baixar a mídia: registra uma nota legível em vez
-                // de uma imagem/link quebrado no chat. O motivo fica no webhook.log.
                 $this->logWebhook('MEDIA_UNRESOLVED', [
                     'mid' => $message->messageId,
                     'type' => $message->type,
@@ -392,13 +471,27 @@ class WhatsAppService
             $sourceUrl = $message->mediaUrl;
         }
 
+        // Fallback: WhatsApp CDN URL presente no _data.deprecatedMms3Url
+        if (!$sourceUrl && !$base64 && !empty($message->extra['cdn_url'])) {
+            $sourceUrl = $message->extra['cdn_url'];
+        }
+
         $data = null;
         $size = 0;
         if (is_string($base64) && $base64 !== '') {
             $data = base64_decode($base64);
             $size = strlen($data);
         } elseif (is_string($sourceUrl) && preg_match('#^https?://#', $sourceUrl)) {
-            $dl = \download_remote_file($sourceUrl);
+            // Se a URL for da WAHA, inclui a API Key no download
+            $headers = null;
+            if (str_contains($sourceUrl, '/api/files/')) {
+                $config = require dirname(__DIR__, 2) . '/config/integrations.php';
+                $apiKey = $config['whatsapp']['providers']['waha']['api_key'] ?? '';
+                if ($apiKey) {
+                    $headers = ['X-Api-Key: ' . $apiKey];
+                }
+            }
+            $dl = \download_remote_file($sourceUrl, 0, $headers);
             if ($dl) {
                 $data = $dl['data'];
                 $size = $dl['size'];
@@ -649,6 +742,62 @@ class WhatsAppService
             error_log('WhatsApp deleteMessage error: ' . $e->getMessage());
             return false;
         }
+    }
+
+    /**
+     * Envia uma reação (emoji) a uma mensagem do WhatsApp.
+     */
+    public function sendReaction(int $conversationId, int $messageId, string $reaction): bool
+    {
+        $connection = $this->resolveOutboundTextConnection($conversationId, $messageId);
+        if ($connection === null) {
+            // Tenta resolver como inbound também (reagir a mensagens recebidas)
+            $conn = $this->resolveReactionConnection($conversationId, $messageId);
+            if ($conn === null) {
+                return false;
+            }
+            [$conn, $waId] = $conn;
+        } else {
+            [$conn, $waId] = $connection;
+        }
+
+        try {
+            return WhatsAppManager::forConnection($conn)->sendReaction($conn, $waId, $reaction);
+        } catch (\Throwable $e) {
+            error_log('WhatsApp sendReaction error: ' . $e->getMessage());
+            return false;
+        }
+    }
+
+    /**
+     * Resolve conexão para mensagens inbound (recebidas).
+     */
+    private function resolveReactionConnection(int $conversationId, int $messageId): ?array
+    {
+        $conversation = Conversation::find($conversationId);
+        if (!$conversation) {
+            return null;
+        }
+        $channel = Database::getInstance()->fetch(
+            "SELECT ch.* FROM channels ch WHERE ch.id = ?",
+            [$conversation['channel_id']]
+        );
+        if (!$channel || $channel['type'] !== 'whatsapp') {
+            return null;
+        }
+        $msg = Conversation::getMessage($messageId);
+        if (!$msg || ($msg['conversation_id'] ?? null) != $conversationId) {
+            return null;
+        }
+        $waId = $msg['channel_message_id'] ?? '';
+        if ($waId === '') {
+            return null;
+        }
+        $conn = WhatsAppConnection::findByChannel((int) $channel['id']);
+        if (!$conn) {
+            return null;
+        }
+        return [$conn, $waId];
     }
 
     /**
