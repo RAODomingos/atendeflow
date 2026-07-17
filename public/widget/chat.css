@@ -1,0 +1,436 @@
+/* ============================================================
+   AtendeFlow ChatWeb — Widget Styles
+   Design: moderno, limpo, inspirado em Intercom/Crisp
+   ============================================================ */
+
+#atendeflow-widget {
+    --afw-primary: #2f6fed;
+    --afw-primary-dark: #1f57c9;
+    --afw-surface: #ffffff;
+    --afw-bg: #f4f6fb;
+    --afw-bot-bubble: #f0f2f7;
+    --afw-bot-text: #1a2332;
+    --afw-user-text: #ffffff;
+    --afw-text: #1a2332;
+    --afw-text-soft: #6b7488;
+    --afw-border: #e7eaf1;
+    --afw-radius: 22px;
+    --afw-shadow: 0 18px 50px rgba(20, 30, 60, .18);
+
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    z-index: 2147483000;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    font-size: 14px;
+    line-height: 1.5;
+    color: var(--afw-text);
+    -webkit-font-smoothing: antialiased;
+}
+
+:where(#atendeflow-widget) *,
+:where(#atendeflow-widget) *::before,
+:where(#atendeflow-widget) *::after {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+    border: 0;
+}
+
+:where(#atendeflow-widget) button {
+    font-family: inherit;
+    cursor: pointer;
+    background: none;
+    color: inherit;
+}
+
+:where(#atendeflow-widget) svg { display: block; }
+
+/* ── Launcher (botão flutuante) ──────────────────────────── */
+.afw-launcher {
+    position: absolute;
+    bottom: 24px;
+    width: 60px;
+    height: 60px;
+    border-radius: 50%;
+    background: var(--afw-primary);
+    color: #fff;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 10px 26px rgba(47, 111, 237, .42);
+    pointer-events: auto;
+    transition: transform .25s cubic-bezier(.34,1.56,.64,1), box-shadow .25s;
+}
+
+.afw-launcher::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: 50%;
+    background: var(--afw-primary);
+    z-index: -1;
+    animation: afw-pulse 2.6s ease-out infinite;
+}
+
+@keyframes afw-pulse {
+    0%   { transform: scale(1);   opacity: .55; }
+    70%  { transform: scale(1.9); opacity: 0;   }
+    100% { transform: scale(1.9); opacity: 0;   }
+}
+
+.afw-launcher:hover { transform: scale(1.07); box-shadow: 0 14px 32px rgba(47,111,237,.5); }
+.afw-launcher:active { transform: scale(.95); }
+
+.afw-launcher .afw-ico { width: 28px; height: 28px; fill: #fff; transition: opacity .2s, transform .25s; }
+.afw-launcher .afw-ico--close { position: absolute; opacity: 0; transform: rotate(-90deg) scale(.5); }
+
+.afw-open .afw-launcher .afw-ico--chat  { opacity: 0; transform: rotate(90deg) scale(.5); }
+.afw-open .afw-launcher .afw-ico--close { opacity: 1; transform: rotate(0) scale(1); }
+.afw-open .afw-launcher::after { animation: none; }
+
+.afw-badge {
+    position: absolute;
+    top: -3px;
+    min-width: 20px;
+    height: 20px;
+    padding: 0 5px;
+    border-radius: 10px;
+    background: #ff4757;
+    color: #fff;
+    font-size: 11px;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: 2px solid #fff;
+    transform: scale(0);
+    transition: transform .25s cubic-bezier(.34,1.56,.64,1);
+}
+.afw-badge.show { transform: scale(1); }
+
+/* ── Painel ──────────────────────────────────────────────── */
+.afw-panel {
+    position: absolute;
+    bottom: 96px;
+    width: 384px;
+    max-width: calc(100vw - 32px);
+    height: min(640px, calc(100vh - 120px));
+    background: var(--afw-surface);
+    border-radius: var(--afw-radius);
+    box-shadow: var(--afw-shadow);
+    pointer-events: auto;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    opacity: 0;
+    transform: translateY(16px) scale(.98);
+    transform-origin: bottom;
+    visibility: hidden;
+    transition: opacity .28s ease, transform .28s cubic-bezier(.34,1.4,.64,1), visibility .28s;
+}
+.afw-open .afw-panel { opacity: 1; transform: translateY(0) scale(1); visibility: visible; }
+.afw-panel.afw-min { transform: translateY(16px) scale(.98); opacity: 0; visibility: hidden; }
+
+/* ── Cabeçalho ───────────────────────────────────────────── */
+.afw-header {
+    background: linear-gradient(135deg, var(--afw-primary), var(--afw-primary-dark));
+    color: #fff;
+    padding: 16px 18px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-shrink: 0;
+}
+.afw-agent { display: flex; align-items: center; gap: 12px; min-width: 0; flex: 1; }
+.afw-agent-avatar { position: relative; width: 42px; height: 42px; flex-shrink: 0; }
+.afw-agent-avatar img,
+.afw-agent-avatar .afw-avatar-fallback {
+    width: 42px; height: 42px; border-radius: 50%; object-fit: cover;
+    display: flex; align-items: center; justify-content: center;
+    font-weight: 600; font-size: 17px; color: #fff;
+    background: rgba(255,255,255,.22);
+}
+.afw-status-dot {
+    position: absolute; bottom: 1px; right: 1px;
+    width: 11px; height: 11px; border-radius: 50%;
+    background: #2ecc71; border: 2px solid var(--afw-primary-dark);
+}
+.afw-agent-info { min-width: 0; }
+.afw-agent-name {
+    font-size: 15px; font-weight: 600; letter-spacing: .2px;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.afw-agent-status { font-size: 12px; color: rgba(255,255,255,.82); margin-top: 1px; }
+.afw-actions { display: flex; align-items: center; gap: 2px; }
+.afw-icon-btn {
+    width: 32px; height: 32px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    color: #fff; opacity: .85; transition: background .18s, opacity .18s;
+}
+.afw-icon-btn:hover { background: rgba(255,255,255,.16); opacity: 1; }
+.afw-icon-btn.muted { opacity: .5; }
+.afw-icon-btn svg { width: 18px; height: 18px; fill: #fff; }
+
+/* ── Mensagens ───────────────────────────────────────────── */
+.afw-body { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; background: var(--afw-bg); }
+
+.afw-messages {
+    flex: 1;
+    overflow-y: auto;
+    padding: 20px 18px 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    scroll-behavior: smooth;
+}
+.afw-messages::-webkit-scrollbar { width: 6px; }
+.afw-messages::-webkit-scrollbar-thumb { background: #d2d8e4; border-radius: 6px; }
+.afw-messages::-webkit-scrollbar-track { background: transparent; }
+
+.afw-day {
+    align-self: center;
+    font-size: 11px; color: var(--afw-text-soft);
+    background: rgba(0,0,0,.05); padding: 2px 10px; border-radius: 10px;
+    margin: 2px 0;
+}
+
+.afw-msg {
+    display: flex;
+    align-items: flex-end;
+    gap: 8px;
+    max-width: 100%;
+    animation: afw-msg-in .3s cubic-bezier(.22,1,.36,1);
+}
+@keyframes afw-msg-in {
+    from { opacity: 0; transform: translateY(8px); }
+    to   { opacity: 1; transform: translateY(0); }
+}
+.afw-msg--user { flex-direction: row-reverse; }
+
+.afw-msg-avatar {
+    width: 28px; height: 28px; border-radius: 50%; object-fit: cover;
+    flex-shrink: 0; margin-bottom: 2px;
+}
+.afw-msg--user .afw-msg-avatar { display: none; }
+
+.afw-msg-content { display: flex; flex-direction: column; max-width: 80%; min-width: 0; }
+.afw-msg--user .afw-msg-content { align-items: flex-end; }
+
+.afw-msg-author { font-size: 11px; font-weight: 600; color: var(--afw-text-soft); margin: 0 4px 4px; }
+.afw-msg--user .afw-msg-author { display: none; }
+
+.afw-bubble {
+    padding: 11px 15px;
+    border-radius: 18px;
+    font-size: 13.5px;
+    line-height: 1.5;
+    word-wrap: break-word;
+    overflow-wrap: anywhere;
+    white-space: pre-wrap;
+}
+.afw-msg--bot .afw-bubble {
+    background: var(--afw-bot-bubble);
+    color: var(--afw-bot-text);
+    border-bottom-left-radius: 5px;
+}
+.afw-msg--user .afw-bubble {
+    background: var(--afw-user, var(--afw-primary));
+    color: var(--afw-user-text, #fff);
+    border-bottom-right-radius: 5px;
+    box-shadow: 0 4px 12px rgba(47,111,237,.22);
+}
+.afw-bubble a { color: inherit; text-decoration: underline; }
+
+.afw-time { font-size: 10px; color: var(--afw-text-soft); margin: 3px 4px 0; }
+.afw-msg--user .afw-time { text-align: right; }
+
+/* indicador de digitação */
+.afw-typing { display: inline-flex; gap: 4px; padding: 12px 16px; }
+.afw-typing span {
+    width: 7px; height: 7px; border-radius: 50%; background: #b9c0cf;
+    animation: afw-typing 1.3s infinite ease-in-out;
+}
+.afw-typing span:nth-child(2) { animation-delay: .18s; }
+.afw-typing span:nth-child(3) { animation-delay: .36s; }
+@keyframes afw-typing { 0%,60%,100% { transform: translateY(0); opacity: .5; } 30% { transform: translateY(-5px); opacity: 1; } }
+
+/* skeleton (carregamento inicial) */
+.afw-skeleton { display: flex; flex-direction: column; gap: 6px; }
+.afw-skeleton .ln { height: 8px; border-radius: 4px; background: #e2e6ee; animation: afw-shimmer 1.4s infinite; }
+.afw-skeleton .ln.w1 { width: 70%; } .afw-skeleton .ln.w2 { width: 95%; } .afw-skeleton .ln.w3 { width: 50%; }
+@keyframes afw-shimmer { 0%,100% { opacity: 1; } 50% { opacity: .4; } }
+
+/* FAB voltar ao final */
+.afw-scroll-fab {
+    position: absolute;
+    bottom: 14px; left: 50%; transform: translateX(-50%) translateY(10px);
+    width: 36px; height: 36px; border-radius: 50%;
+    background: #fff; color: var(--afw-primary);
+    box-shadow: 0 6px 18px rgba(20,30,60,.2);
+    display: flex; align-items: center; justify-content: center;
+    opacity: 0; pointer-events: none; transition: opacity .2s, transform .2s;
+}
+.afw-scroll-fab.show { opacity: 1; pointer-events: auto; transform: translateX(-50%) translateY(0); }
+.afw-scroll-fab svg { width: 18px; height: 18px; fill: currentColor; }
+
+/* quick replies */
+.afw-quick {
+    display: flex; flex-wrap: wrap; gap: 8px;
+    padding: 4px 14px 12px;
+    flex-shrink: 0;
+}
+.afw-chip {
+    border: 1.5px solid var(--afw-primary);
+    color: var(--afw-primary);
+    background: #fff;
+    padding: 7px 14px; border-radius: 18px;
+    font-size: 12.5px; font-weight: 600;
+    transition: background .15s, color .15s, transform .1s;
+}
+.afw-chip:hover { background: var(--afw-primary); color: #fff; }
+.afw-chip:active { transform: scale(.96); }
+
+/* ── Pré-atendimento ─────────────────────────────────────── */
+.afw-prechat {
+    padding: 22px 20px;
+    display: flex; flex-direction: column; gap: 14px;
+    flex-shrink: 0;
+    background: var(--afw-surface);
+    border-top: 1px solid var(--afw-border);
+}
+.afw-prechat-title { font-size: 15px; font-weight: 600; color: var(--afw-text); }
+.afw-prechat-sub { font-size: 12.5px; color: var(--afw-text-soft); margin-top: -8px; }
+.afw-field { display: flex; flex-direction: column; gap: 6px; }
+.afw-field label { font-size: 12px; font-weight: 600; color: var(--afw-text-soft); padding-left: 3px; }
+.afw-input {
+    width: 100%;
+    padding: 12px 15px;
+    border: 1.5px solid var(--afw-border);
+    border-radius: 12px;
+    font-size: 14px;
+    font-family: inherit;
+    color: var(--afw-text);
+    background: #fbfcfe;
+    outline: none;
+    transition: border-color .18s, box-shadow .18s, background .18s;
+}
+.afw-input:focus {
+    border-color: var(--afw-primary);
+    background: #fff;
+    box-shadow: 0 0 0 3px rgba(47,111,237,.13);
+}
+.afw-input::placeholder { color: #aab1c0; }
+.afw-start {
+    margin-top: 2px;
+    padding: 12px;
+    border-radius: 12px;
+    background: var(--afw-primary);
+    color: #fff;
+    font-size: 14px; font-weight: 600;
+    transition: background .18s, transform .1s, opacity .18s;
+}
+.afw-start:hover { background: var(--afw-primary-dark); }
+.afw-start:active { transform: scale(.985); }
+.afw-start:disabled { opacity: .5; cursor: not-allowed; }
+
+/* ── Composer ────────────────────────────────────────────── */
+.afw-composer {
+    display: none;
+    align-items: flex-end;
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 10px 12px 12px;
+    background: var(--afw-surface);
+    border-top: 1px solid var(--afw-border);
+    flex-shrink: 0;
+}
+.afw-composer.show { display: flex; }
+.afw-input-wrap {
+    flex: 1;
+    display: flex;
+    align-items: flex-end;
+    border: 1.5px solid var(--afw-border);
+    border-radius: 22px;
+    padding: 4px 6px 4px 16px;
+    background: #fbfcfe;
+    transition: border-color .18s, box-shadow .18s;
+}
+.afw-input-wrap:focus-within {
+    border-color: var(--afw-primary);
+    box-shadow: 0 0 0 3px rgba(47,111,237,.13);
+}
+.afw-textarea {
+    flex: 1;
+    border: none; outline: none; resize: none;
+    background: transparent;
+    font-family: inherit; font-size: 13.5px; line-height: 1.45;
+    color: var(--afw-text);
+    max-height: 110px; padding: 7px 0;
+}
+.afw-textarea::placeholder { color: #aab1c0; }
+.afw-send {
+    flex-shrink: 0;
+    width: 38px; height: 38px;
+    border-radius: 50%;
+    background: var(--afw-user, var(--afw-primary));
+    display: flex; align-items: center; justify-content: center;
+    transition: background .18s, transform .12s, opacity .18s;
+}
+.afw-send:hover { background: var(--afw-primary-dark); }
+.afw-send:active { transform: scale(.9); }
+.afw-send:disabled { opacity: .4; cursor: default; }
+.afw-send svg { width: 18px; height: 18px; fill: #fff; }
+
+/* ── Anexos ── */
+.afw-attach {
+    flex-shrink: 0;
+    width: 36px; height: 36px;
+    border: none; background: transparent; cursor: pointer;
+    border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    color: #8a93a6; transition: background .15s, color .15s;
+}
+.afw-attach:hover { background: rgba(47,111,237,.1); color: var(--afw-primary); }
+.afw-attach svg { width: 20px; height: 20px; fill: currentColor; }
+.afw-attach-preview {
+    flex-basis: 100%; display: flex; gap: 6px; flex-wrap: wrap;
+    padding: 0 2px 4px; order: -1;
+}
+.afw-chip--file {
+    display: inline-flex; align-items: center; gap: 6px;
+    background: rgba(47,111,237,.1); color: var(--afw-primary);
+    border-radius: 14px; padding: 4px 8px 4px 6px; font-size: 12px; max-width: 100%;
+}
+.afw-chip--file svg { width: 14px; height: 14px; fill: currentColor; flex-shrink: 0; }
+.afw-chip-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.afw-chip-x { border: none; background: transparent; color: inherit; font-size: 16px; line-height: 1; cursor: pointer; padding: 0 2px; }
+
+.afw-file-img-link { display: block; }
+.afw-file-img { max-width: 220px; max-height: 220px; border-radius: 12px; display: block; cursor: zoom-in; }
+.afw-file-media { max-width: 240px; width: 100%; margin-top: 2px; }
+.afw-file-link {
+    display: inline-flex; align-items: center; gap: 10px;
+    background: rgba(47,111,237,.08); border: 1px solid rgba(47,111,237,.18);
+    border-radius: 12px; padding: 10px 14px; color: var(--afw-primary);
+    text-decoration: none; max-width: 240px;
+}
+.afw-file-link:hover { background: rgba(47,111,237,.14); }
+.afw-file-ico svg { width: 22px; height: 22px; fill: currentColor; flex-shrink: 0; }
+.afw-file-meta { display: flex; flex-direction: column; min-width: 0; }
+.afw-file-name { font-size: 13px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.afw-file-size { font-size: 11px; opacity: .7; }
+
+/* ── Mobile (bottom sheet) ───────────────────────────────── */
+@media (max-width: 480px) {
+    .afw-panel {
+        width: 100%; max-width: 100%;
+        left: 0 !important; right: 0 !important;
+        bottom: 0;
+        height: 100%;
+        border-radius: 0;
+        --afw-radius: 0;
+    }
+    .afw-launcher { bottom: 16px; }
+    .afw-open .afw-launcher { bottom: 16px; }
+}
