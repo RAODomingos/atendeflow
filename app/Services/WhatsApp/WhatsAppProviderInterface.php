@@ -117,4 +117,13 @@ interface WhatsAppProviderInterface
      * @return bool true se a reação foi aceita pelo provedor
      */
     public function sendReaction(array $connection, string $messageId, string $reaction): bool;
+
+    /**
+     * Obtém a URL da foto de perfil de um contato no WhatsApp.
+     *
+     * @param array  $connection Linha de whatsapp_connections
+     * @param string $contactId  ID do contato no provedor (ex.: 5511999999999@c.us)
+     * @return string|null URL da foto (absoluta ou data-URL) ou null se não disponível
+     */
+    public function getProfilePicture(array $connection, string $contactId): ?string;
 }

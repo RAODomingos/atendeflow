@@ -213,37 +213,4 @@ class FlowController
         }
     }
 
-    public function apiTest(Request $request): void
-    {
-        $flowId = $request->input('flow_id');
-        if (!$flowId) {
-            View::json(['error' => 'Informe o flow_id'], 400);
-        }
-
-        $flow = Flow::find((int) $flowId);
-        if (!$flow) {
-            View::json(['error' => 'Fluxo não encontrado'], 404);
-        }
-
-        $startNode = null;
-        foreach ($flow['nodes'] as $node) {
-            if ($node['node_type'] === 'start') {
-                $startNode = $node;
-                break;
-            }
-        }
-
-        View::json([
-            'flow' => $flow['name'],
-            'node_count' => count($flow['nodes']),
-            'start_node' => $startNode,
-            'nodes' => $flow['nodes'],
-        ]);
-    }
-
-    public function apiList(Request $request): void
-    {
-        $flows = Flow::all();
-        View::json($flows);
-    }
 }

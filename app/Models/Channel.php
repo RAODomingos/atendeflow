@@ -13,6 +13,19 @@ class Channel
      * - email: conta de e-mail ativa
      * Outros tipos são considerados conectados se estiverem ativos.
      */
+    public static function getWhatsapp(): array
+    {
+        return Database::getInstance()->fetchAll(
+            "SELECT ch.id, ch.type, ch.name
+             FROM channels ch
+             WHERE ch.type = 'whatsapp' AND ch.is_active = 1
+               AND EXISTS (
+                   SELECT 1 FROM whatsapp_connections wc
+                   WHERE wc.channel_id = ch.id AND wc.status = 'connected')
+             ORDER BY ch.name"
+        );
+    }
+
     public static function getConnected(): array
     {
         return Database::getInstance()->fetchAll(

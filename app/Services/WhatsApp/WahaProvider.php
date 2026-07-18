@@ -186,10 +186,19 @@ class WahaProvider implements WhatsAppProviderInterface
             }
 
             $filePayload = [];
-            if (!preg_match('#^https?://#', (string) $mediaRef)) {
+            $isLocalPath = !preg_match('#^https?://#', (string) $mediaRef);
+            if ($isLocalPath) {
                 $absPath = upload_dir() . '/' . ltrim((string) $mediaRef, '/');
-                if (is_file($absPath)) {
-                    $mime = $mime ?: $this->guessMime((string) $mediaRef);
+                $mime = $mime ?: $this->guessMime((string) $mediaRef);
+
+                // For video (large files), always use URL — base64 would exceed WAHA payload limits
+                if ($type === 'video' || (is_file($absPath) && filesize($absPath) > 2 * 1024 * 1024)) {
+                    $filePayload = [
+                        'url' => $this->absoluteUrl((string) $mediaRef),
+                        'mimetype' => $mime ?: 'video/mp4',
+                        'filename' => basename((string) $mediaRef),
+                    ];
+                } elseif (is_file($absPath)) {
                     $filePayload = [
                         'data' => base64_encode((string) file_get_contents($absPath)),
                         'mimetype' => $mime,
@@ -205,6 +214,12 @@ class WahaProvider implements WhatsAppProviderInterface
                 ];
             }
 
+            // WAHA CORE runs on Docker; replace localhost with host.docker.internal
+            $base = rtrim($this->config['base_url'] ?? 'http://localhost:3000', '/');
+            if (str_contains($base, '//localhost') && !empty($filePayload['url'])) {
+                $filePayload['url'] = str_replace('//localhost/', '//host.docker.internal/', $filePayload['url']);
+            }
+
             $body = [
                 'session' => $session,
                 'chatId' => $chatId,
@@ -214,7 +229,35 @@ class WahaProvider implements WhatsAppProviderInterface
                 $body['caption'] = $caption;
             }
 
-            return $this->client->post($this->wahaSendEndpoint($type), $body, $headers);
+            // Try the native endpoint first
+            $endpoint = $this->wahaSendEndpoint($type);
+            $resp = $this->client->post($endpoint, $body, $headers);
+
+            // Video fallback: WAHA CORE (Chromium) lacks H.264/AAC codecs, so
+            // sendVideo returns 422. Retry with convert=true, then sendFile.
+            if ($type === 'video' && ($resp['status'] ?? 0) !== 200) {
+                $errMsg = '';
+                $errBody = $resp['body'] ?? [];
+                if (is_array($errBody)) {
+                    $errMsg = (string) ($errBody['message'] ?? $errBody['error'] ?? json_encode($errBody));
+                } else {
+                    $errMsg = (string) $errBody;
+                }
+                error_log("WAHA sendVideo failed (status={$resp['status']}): {$errMsg}");
+
+                // Try with convert=true (requires Chrome image but worth a shot)
+                $body['convert'] = true;
+                $resp = $this->client->post($endpoint, $body, $headers);
+                if (($resp['status'] ?? 0) === 200) {
+                    return $resp;
+                }
+
+                // Final fallback: send as file
+                error_log('WAHA sendVideo failed, falling back to sendFile');
+                unset($body['convert']);
+                $resp = $this->client->post('/api/sendFile', $body, $headers);
+            }
+            return $resp;
         };
 
         // Try @c.us first; fall back to @lid if WAHA returns "No LID for user"
@@ -344,10 +387,13 @@ class WahaProvider implements WhatsAppProviderInterface
         }
 
         // Revoke event: cliente apagou a mensagem
+        // WAHA envia o evento com o ID da mensagem original dentro de _data.protocolMessageKey
         if ($event === 'message.revoked') {
+            // A mensagem original foi apagada; extraímos o ID original via protocolMessageKey
+            $originalMsgId = $msg['_data']['protocolMessageKey']['_serialized'] ?? $messageId;
             return IncomingMessage::text(
                 $session,
-                $messageId,
+                $originalMsgId, // Usa o ID original para dar match no DB
                 $fromPhone,
                 '',
                 $timestamp,
@@ -519,6 +565,27 @@ class WahaProvider implements WhatsAppProviderInterface
         } catch (\Throwable $e) {
             error_log('WAHA sendReaction error: ' . $e->getMessage());
             return false;
+        }
+    }
+
+    public function getProfilePicture(array $connection, string $contactId): ?string
+    {
+        $session = $connection['instance_name'] ?? '';
+        try {
+            $resp = $this->client->get("/api/{$session}/chats/{$contactId}/picture", $this->authHeaders());
+            if (($resp['status'] ?? 0) !== 200) {
+                return null;
+            }
+            $body = $resp['body'] ?? [];
+            if (is_string($body)) {
+                if (str_starts_with($body, 'http')) return $body;
+                if (str_starts_with($body, 'data:')) return $body;
+                return 'data:image/png;base64,' . base64_encode($body);
+            }
+            return $body['url'] ?? $body['data'] ?? null;
+        } catch (\Throwable $e) {
+            error_log('WAHA getProfilePicture error: ' . $e->getMessage());
+            return null;
         }
     }
 

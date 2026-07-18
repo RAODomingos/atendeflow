@@ -46,9 +46,6 @@
                 <form action="<?= base_url('login') ?>" method="POST" class="login-form">
                     <?= csrf_field() ?>
                     <div class="form-group">
-                        <label>
-                            <i class="fas fa-envelope"></i> E-mail
-                        </label>
                         <div class="input-wrap">
                             <i class="fas fa-envelope input-icon"></i>
                             <input type="email" id="email" name="email" class="form-control"
@@ -58,9 +55,6 @@
                     </div>
 
                     <div class="form-group">
-                        <label>
-                            <i class="fas fa-lock"></i> Senha
-                        </label>
                         <div class="input-wrap">
                             <i class="fas fa-lock input-icon"></i>
                             <input type="password" id="password" name="password" class="form-control"

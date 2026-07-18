@@ -5,7 +5,7 @@
     </div>
     <div class="card">
         <div class="card-body">
-            <form action="<?= $contact ? "/contacts/{$contact['id']}/update" : '/contacts/create' ?>" method="POST">
+            <form action="<?= $contact ? url("contacts/{$contact['id']}/update") : url('contacts/create') ?>" method="POST">
                 <?= csrf_field() ?>
                 <div class="form-row">
                     <div class="form-group col-8">

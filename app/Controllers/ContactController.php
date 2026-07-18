@@ -27,6 +27,16 @@ class ContactController
         ]);
     }
 
+    public function apiSearch(Request $request): void
+    {
+        $term = $request->get('q');
+        if (!$term || strlen(trim($term)) < 1) {
+            View::json([]);
+            return;
+        }
+        View::json(Contact::search($term));
+    }
+
     public function show(Request $request, int $id): void
     {
         $contact = Contact::find($id);
@@ -139,12 +149,18 @@ class ContactController
     {
         $contact = Contact::find($id);
         if (!$contact) {
+            if ($request->isAjax()) {
+                self::json(['success' => false, 'error' => 'Contato não encontrado.']);
+            }
             Session::setFlash('error', 'Contato não encontrado.');
             View::redirect('/contacts');
         }
 
         $name = $request->post('name');
         if (empty(trim($name ?? ''))) {
+            if ($request->isAjax()) {
+                self::json(['success' => false, 'error' => 'O nome do contato é obrigatório.']);
+            }
             Session::setFlash('error', 'O nome do contato é obrigatório.');
             View::back();
         }
@@ -158,26 +174,72 @@ class ContactController
             'notes' => $request->post('notes') ?: null,
         ]);
 
-        // Sync tags
-        Database::getInstance()->delete('contact_tags', 'contact_id = ?', [$id]);
-        $tagIds = $request->post('tag_ids', []);
-        if (is_array($tagIds)) {
-            foreach ($tagIds as $tagId) {
-                Database::getInstance()->insert('contact_tags', [
-                    'contact_id' => $id,
-                    'tag_id' => (int) $tagId,
-                ]);
+        // Sync tags dentro de transação para evitar perda em caso de erro
+        $db = Database::getInstance();
+        try {
+            $db->beginTransaction();
+            $db->delete('contact_tags', 'contact_id = ?', [$id]);
+            $tagIds = $request->post('tag_ids', []);
+            if (is_array($tagIds)) {
+                foreach ($tagIds as $tagId) {
+                    $db->insert('contact_tags', [
+                        'contact_id' => $id,
+                        'tag_id' => (int) $tagId,
+                    ]);
+                }
             }
+            $db->commit();
+        } catch (\Throwable $e) {
+            $db->rollBack();
+            error_log('Erro ao sincronizar tags do contato: ' . $e->getMessage());
+            if ($request->isAjax()) {
+                self::json(['success' => false, 'error' => 'Erro ao salvar as etiquetas.']);
+            }
+            Session::setFlash('error', 'Erro ao salvar as etiquetas. Tente novamente.');
+            View::back();
+        }
+
+        if ($request->isAjax()) {
+            self::json(['success' => true, 'name' => $name]);
         }
 
         Session::setFlash('success', 'Contato atualizado com sucesso.');
         View::redirect("/contacts/{$id}");
     }
 
+    private static function json(array $data): void
+    {
+        header('Content-Type: application/json');
+        echo json_encode($data);
+        exit;
+    }
+
     public function destroy(Request $request, int $id): void
     {
-        Contact::delete($id);
-        Session::setFlash('success', 'Contato removido.');
+        $contact = Contact::find($id);
+        if (!$contact) {
+            Session::setFlash('error', 'Contato não encontrado.');
+            View::redirect('/contacts');
+        }
+
+        $db = Database::getInstance();
+        try {
+            $db->beginTransaction();
+
+            // Remove conversas (messages, eventos, etc. cascateiam)
+            $db->delete('conversations', 'contact_id = ?', [$id]);
+
+            // Remove o contato (contact_phones/emails/tags cascateiam)
+            Contact::delete($id);
+
+            $db->commit();
+            Session::setFlash('success', 'Contato e todas as conversas associadas foram removidos.');
+        } catch (\Throwable $e) {
+            $db->rollBack();
+            error_log('Erro ao excluir contato: ' . $e->getMessage());
+            Session::setFlash('error', 'Erro ao excluir contato. Tente novamente.');
+        }
+
         View::redirect('/contacts');
     }
 
@@ -193,10 +255,4 @@ class ContactController
         View::redirect("/contacts/{$id}");
     }
 
-    public function apiSearch(Request $request): void
-    {
-        $term = $request->get('q', '');
-        $contacts = Contact::search($term);
-        View::json($contacts);
-    }
 }

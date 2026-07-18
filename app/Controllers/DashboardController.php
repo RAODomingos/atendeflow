@@ -8,6 +8,7 @@ use App\Core\Request;
 use App\Core\View;
 use App\Models\Conversation;
 use App\Models\User;
+use App\Models\Inbox;
 
 class DashboardController
 {
@@ -15,20 +16,28 @@ class DashboardController
     {
         $userId = Auth::id();
         $isAdmin = Auth::isAdmin();
+        $db = Database::getInstance();
 
-        $myConversations = Conversation::getInboxConversations($userId, null, 'open');
-        $counts = Conversation::countByStatus($userId);
+        // --- Global stats (all inboxes the user can access) ---
+        $inboxes = Inbox::getUserInboxes($userId);
+        $inboxIds = array_column($inboxes, 'id');
+
+        $globalCounts = Conversation::countByStatus();
+        $globalOpen = 0;
+        foreach (['new', 'open', 'waiting_customer', 'waiting_internal'] as $s) {
+            $globalOpen += $globalCounts[$s] ?? 0;
+        }
+
+        // --- Personal stats (only the current user) ---
+        $myCounts = Conversation::countByStatus($userId);
+        $myOpen = 0;
+        foreach (['new', 'open', 'waiting_customer', 'waiting_internal'] as $s) {
+            $myOpen += $myCounts[$s] ?? 0;
+        }
         $unread = Conversation::getUnreadCount($userId);
         $onlineUsers = User::getOnlineCount();
 
-        $totalOpen = 0;
-        foreach (['new', 'open', 'waiting_customer', 'waiting_internal'] as $s) {
-            $totalOpen += $counts[$s] ?? 0;
-        }
-
-        $db = Database::getInstance();
-
-        // Métricas do dia
+        // --- Today metrics (global) ---
         $todayStart = date('Y-m-d 00:00:00');
         $todayConversations = (int) ($db->fetch(
             "SELECT COUNT(*) as c FROM conversations WHERE created_at >= ?", [$todayStart]
@@ -40,7 +49,7 @@ class DashboardController
             "SELECT COUNT(*) as c FROM conversations WHERE status = 'resolved' AND closed_at >= ?", [$todayStart]
         )['c'] ?? 0);
 
-        // Tendência últimos 7 dias (conversas por dia)
+        // --- Trend (last 7 days) ---
         $trendData = $db->fetchAll(
             "SELECT DATE(created_at) as date, COUNT(*) as total
              FROM conversations
@@ -60,7 +69,7 @@ class DashboardController
             $trendValues[] = $trendMap[$d] ?? 0;
         }
 
-        // Tempo médio de resposta (minutos) - última mensagem do agente - última mensagem do cliente
+        // --- Avg response time (30 days) ---
         $avgResponse = $db->fetch(
             "SELECT AVG(TIMESTAMPDIFF(MINUTE, inbound_time, outbound_time)) as avg_minutes
              FROM (
@@ -76,7 +85,7 @@ class DashboardController
         $avgResponseTime = $avgResponse && $avgResponse['avg_minutes'] !== null
             ? round((float) $avgResponse['avg_minutes']) : null;
 
-        // Conversas por departamento
+        // --- Conversations by department (active only) ---
         $deptData = $db->fetchAll(
             "SELECT d.name, d.color, COUNT(c.id) as total
              FROM departments d
@@ -85,7 +94,7 @@ class DashboardController
              ORDER BY total DESC"
         );
 
-        // Performance dos atendentes (top 5)
+        // --- Agent performance (top 5) ---
         $agentData = $db->fetchAll(
             "SELECT u.id, u.name,
                     COUNT(c.id) as active_convos,
@@ -99,39 +108,36 @@ class DashboardController
              LIMIT 5"
         );
 
+        // --- Inbox breakdown (open count per inbox) ---
+        $openByInbox = Conversation::openCountsByInbox($inboxIds);
+
+        // --- Recent conversations (global, unassigned + assigned) ---
+        $recentConversations = Conversation::getInboxConversations(null, null, 'open');
+        $recentConversations = array_slice($recentConversations, 0, 10);
+
+        // --- Admin-only data ---
         if ($isAdmin) {
             $totalUsers = count(User::all());
-            $totalDepartments = $db->fetch("SELECT COUNT(*) as t FROM departments")['t'];
-            $allCounts = Conversation::countByStatus();
-            $totalAll = 0;
-            foreach (['new', 'open', 'waiting_customer', 'waiting_internal'] as $s) {
-                $totalAll += $allCounts[$s] ?? 0;
-            }
+            $totalDepartments = (int) ($db->fetch("SELECT COUNT(*) as t FROM departments")['t'] ?? 0);
         } else {
             $totalUsers = 0;
             $totalDepartments = 0;
-            $totalAll = 0;
-            $allCounts = [];
             $agentData = [];
         }
-
-        $recentConversations = Conversation::getInboxConversations(null, null, 'open');
-        $recentConversations = array_slice($recentConversations, 0, 10);
 
         View::renderWithLayout('dashboard/index', 'main', [
             'title' => 'Dashboard',
             'activePage' => 'dashboard',
-            'myConversations' => $myConversations,
-            'counts' => $counts,
+            'inboxes' => $inboxes,
+            'openByInbox' => $openByInbox,
+            'globalCounts' => $globalCounts,
+            'globalOpen' => $globalOpen,
+            'myCounts' => $myCounts,
+            'myOpen' => $myOpen,
             'unread' => $unread,
             'onlineUsers' => $onlineUsers,
-            'totalOpen' => $totalOpen,
             'totalUsers' => $totalUsers,
             'totalDepartments' => $totalDepartments,
-            'totalAll' => $totalAll,
-            'allCounts' => $allCounts,
-            'recentConversations' => $recentConversations,
-            'isAdmin' => $isAdmin,
             'todayConversations' => $todayConversations,
             'todayMessages' => $todayMessages,
             'todayResolved' => $todayResolved,
@@ -140,6 +146,8 @@ class DashboardController
             'trendValues' => $trendValues,
             'deptData' => $deptData,
             'agentData' => $agentData,
+            'recentConversations' => $recentConversations,
+            'isAdmin' => $isAdmin,
         ]);
     }
 }

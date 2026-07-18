@@ -220,10 +220,11 @@ class Contact
     {
         $search = "%{$term}%";
         return Database::getInstance()->fetchAll(
-            "SELECT c.* FROM contacts c
-             WHERE c.name LIKE ? OR c.email LIKE ? OR c.phone LIKE ?
+            "SELECT DISTINCT c.* FROM contacts c
+             LEFT JOIN contact_phones cp ON cp.contact_id = c.id
+             WHERE c.name LIKE ? OR c.email LIKE ? OR c.phone LIKE ? OR cp.phone LIKE ?
              ORDER BY c.name LIMIT 20",
-            [$search, $search, $search]
+            [$search, $search, $search, $search]
         );
     }
 

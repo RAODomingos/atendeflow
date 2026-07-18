@@ -129,24 +129,40 @@ class Conversation
     {
         $inbox = \App\Models\Inbox::find($inboxId);
 
+        $unreadCondition = "direction = 'inbound' AND is_read = 0";
+        if ($userId) {
+            $unreadCondition .= " AND (user_id != " . (int)$userId . " OR user_id IS NULL)";
+        }
+
         $sql = "SELECT c.*, ch.type as channel_type, ch.name as channel_name,
                         d.name as department_name, d.color as department_color,
                         u.name as assigned_user_name,
                         ct.name as contact_name, ct.email as contact_email, ct.phone as contact_phone, ct.avatar as contact_avatar,
-                        (SELECT content FROM messages WHERE conversation_id = c.id ORDER BY created_at DESC LIMIT 1) as last_message,
-                        (SELECT created_at FROM messages WHERE conversation_id = c.id ORDER BY created_at DESC LIMIT 1) as last_message_at,
-                        (SELECT COUNT(*) FROM messages WHERE conversation_id = c.id) as message_count,
-                        (SELECT COUNT(*) FROM messages WHERE conversation_id = c.id AND direction = 'inbound' AND is_read = 0" . ($userId ? " AND (user_id != ? OR user_id IS NULL)" : "") . ") as unread_count
+                        latest_msg.content as last_message,
+                        latest_msg.created_at as last_message_at,
+                        COALESCE(msg_stats.message_count, 0) as message_count,
+                        COALESCE(msg_stats.unread_count, 0) as unread_count
                 FROM conversations c
                 JOIN contacts ct ON ct.id = c.contact_id
                 LEFT JOIN departments d ON d.id = c.department_id
                 LEFT JOIN users u ON u.id = c.assigned_user_id
                 LEFT JOIN channels ch ON ch.id = c.channel_id
+                LEFT JOIN (
+                    SELECT m1.conversation_id, m1.content, m1.created_at
+                    FROM messages m1
+                    WHERE m1.id = (
+                        SELECT MAX(m2.id) FROM messages m2 WHERE m2.conversation_id = m1.conversation_id
+                    )
+                ) latest_msg ON latest_msg.conversation_id = c.id
+                LEFT JOIN (
+                    SELECT conversation_id,
+                           COUNT(*) as message_count,
+                           SUM(CASE WHEN {$unreadCondition} THEN 1 ELSE 0 END) as unread_count
+                    FROM messages
+                    GROUP BY conversation_id
+                ) msg_stats ON msg_stats.conversation_id = c.id
                 WHERE 1=1";
         $params = [];
-        if ($userId) {
-            $params[] = $userId;
-        }
 
         $sql .= self::inboxMembershipFragment($inboxId, $params);
 
@@ -158,7 +174,9 @@ class Conversation
             $params[] = $userId;
         }
         if (!empty($filters['status'])) {
-            if ($filters['status'] === 'open') {
+            if ($filters['status'] === 'active') {
+                $sql .= " AND c.status IN ('new', 'open', 'waiting_customer', 'waiting_internal')";
+            } elseif ($filters['status'] === 'open') {
                 $sql .= " AND c.status IN ('open', 'waiting_customer', 'waiting_internal')";
             } elseif ($filters['status'] === 'resolved_closed') {
                 $sql .= " AND c.status IN ('resolved', 'closed')";
@@ -216,12 +234,20 @@ class Conversation
     public static function openCountsByInbox(array $inboxIds): array
     {
         $result = array_fill_keys($inboxIds, 0);
+        $parts = [];
+        $allParams = [];
         foreach (array_filter($inboxIds) as $inboxId) {
             $params = [];
             $where = self::inboxMembershipFragment((int) $inboxId, $params);
-            $sql = "SELECT COUNT(*) AS c FROM conversations c WHERE 1=1 {$where}
-                    AND c.status IN ('new', 'open', 'waiting_customer', 'waiting_internal')";
-            $result[$inboxId] = (int) (Database::getInstance()->fetch($sql, $params)['c'] ?? 0);
+            $parts[] = "SELECT ? AS inbox_id, COUNT(*) AS c FROM conversations c WHERE 1=1 {$where} AND c.status IN ('new', 'open', 'waiting_customer', 'waiting_internal')";
+            array_unshift($params, (int) $inboxId);
+            $allParams = array_merge($allParams, $params);
+        }
+        if ($parts) {
+            $rows = Database::getInstance()->fetchAll(implode(' UNION ALL ', $parts), $allParams);
+            foreach ($rows as $row) {
+                $result[(int) $row['inbox_id']] = (int) $row['c'];
+            }
         }
         return $result;
     }
@@ -352,16 +378,49 @@ class Conversation
         if (!empty($opts['limit'])) {
             $sql .= " LIMIT " . (int) $opts['limit'];
         }
-        return Database::getInstance()->fetchAll($sql, $params);
+        $msgs = Database::getInstance()->fetchAll($sql, $params);
+        return self::enrichMessages($msgs);
+    }
+
+    private static function enrichMessages(array $msgs): array
+    {
+        $replyIds = array_values(array_filter(array_column($msgs, 'reply_to')));
+        $replyMap = [];
+        if ($replyIds) {
+            $ph = implode(',', array_fill(0, count($replyIds), '?'));
+            $replies = Database::getInstance()->fetchAll(
+                "SELECT id, content, type, direction, user_id FROM messages WHERE id IN ({$ph})",
+                $replyIds
+            );
+            foreach ($replies as $r) {
+                $replyMap[$r['id']] = $r;
+            }
+        }
+        foreach ($msgs as &$m) {
+            if (!empty($m['reply_to']) && isset($replyMap[$m['reply_to']])) {
+                $m['reply_to_data'] = $replyMap[$m['reply_to']];
+            }
+        }
+        return $msgs;
     }
 
     public static function getMessage(int $id): ?array
     {
-        return Database::getInstance()->fetch(
+        $msg = Database::getInstance()->fetch(
             "SELECT m.*, u.name as user_name FROM messages m
              LEFT JOIN users u ON u.id = m.user_id WHERE m.id = ?",
             [$id]
         );
+        if ($msg && !empty($msg['reply_to'])) {
+            $reply = Database::getInstance()->fetch(
+                "SELECT id, content, type, direction, user_id FROM messages WHERE id = ?",
+                [$msg['reply_to']]
+            );
+            if ($reply) {
+                $msg['reply_to_data'] = $reply;
+            }
+        }
+        return $msg;
     }
 
     public static function updateMessage(int $id, int $userId, string $content): bool
@@ -390,6 +449,21 @@ class Conversation
         return (bool) Database::getInstance()->update(
             'messages',
             ['deleted_at' => date('Y-m-d H:i:s')],
+            'id = ?',
+            [$id]
+        );
+    }
+
+    public static function updateMessageReaction(int $id, string $emoji): bool
+    {
+        $msg = Database::getInstance()->fetch("SELECT reactions FROM messages WHERE id = ?", [$id]);
+        if (!$msg) return false;
+        $reactions = $msg['reactions'] ? (array) json_decode($msg['reactions'], true) : [];
+        $reactions[] = ['emoji' => $emoji, 'user_id' => Auth::id(), 'created_at' => date('Y-m-d H:i:s')];
+        $reactions = array_slice($reactions, -20); // keep last 20
+        return (bool) Database::getInstance()->update(
+            'messages',
+            ['reactions' => json_encode($reactions)],
             'id = ?',
             [$id]
         );

@@ -37,7 +37,7 @@ class ConversationService
         return $conversation;
     }
 
-    public function sendMessage(int $conversationId, string $content, string $type = 'text', ?int $userId = null): int
+    public function sendMessage(int $conversationId, string $content, string $type = 'text', ?int $userId = null, ?string $channelMessageId = null, ?int $replyTo = null): int
     {
         $userId ??= Auth::id();
 
@@ -46,12 +46,19 @@ class ConversationService
             $content = TemplateService::render($content, $conversationId);
         }
 
-        $messageId = Conversation::addMessage($conversationId, [
+        $messageData = [
             'type' => $type,
             'content' => $content,
             'direction' => 'outbound',
             'user_id' => $userId,
-        ]);
+        ];
+        if ($channelMessageId) {
+            $messageData['channel_message_id'] = $channelMessageId;
+        }
+        if ($replyTo) {
+            $messageData['reply_to'] = $replyTo;
+        }
+        $messageId = Conversation::addMessage($conversationId, $messageData);
 
         $data = ['last_message_at' => date('Y-m-d H:i:s')];
 
@@ -182,10 +189,16 @@ class ConversationService
         }
     }
 
-    public function transfer(int $conversationId, ?int $departmentId = null, ?int $userId = null): void
+    public function transfer(int $conversationId, ?int $departmentId = null, ?int $userId = null, ?int $inboxId = null): void
     {
         $data = [];
         $description = 'Transferido';
+
+        if ($inboxId) {
+            $data['inbox_id'] = $inboxId;
+            $inbox = \App\Models\Inbox::find($inboxId);
+            $description .= " para caixa {$inbox['name']}";
+        }
 
         if ($departmentId) {
             $data['department_id'] = $departmentId;

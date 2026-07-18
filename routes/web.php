@@ -58,6 +58,7 @@ $router->group('', function (Router $router) {
     $router->post('/inbox/{id}/notes', [InboxController::class, 'addInternalNote']);
     $router->post('/inbox/{id}/messages/{mid}/edit', [InboxController::class, 'editMessage']);
     $router->post('/inbox/{id}/messages/{mid}/delete', [InboxController::class, 'deleteMessage']);
+    $router->post('/inbox/{id}/messages/{mid}/reaction', [InboxController::class, 'sendReaction']);
     $router->post('/inbox/{id}/read', [InboxController::class, 'markRead']);
     $router->post('/inbox/{id}/snooze', [InboxController::class, 'snooze']);
     $router->post('/inbox/{id}/csat', [InboxController::class, 'csat']);
@@ -67,6 +68,10 @@ $router->group('', function (Router $router) {
 
     // Configurações gerais (Business Hours, CSAT, ausência)
     $router->post('/settings', [SettingsController::class, 'saveGeneral']);
+
+    // Configurações de Notificações e Sons
+    $router->get('/settings/notifications', [SettingsController::class, 'notifications']);
+    $router->post('/settings/notifications', [SettingsController::class, 'saveNotifications']);
 
     // Contacts
     $router->get('/contacts', [ContactController::class, 'index']);
@@ -168,6 +173,23 @@ $router->group('', function (Router $router) {
     $router->get('/api/conversations/{id}', [InboxController::class, 'apiConversation']);
     $router->get('/api/conversations/{id}/messages', [InboxController::class, 'apiMessages']);
     $router->get('/api/departments/{id}/users', [DepartmentController::class, 'apiUsers']);
+    $router->get('/api/contacts/search', [\App\Controllers\ContactController::class, 'apiSearch']);
     $router->get('/api/canned-responses', [InboxController::class, 'apiCanned']);
+    $router->post('/api/conversations', [InboxController::class, 'apiCreateConversation']);
     $router->get('/api/macros', [InboxController::class, 'apiMacros']);
+
+    // Consolidated unread summary for global notification badge
+    $router->get('/api/unread-summary', [\App\Controllers\Api\UnreadSummaryController::class, 'index']);
+
+    // Unread conversations list for the bell dropdown
+    $router->get('/api/unread-conversations', [\App\Controllers\Api\UnreadConversationsController::class, 'index']);
+
+    // User notification preferences
+    $router->get('/api/user-preferences', [\App\Controllers\Api\UserPreferencesController::class, 'index']);
+
+    // Server-Sent Events for real-time notifications
+    $router->get('/realtime/events', [\App\Controllers\Api\RealtimeController::class, 'events']);
+
+    // Dashboard stats (auto-refresh)
+    $router->get('/api/dashboard-stats', [\App\Controllers\Api\DashboardStatsController::class, 'index']);
 }, ['auth']);
