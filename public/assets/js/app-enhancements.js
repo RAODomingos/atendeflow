@@ -9,46 +9,37 @@
   'use strict';
 
   // ──────────────────────────────────────────
-  // 0. Conversation Memory Cache
+  // 0b. Sound Profiles
   // ──────────────────────────────────────────
-  const ConversationCache = {
-    _cache: {},
-    _timers: {},
-
-    get(key) {
-      const entry = this._cache[key];
-      if (!entry) return null;
-      if (entry.ttl && Date.now() > entry.ttl) {
-        delete this._cache[key];
-        return null;
-      }
-      return entry.data;
+  const SoundProfiles = {
+    message: {
+      default: { freq: 520, duration: 0.08, vol: 0.3 },
+      soft: { freq: 400, duration: 0.10, vol: 0.15 },
+      sharp: { freq: 800, duration: 0.06, vol: 0.4 },
+      silent: null,
     },
-
-    set(key, data, ttlMs) {
-      this._cache[key] = {
-        data,
-        ttl: ttlMs ? Date.now() + ttlMs : null,
-      };
+    new_conv: {
+      default: { type: 'two-tone', freqs: [440, 660], duration: 0.25, vol: 0.35 },
+      soft: { type: 'two-tone', freqs: [350, 520], duration: 0.25, vol: 0.18 },
+      sharp: { type: 'two-tone', freqs: [700, 900], duration: 0.2, vol: 0.45 },
+      silent: null,
     },
-
-    clear(key) {
-      if (key) delete this._cache[key];
-      else this._cache = {};
-    },
-
-    debounce(key, fn, wait) {
-      clearTimeout(this._timers[key]);
-      this._timers[key] = setTimeout(fn, wait);
+    incoming: {
+      default: { freq: 600, duration: 0.15, vol: 0.3 },
+      soft: { freq: 480, duration: 0.15, vol: 0.15 },
+      sharp: { freq: 850, duration: 0.12, vol: 0.4 },
+      silent: null,
     },
   };
 
   // ──────────────────────────────────────────
-  // 0b. Sound Manager (Web Audio API)
+  // 0c. Sound Manager (Web Audio API)
   // ──────────────────────────────────────────
   const SoundManager = {
     _ctx: null,
     _enabled: true,
+    _profile: 'default',
+    _typeProfiles: {},
 
     get ctx() {
       if (!this._ctx) {
@@ -66,11 +57,61 @@
     disable() { this._enabled = false; },
     toggle() { this._enabled = !this._enabled; return this._enabled; },
 
-    play(type) {
+    _initAudioOnGesture() {
+      var self = this;
+      var initFn = function() {
+        document.removeEventListener('click', initFn);
+        document.removeEventListener('keydown', initFn);
+        document.removeEventListener('touchstart', initFn);
+        try {
+          var ac = self.ctx;
+          if (ac && ac.state === 'suspended') {
+            ac.resume().then(function() {
+              var osc = ac.createOscillator();
+              var gain = ac.createGain();
+              gain.gain.value = 0.01;
+              osc.connect(gain);
+              gain.connect(ac.destination);
+              osc.start(0);
+              osc.stop(ac.currentTime + 0.01);
+            }).catch(function() {});
+          }
+        } catch (_) {}
+      };
+      document.addEventListener('click', initFn);
+      document.addEventListener('keydown', initFn);
+      document.addEventListener('touchstart', initFn);
+    },
+
+    setProfile(profile) {
+      this._profile = (profile && SoundProfiles.message[profile]) ? profile : 'default';
+    },
+
+    setTypeProfile(type, profile) {
+      if (SoundProfiles[type] && SoundProfiles[type][profile]) {
+        this._typeProfiles[type] = profile;
+      } else {
+        delete this._typeProfiles[type];
+      }
+    },
+
+    play(type, profile) {
       if (!this._enabled) return;
-      if (type === 'message') this._beep(520, 0.08, 0.06);
-      else if (type === 'new_conv') this._newConv();
-      else if (type === 'incoming') this._beep(600, 0.12, 0.08);
+      var p = profile || this._typeProfiles[type] || this._profile;
+      var cfg = SoundProfiles[type];
+      if (!cfg) return;
+      var sound = cfg[p] || cfg['default'];
+      if (!sound) return;
+      try {
+        var ac = this.ctx;
+        if (!ac) return;
+        if (ac.state === 'suspended') { ac.resume(); }
+        if (type === 'new_conv' && sound.type === 'two-tone') {
+          this._newConv(sound.freqs, sound.duration, sound.vol);
+        } else if (sound.freq) {
+          this._beep(sound.freq, sound.duration, sound.vol);
+        }
+      } catch (_) {}
     },
 
     _beep(freq, duration, vol) {
@@ -90,119 +131,30 @@
       } catch (_) {}
     },
 
-    _newConv() {
+    _newConv(freqs, duration, vol) {
       try {
         const ctx = this.ctx;
         if (!ctx) return;
         const now = ctx.currentTime;
-        [440, 660].forEach(function (freq, i) {
+        (freqs || [440, 660]).forEach(function (freq, i) {
           const osc = ctx.createOscillator();
           const gain = ctx.createGain();
           osc.type = 'sine';
           osc.frequency.value = freq;
           const t = now + i * 0.15;
-          gain.gain.setValueAtTime(0.07, t);
-          gain.gain.exponentialRampToValueAtTime(0.001, t + 0.2);
+          gain.gain.setValueAtTime(vol || 0.07, t);
+          gain.gain.exponentialRampToValueAtTime(0.001, t + (duration || 0.2));
           osc.connect(gain);
           gain.connect(ctx.destination);
           osc.start(t);
-          osc.stop(t + 0.2);
+          osc.stop(t + (duration || 0.2));
         });
       } catch (_) {}
     },
   };
 
   // ──────────────────────────────────────────
-  // 1. Smart Filters Panel (Inbox)
-  // ──────────────────────────────────────────
-  const FiltersPanel = {
-    state: {
-      search: '',
-      status: [],
-      department: [],
-      dateRange: null,
-      tags: [],
-      assigned: null,
-      priority: [],
-    },
-    key: 'atendeflow-inbox-filters',
-
-    init() {
-      this.restore();
-      this.bindEvents();
-    },
-
-    restore() {
-      try {
-        const saved = localStorage.getItem(this.key);
-        if (saved) Object.assign(this.state, JSON.parse(saved));
-      } catch (_) {}
-    },
-
-    persist() {
-      try {
-        localStorage.setItem(this.key, JSON.stringify(this.state));
-      } catch (_) {}
-    },
-
-    bindEvents() {
-      const searchInput = document.querySelector('.pane-search-input');
-      if (searchInput) {
-        searchInput.addEventListener('input', (e) => {
-          this.state.search = e.target.value;
-          this.persist();
-        });
-      }
-
-      document.querySelectorAll('[data-filter-status]').forEach((el) => {
-        el.addEventListener('click', (e) => {
-          e.preventDefault();
-          const val = el.dataset.filterStatus;
-          const idx = this.state.status.indexOf(val);
-          if (idx >= 0) this.state.status.splice(idx, 1);
-          else this.state.status.push(val);
-          this.persist();
-          this.apply();
-        });
-      });
-
-      document.querySelectorAll('[data-filter-priority]').forEach((el) => {
-        el.addEventListener('click', (e) => {
-          e.preventDefault();
-          const val = el.dataset.filterPriority;
-          const idx = this.state.priority.indexOf(val);
-          if (idx >= 0) this.state.priority.splice(idx, 1);
-          else this.state.priority.push(val);
-          this.persist();
-          this.apply();
-        });
-      });
-    },
-
-    apply() {
-      const params = new URLSearchParams(window.location.search);
-      if (this.state.status.length) params.set('fstatus', this.state.status.join(','));
-      else params.delete('fstatus');
-      if (this.state.priority.length) params.set('priority', this.state.priority.join(','));
-      else params.delete('priority');
-      if (this.state.search) params.set('search', this.state.search);
-      else params.delete('search');
-      const qs = params.toString();
-      const url = window.location.pathname + (qs ? '?' + qs : '');
-      if (url !== window.location.href.split('?')[0] + (qs ? '?' + qs : '')) {
-        window.location.href = url;
-      }
-    },
-
-    clear() {
-      this.state = { search: '', status: [], department: [], dateRange: null, tags: [], assigned: null, priority: [] };
-      this.persist();
-      window.location.href = window.location.pathname;
-    },
-  };
-
-  // ──────────────────────────────────────────
-  // 2. Drag & Drop for Conversation Items
+  // 1. Drag & Drop for Conversation Items
   // ──────────────────────────────────────────
   const DragManager = {
     dragged: null,
@@ -329,11 +281,10 @@
     init() {
       this.fixEmailFields();
       this.fixPhoneFields();
-      this.fixNameFields();
     },
 
     fixEmailFields() {
-      document.querySelectorAll('input[type="email"], input[data-autofix="email"]').forEach((el) => {
+      document.querySelectorAll('input[type="email"]').forEach((el) => {
         el.addEventListener('blur', () => {
           let val = el.value.trim();
           if (!val) return;
@@ -359,7 +310,7 @@
     },
 
     fixPhoneFields() {
-      document.querySelectorAll('input[type="tel"], input[data-autofix="phone"]').forEach((el) => {
+      document.querySelectorAll('input[type="tel"]').forEach((el) => {
         el.addEventListener('blur', () => {
           let val = el.value.replace(/\D/g, '');
           if (!val) return;
@@ -371,23 +322,6 @@
           }
           if (val !== el.value.replace(/\D/g, '') && val.length >= 10) {
             el.value = val;
-          }
-        });
-      });
-    },
-
-    fixNameFields() {
-      document.querySelectorAll('input[data-autofix="name"]').forEach((el) => {
-        el.addEventListener('blur', () => {
-          const val = el.value.trim();
-          if (!val) return;
-          const fixed = val
-            .split(/\s+/)
-            .map((w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
-            .join(' ');
-          if (fixed !== val) {
-            el.value = fixed;
-            el.dispatchEvent(new Event('change', { bubbles: true }));
           }
         });
       });
@@ -584,273 +518,142 @@
   // ──────────────────────────────────────────
   // 9. Conversation List Live Polling
   // ──────────────────────────────────────────
-  const ConvListPoller = {
-    pollTimer: null,
-    knownIds: [],
-    _firstPoll: true,
-    channelColors: {
-      whatsapp: '#25D366',
-      webchat: '#4361ee',
-      email: '#f59e0b',
-      telegram: '#0088cc',
-      facebook: '#1877f2',
-      instagram: '#e1306c',
-      phone: '#6c757d',
-    },
+  // ──────────────────────────────────────────
+  // LiveFeed — Notificações em tempo real
+  // ──────────────────────────────────────────
+  const LiveFeed = {
+    _known: {},
+    _viewingId: null,
+    _pollTimer: null,
+    _polling: false,
+    _ready: false,
 
     init() {
-      this.refreshKnownIds();
-      this.start();
+      document.querySelectorAll('.conversation-item').forEach(function(el) {
+        var id = parseInt(el.dataset.convId, 10);
+        if (!isNaN(id)) this._known[id] = parseInt(el.dataset.unread || '0', 10);
+      }, this);
+
+      var cv = document.getElementById('convView');
+      this._viewingId = cv ? cv.dataset.conv : null;
+
+      this._ready = true;
+      this._poll();
+      this._pollTimer = setInterval(this._poll.bind(this), 8000);
     },
 
-    refreshKnownIds() {
-      this.knownIds = Array.from(document.querySelectorAll('.conversation-item'))
-        .map(function (el) { return parseInt(el.dataset.convId, 10); })
-        .filter(function (id) { return !isNaN(id); });
+    _baseUrl() {
+      var u = document.querySelector('meta[name="base-url"]');
+      return u ? u.getAttribute('content') : (window.location.origin + '/atendeflow');
     },
 
-    start() {
-      this.poll();
-      this.pollTimer = setInterval(this.poll.bind(this), 12000);
-    },
+    _poll() {
+      if (this._polling || !this._ready) return;
+      this._polling = true;
 
-    stop() {
-      if (this.pollTimer) {
-        clearInterval(this.pollTimer);
-        this.pollTimer = null;
-      }
-    },
+      var url = this._baseUrl() + '/api/conversations';
+      var p = new URLSearchParams(window.location.search);
+      var fv = p.get('fstatus');
+      if (!fv) { var h = document.querySelector('input[name="fstatus"]'); if (h) fv = h.value; }
+      if (fv) url += '?fstatus=' + encodeURIComponent(fv);
+      var iv = p.get('inbox');
+      if (!iv) { var ih = document.querySelector('input[name="inbox"]'); if (ih) iv = ih.value; }
+      if (iv) url += (fv ? '&' : '?') + 'inbox=' + encodeURIComponent(iv);
 
-    _apiUrl(path) {
-      // Use the API variable set by panel.php, or derive base from page
-      if (typeof window.API !== 'undefined') return window.API + path;
-      var link = document.querySelector('a[href*="/inbox"]');
-      if (link) {
-        var href = link.getAttribute('href');
-        var m = href.match(/^(.+?)\/inbox/);
-        if (m) return m[1] + '/api' + path;
-      }
-      return '/atendeflow/api' + path;
-    },
-
-    poll() {
-      const list = document.getElementById('conversationsList');
-      const emptyState = list && list.querySelector('.empty-state-enhanced');
-      if (!list || emptyState) return;
-
-      var fv = new URLSearchParams(window.location.search).get('fstatus');
-      if (!fv) {
-        var h = document.querySelector('input[name="fstatus"]');
-        if (h) fv = h.value;
-      }
-      var url = this._apiUrl('/conversations');
-      if (fv) url += (url.indexOf('?') > -1 ? '&' : '?') + 'fstatus=' + encodeURIComponent(fv);
+      var self = this;
       fetch(url, { headers: { 'X-Requested-With': 'XMLHttpRequest' } })
-        .then(function (r) { return r.json(); })
-        .then(this._onData.bind(this))
-        .catch(function () {});
+        .then(function(r) { if (!r.ok) throw new Error(String(r.status)); return r.json(); })
+        .then(function(data) { self._onData(data); self._polling = false; })
+        .catch(function() { self._polling = false; });
     },
 
     _onData(data) {
-      if (!Array.isArray(data) || !data.length) return;
+      if (!Array.isArray(data)) return;
       var self = this;
-
-      // Reorder / update the DOM
       var container = document.getElementById('conversationsList');
-      if (!container) return;
 
-      var currentItems = {};
-      container.querySelectorAll('.conversation-item').forEach(function (el) {
-        var id = parseInt(el.dataset.convId, 10);
-        if (!isNaN(id)) currentItems[id] = el;
-      });
-
-      var baseUrl = window.location.pathname + '?';
-      var sp = new URLSearchParams(window.location.search);
-      var inboxParam = sp.get('inbox');
-      if (inboxParam) baseUrl += 'inbox=' + encodeURIComponent(inboxParam) + '&';
-      var fstatusParam = sp.get('fstatus');
-      if (fstatusParam) baseUrl += 'fstatus=' + encodeURIComponent(fstatusParam) + '&';
-      baseUrl += 'conv=';
-
-      // Get active conv id
-      var activeEl = container.querySelector('.conversation-item.active');
-      var activeId = activeEl ? parseInt(activeEl.dataset.convId, 10) : null;
-
-      var frag = document.createDocumentFragment();
-      data.forEach(function (c, idx) {
+      data.forEach(function(c) {
         var id = parseInt(c.id, 10);
-        var existing = currentItems[id];
+        if (!id) return;
 
-        if (existing) {
-          // Update existing item
-          self._updateItem(existing, c);
-          frag.appendChild(existing);
-        } else {
-          // Create new item
-          var item = self._createItem(c, baseUrl, activeId);
-          frag.appendChild(item);
-        }
-      });
+        var isKnown = (id in self._known);
+        var prevUnread = self._known[id] || 0;
+        var newUnread = parseInt(c.unread_count || '0', 10);
 
-      container.innerHTML = '';
-      container.appendChild(frag);
-
-      // Re-init dependent features
-      DragManager.init();
-      KeyboardNav.refreshItems();
-
-      // Track known IDs
-      this.refreshKnownIds();
-
-      // --- Notifications & Sounds ---
-      // Skip sounds/notifications on first poll (avoids burst on page load / conv switch)
-      if (this._firstPoll) { this._firstPoll = false; }
-      else {
-        var convView = document.getElementById('convView');
-        var viewingConvId = convView ? convView.dataset.conv : null;
-
-        function isViewingThis(id) { return viewingConvId === String(id); }
-        function hasFocus() { return document.visibilityState === 'visible'; }
-
-        data.forEach(function (c) {
-          var id = parseInt(c.id, 10);
-          var oldItem = currentItems[id];
-          var oldUnread = oldItem ? parseInt(oldItem.dataset.unread || '0', 10) : 0;
-          var newUnread = parseInt(c.unread_count || '0', 10);
-
-          var gotNewMsg = !oldItem || (newUnread > oldUnread);
-
-          if (gotNewMsg && !isViewingThis(id)) {
-            if (!oldItem) {
-              SoundManager.play('new_conv');
-              self._notifyBrowser('Novo atendimento: ' + (c.contact_name || 'Cliente'), c);
-            } else {
-              SoundManager.play('incoming');
-              if (!hasFocus()) {
-                self._notifyBrowser(
-                  (c.contact_name || 'Cliente') + ' enviou mensagem',
-                  c
-                );
-              }
-            }
+        if (!isKnown) {
+          SoundManager.play('new_conv');
+          self._notify('Novo atendimento: ' + (c.contact_name || 'Cliente'), c);
+        } else if (newUnread > prevUnread && String(id) !== self._viewingId) {
+          SoundManager.play('incoming');
+          if (document.visibilityState !== 'visible') {
+            self._notify((c.contact_name || 'Cliente') + ' enviou mensagem', c);
           }
-        });
-      } // end else (not first poll)
+        }
 
-      // Update message counts on data attributes
-      container.querySelectorAll('.conversation-item').forEach(function (el) {
-        var id = parseInt(el.dataset.convId, 10);
-        var match = data.find(function (c) { return parseInt(c.id, 10) === id; });
-        if (match) {
-          el.dataset.msgCount = String(match.message_count || 0);
+        self._known[id] = newUnread;
+      });
+
+      // Update the conversation list DOM
+      if (!container) return;
+      var currentMap = {};
+      container.querySelectorAll('.conversation-item').forEach(function(el) {
+        var eid = parseInt(el.dataset.convId, 10);
+        if (!isNaN(eid)) currentMap[eid] = el;
+      });
+
+      data.forEach(function(c) {
+        var id = parseInt(c.id, 10);
+        var existing = currentMap[id];
+        if (existing) {
+          self._updateItem(existing, c);
+        } else if (container) {
+          var el = self._createItem(c);
+          container.insertBefore(el, container.firstChild);
+        }
+      });
+
+      // Remove stale items
+      var apiIds = {};
+      data.forEach(function(c) { apiIds[parseInt(c.id, 10)] = true; });
+      Object.keys(currentMap).forEach(function(idStr) {
+        if (!apiIds[parseInt(idStr, 10)]) {
+          var el = currentMap[parseInt(idStr, 10)];
+          if (el && el.parentNode) el.parentNode.removeChild(el);
         }
       });
     },
 
-    _esc(s) {
-      if (s == null) return '';
-      var d = document.createElement('div');
-      d.textContent = String(s);
-      return d.innerHTML;
-    },
-
-    _notifyBrowser(body, c) {
-      if ('Notification' in window && Notification.permission === 'granted') {
-        try {
-          new Notification('AtendeFlow', {
-            body: body,
-            icon: '/assets/img/favicon.png',
-            tag: 'conv-' + (c ? c.id : ''),
-            requireInteraction: true,
-          });
-        } catch (_) {}
-      } else if ('Notification' in window && Notification.permission === 'default') {
-        Notification.requestPermission();
-      }
-    },
-
-    _timeAgo(dt) {
-      if (!dt) return '';
-      var d = new Date(String(dt).replace(' ', 'T'));
-      if (isNaN(d)) return '';
-      var now = new Date();
-      var diffMs = now - d;
-      var sec = Math.floor(diffMs / 1000);
-      if (sec < 60) return 'agora';
-      var min = Math.floor(sec / 60);
-      if (min < 60) return min + 'min';
-      var hr = Math.floor(min / 60);
-      if (hr < 24) return hr + 'h';
-      var days = Math.floor(hr / 24);
-      if (days < 30) return days + 'd';
-      return days + 'd';
-    },
-
-    _truncate(text, limit) {
-      if (!text) return 'Sem mensagens';
-      if (text.length <= limit) return text;
-      return text.substring(0, limit) + '...';
-    },
-
-    _statusLabel(s) {
-      var map = { new: 'Novo', open: 'Aberto', waiting_customer: 'Em atendimento', waiting_internal: 'Aguardando Interno', resolved: 'Resolvido', closed: 'Fechado', spam: 'Spam' };
-      return map[s] || s;
-    },
-
-    _priorityLabel(p) {
-      var map = { low: 'Baixa', normal: 'Normal', high: 'Alta', urgent: 'Urgente' };
-      return map[p] || p;
-    },
-
-    _createItem(c, baseUrl, activeId) {
+    _createItem(c) {
       var id = parseInt(c.id, 10);
       var el = document.createElement('a');
+      var baseUrl = window.location.pathname + '?conv=';
       el.href = baseUrl + id;
-      el.className = 'conversation-item conv-card-hover' + (id === activeId ? ' active' : '');
+      el.className = 'conversation-item conv-card-hover';
       el.dataset.convId = id;
       el.dataset.msgCount = String(c.message_count || 0);
       el.dataset.unread = String(c.unread_count || 0);
 
       var initial = (c.contact_name || '?').charAt(0).toUpperCase();
-      var avatarHtml;
+      var src;
       if (c.contact_avatar) {
-        var src = c.contact_avatar.indexOf('http') === 0 ? c.contact_avatar : '/uploads/' + c.contact_avatar;
-        avatarHtml = '<img class="avatar" src="' + this._esc(src) + '" alt="">';
-      } else {
-        avatarHtml = '<div class="avatar avatar-placeholder-sm">' + this._esc(initial) + '</div>';
+        src = c.contact_avatar.indexOf('http') === 0 ? c.contact_avatar : this._baseUrl() + '/uploads/' + c.contact_avatar;
       }
-      var dotHtml = (c.status === 'open' || c.status === 'new')
-        ? '<div class="status-badge-dot"></div>' : '';
-      var unread = parseInt(c.unread_count, 10) || 0;
-      var unreadHtml = unread > 0
-        ? '<span class="unread-badge">' + (unread > 99 ? '99+' : unread) + '</span>'
-        : '';
-
-      var chColor = this.channelColors[c.channel_type] || '#6c757d';
-      var chIcon = c.channel_type === 'whatsapp' ? 'fab fa-whatsapp'
-        : c.channel_type === 'email' ? 'fas fa-envelope'
-        : 'fas fa-comment-dots';
-
-      var preview = this._truncate(c.last_message, 80);
-      var timeHtml = this._timeAgo(c.last_message_at || c.created_at);
-      var subjectHtml = c.subject
-        ? '<div class="convo-subject">' + this._esc(c.subject) + '</div>'
-        : '';
+      var un = parseInt(c.unread_count || '0', 10);
+      var chColor = { whatsapp: '#25D366', webchat: '#4361ee', email: '#f59e0b', telegram: '#0088cc', facebook: '#1877f2', instagram: '#e1306c', phone: '#6c757d' }[c.channel_type] || '#6c757d';
 
       el.innerHTML =
-        '<div class="avatar-container">' + avatarHtml + dotHtml + unreadHtml + '</div>' +
+        '<div class="avatar-container">' +
+          (c.contact_avatar ? '<img class="avatar" src="' + this._esc(src) + '" alt="">'
+            : '<div class="avatar avatar-placeholder-sm">' + this._esc(initial) + '</div>') +
+          ((c.status === 'open' || c.status === 'new') ? '<div class="status-badge-dot"></div>' : '') +
+          (un > 0 ? '<span class="unread-badge">' + (un > 99 ? '99+' : un) + '</span>' : '') +
+        '</div>' +
         '<div class="convo-info">' +
-          '<div class="convo-header">' +
-            '<span class="convo-name">' + this._esc(c.contact_name) + '</span>' +
-            '<span class="convo-time">' + this._esc(timeHtml) + '</span>' +
-          '</div>' +
-          subjectHtml +
-          '<p class="convo-preview">' + this._esc(preview) + '</p>' +
+          '<div class="convo-header"><span class="convo-name">' + this._esc(c.contact_name) + '</span><span class="convo-time">' + this._timeAgo(c.last_message_at || c.created_at) + '</span></div>' +
+          (c.subject ? '<div class="convo-subject">' + this._esc(c.subject) + '</div>' : '') +
+          '<p class="convo-preview">' + this._esc(this._truncate(c.last_message, 80)) + '</p>' +
           '<div class="convo-meta">' +
-            '<span class="convo-channel" style="background:' + chColor + '">' +
-              '<i class="' + chIcon + '"></i> ' + this._esc(c.channel_name || '') +
-            '</span>' +
+            '<span class="convo-channel" style="background:' + chColor + '"><i class="' + (c.channel_type === 'whatsapp' ? 'fab fa-whatsapp' : c.channel_type === 'email' ? 'fas fa-envelope' : 'fas fa-comment-dots') + '"></i> ' + this._esc(c.channel_name || '') + '</span>' +
             '<span class="priority-badge priority-' + c.priority + '">' + this._priorityLabel(c.priority) + '</span>' +
             '<span class="status-badge status-' + c.status + '">' + this._statusLabel(c.status) + '</span>' +
           '</div>' +
@@ -861,114 +664,300 @@
           '</div>' +
         '</div>';
 
-      // Mobile navigation
-      el.addEventListener('click', function (e) {
-        if (window.innerWidth <= 768) {
-          document.querySelector('.inbox-3col')?.classList.add('show-detail');
-        }
-      });
-
       return el;
     },
 
     _updateItem(el, c) {
       if (!el) return;
+      var nu = parseInt(c.unread_count || '0', 10);
+      el.dataset.unread = String(nu);
+      var ac = el.querySelector('.avatar-container');
+      var eb = ac ? ac.querySelector('.unread-badge') : null;
+      if (nu > 0) {
+        var bt = nu > 99 ? '99+' : nu;
+        if (eb) eb.textContent = bt;
+        else if (ac) { var nb = document.createElement('span'); nb.className = 'unread-badge'; nb.textContent = bt; ac.appendChild(nb); }
+      } else if (eb) eb.remove();
 
-      var prevUnread = parseInt(el.dataset.unread || '0', 10);
-      var newUnread = parseInt(c.unread_count || '0', 10);
-      el.dataset.unread = String(newUnread);
+      var pe = el.querySelector('.convo-preview');
+      if (pe) { var np = this._truncate(c.last_message, 80); if (pe.textContent !== np) { pe.textContent = np; pe.classList.add('conv-preview-flash'); setTimeout(function() { pe.classList.remove('conv-preview-flash'); }, 600); } }
 
-      // Update unread badge
-      var avatarContainer = el.querySelector('.avatar-container');
-      var existingBadge = avatarContainer ? avatarContainer.querySelector('.unread-badge') : null;
-      if (newUnread > 0) {
-        var badgeText = newUnread > 99 ? '99+' : newUnread;
-        if (existingBadge) {
-          existingBadge.textContent = badgeText;
-        } else if (avatarContainer) {
-          var newBadge = document.createElement('span');
-          newBadge.className = 'unread-badge';
-          newBadge.textContent = badgeText;
-          avatarContainer.appendChild(newBadge);
+      var te = el.querySelector('.convo-time');
+      if (te) te.textContent = this._timeAgo(c.last_message_at || c.created_at);
+
+      var ft = el.querySelector('.convo-footer');
+      if (ft) { var cs = ft.querySelectorAll('span'); if (cs.length >= 2) cs[1].innerHTML = '<i class="fas fa-comment-dots"></i> ' + (parseInt(c.message_count, 10) || 0); }
+
+      var sb = el.querySelector('.status-badge');
+      if (sb) { ['status-new','status-open','status-waiting_customer','status-waiting_internal','status-resolved','status-closed','status-spam'].forEach(function(cn) { sb.classList.remove(cn); }); sb.classList.add('status-' + c.status); sb.textContent = this._statusLabel(c.status); }
+
+      var pb = el.querySelector('.priority-badge');
+      if (pb) { ['priority-low','priority-normal','priority-high','priority-urgent'].forEach(function(cn) { pb.classList.remove(cn); }); pb.classList.add('priority-' + c.priority); pb.textContent = this._priorityLabel(c.priority); }
+
+      var dt = el.querySelector('.status-badge-dot');
+      if (dt) dt.style.display = (c.status === 'open' || c.status === 'new') ? '' : 'none';
+      else if ((c.status === 'open' || c.status === 'new') && ac) { var nd = document.createElement('div'); nd.className = 'status-badge-dot'; ac.appendChild(nd); }
+    },
+
+    _esc(s) { if (s == null) return ''; var d = document.createElement('div'); d.textContent = String(s); return d.innerHTML; },
+
+    _timeAgo(dt) {
+      if (!dt) return '';
+      var d = new Date(String(dt).replace(' ', 'T'));
+      if (isNaN(d)) return '';
+      var diff = Math.floor((Date.now() - d) / 1000);
+      if (diff < 60) return 'agora';
+      if (diff < 3600) return Math.floor(diff / 60) + 'min';
+      if (diff < 86400) return Math.floor(diff / 3600) + 'h';
+      var days = Math.floor(diff / 86400);
+      return (days < 30 ? days : days) + 'd';
+    },
+
+    _truncate(t, l) { if (!t) return 'Sem mensagens'; return t.length <= l ? t : t.substring(0, l) + '...'; },
+    _statusLabel(s) { return ({ new:'Novo', open:'Aberto', waiting_customer:'Em atendimento', waiting_internal:'Aguardando Interno', resolved:'Resolvido', closed:'Fechado', spam:'Spam' })[s] || s; },
+    _priorityLabel(p) { return ({ low:'Baixa', normal:'Normal', high:'Alta', urgent:'Urgente' })[p] || p; },
+
+    _notify(body, c) {
+      if ('Notification' in window && Notification.permission === 'granted') {
+        try { new Notification('AtendeFlow', { body: body, icon: '/assets/img/favicon.png', tag: 'conv-' + (c ? c.id : ''), requireInteraction: true }); } catch(_) {}
+      } else if ('Notification' in window && Notification.permission === 'default') {
+        Notification.requestPermission();
+      }
+    },
+  };
+
+  // ──────────────────────────────────────────
+  // 10. Global Notification Manager
+  // ──────────────────────────────────────────
+  const GlobalNotifier = {
+    eventSource: null,
+    pollTimer: null,
+    useSSE: true,
+    lastUnreadMessages: -1,
+    lastUnreadNotifications: -1,
+    pollInterval: 20000,
+    _prefsLoaded: false,
+    _browserNotifEnabled: true,
+
+    init() {
+      this._loadLastCounts();
+      this._loadPreferences();
+      this._bindGesturePermissions();
+      this._trySSE();
+      if (!this.useSSE) {
+        this._startPolling();
+      }
+    },
+
+    _bindGesturePermissions() {
+      var self = this;
+      var initFn = function() {
+        self._requestPermission();
+        document.removeEventListener('click', initFn);
+        document.removeEventListener('keydown', initFn);
+      };
+      document.addEventListener('click', initFn);
+      document.addEventListener('keydown', initFn);
+    },
+
+    _loadPreferences() {
+      var baseUrl = this._baseUrl();
+      if (!baseUrl) return;
+      var self = this;
+      fetch(baseUrl + '/api/user-preferences', {
+        headers: { 'X-Requested-With': 'XMLHttpRequest' },
+      })
+        .then(function (r) { return r.json(); })
+        .then(function (data) {
+          self._prefsLoaded = true;
+          // Sound preferences
+          if (data.sound_enabled === false) {
+            SoundManager.disable();
+          } else {
+            SoundManager.enable();
+            SoundManager.setTypeProfile('message', data.sound_new_message || 'default');
+            SoundManager.setTypeProfile('new_conv', data.sound_new_conversation || 'default');
+            SoundManager.setTypeProfile('incoming', data.sound_new_message || 'default');
+            SoundManager.setProfile(data.sound_new_message || 'default');
+          }
+          self._browserNotifEnabled = data.browser_notif_enabled !== false;
+        })
+        .catch(function () {
+          self._prefsLoaded = true;
+        });
+    },
+
+    _loadLastCounts() {
+      try {
+        var saved = localStorage.getItem('atendeflow-unread');
+        if (saved) {
+          var data = JSON.parse(saved);
+          this.lastUnreadMessages = data.messages || 0;
+          this.lastUnreadNotifications = data.notifications || 0;
         }
-      } else if (existingBadge) {
-        existingBadge.remove();
-      }
+      } catch (_) {}
+    },
 
-      // Update preview
-      var previewEl = el.querySelector('.convo-preview');
-      if (previewEl) {
-        var newPreview = this._truncate(c.last_message, 80);
-        if (previewEl.textContent !== newPreview) {
-          previewEl.textContent = newPreview;
-          previewEl.classList.add('conv-preview-flash');
-          var self = this;
-          setTimeout(function () { previewEl.classList.remove('conv-preview-flash'); }, 600);
+    _saveCounts() {
+      try {
+        localStorage.setItem('atendeflow-unread', JSON.stringify({
+          messages: this.lastUnreadMessages,
+          notifications: this.lastUnreadNotifications,
+          time: Date.now(),
+        }));
+      } catch (_) {}
+    },
+
+    _baseUrl() {
+      var m = document.querySelector('meta[name="base-url"]');
+      return m ? m.getAttribute('content') : '';
+    },
+
+    _trySSE() {
+      try {
+        var baseUrl = this._baseUrl();
+        if (!baseUrl) { this.useSSE = false; return; }
+
+        this.eventSource = new EventSource(baseUrl + '/realtime/events');
+
+        var self = this;
+
+        this.eventSource.addEventListener('notification', function (e) {
+          try {
+            self._onNotification(JSON.parse(e.data));
+          } catch (_) {}
+        });
+
+        this.eventSource.addEventListener('unread_count', function (e) {
+          var count = parseInt(e.data, 10);
+          if (isNaN(count)) return;
+          if (count > self.lastUnreadNotifications && self.lastUnreadNotifications >= 0) {
+            SoundManager.play('incoming');
+          }
+          self.lastUnreadNotifications = count;
+          self._updateBadge();
+          self._saveCounts();
+        });
+
+        this.eventSource.onerror = function () {
+          if (self.eventSource) {
+            self.eventSource.close();
+            self.eventSource = null;
+          }
+          self.useSSE = false;
+          self._startPolling();
+        };
+      } catch (_) {
+        this.useSSE = false;
+      }
+    },
+
+    _startPolling() {
+      if (this.pollTimer) return;
+      var self = this;
+      this._poll();
+      this.pollTimer = setInterval(function () { self._poll(); }, this.pollInterval);
+    },
+
+    _stopPolling() {
+      if (this.pollTimer) {
+        clearInterval(this.pollTimer);
+        this.pollTimer = null;
+      }
+    },
+
+    _poll() {
+      var baseUrl = this._baseUrl();
+      if (!baseUrl) return;
+      var self = this;
+
+      fetch(baseUrl + '/api/unread-summary', {
+        headers: { 'X-Requested-With': 'XMLHttpRequest' },
+      })
+        .then(function (r) { return r.json(); })
+        .then(function (data) { self._onPollData(data); })
+        .catch(function () {});
+    },
+
+    _onPollData(data) {
+      var msgCount = data.unread_messages || 0;
+      var notifCount = data.unread_notifications || 0;
+      var isInboxPage = !!document.querySelector('.inbox-page');
+
+      // New messages detected
+      if (msgCount > this.lastUnreadMessages && this.lastUnreadMessages >= 0) {
+        if (!isInboxPage) {
+          SoundManager.play('incoming');
+          if (document.visibilityState !== 'visible' && this._browserNotifEnabled) {
+            this._notifyBrowser(
+              String(msgCount - this.lastUnreadMessages) + ' nova(s) mensagem(ns)',
+              'Você tem novas mensagens no AtendeFlow'
+            );
+          }
         }
       }
 
-      // Update time
-      var timeEl = el.querySelector('.convo-time');
-      if (timeEl) {
-        var newTime = this._timeAgo(c.last_message_at || c.created_at);
-        timeEl.textContent = newTime;
+      // New notifications detected
+      if (notifCount > this.lastUnreadNotifications && this.lastUnreadNotifications >= 0) {
+        SoundManager.play('incoming');
       }
 
-      // Update message count in footer
-      var footer = el.querySelector('.convo-footer');
-      if (footer) {
-        var countSpans = footer.querySelectorAll('span');
-        if (countSpans.length >= 2) {
-          countSpans[1].innerHTML = '<i class="fas fa-comment-dots"></i> ' + (parseInt(c.message_count, 10) || 0);
-        }
-      }
+      this.lastUnreadMessages = msgCount;
+      this.lastUnreadNotifications = notifCount;
+      this._updateBadge();
+      this._saveCounts();
+    },
 
-      // Update status badge
-      var statusBadge = el.querySelector('.status-badge');
-      if (statusBadge) {
-        var statusClasses = ['status-new', 'status-open', 'status-waiting_customer', 'status-waiting_internal', 'status-resolved', 'status-closed', 'status-spam'];
-        statusClasses.forEach(function (cls) { statusBadge.classList.remove(cls); });
-        statusBadge.classList.add('status-' + c.status);
-        statusBadge.textContent = this._statusLabel(c.status);
+    _onNotification(data) {
+      SoundManager.play('incoming');
+      if (document.visibilityState !== 'visible' && this._browserNotifEnabled) {
+        this._notifyBrowser(
+          data.title || 'Nova notificação',
+          data.body || ''
+        );
       }
+      this._updateBadge();
+    },
 
-      // Update priority badge
-      var priorityBadge = el.querySelector('.priority-badge');
-      if (priorityBadge) {
-        var priorityClasses = ['priority-low', 'priority-normal', 'priority-high', 'priority-urgent'];
-        priorityClasses.forEach(function (cls) { priorityBadge.classList.remove(cls); });
-        priorityBadge.classList.add('priority-' + c.priority);
-        priorityBadge.textContent = this._priorityLabel(c.priority);
+    _updateBadge() {
+      var badge = document.getElementById('notifBadge');
+      if (!badge) return;
+      var total = (this.lastUnreadMessages > 0 ? this.lastUnreadMessages : 0)
+                + (this.lastUnreadNotifications > 0 ? this.lastUnreadNotifications : 0);
+      if (total > 0) {
+        badge.textContent = total > 99 ? '99+' : String(total);
+        badge.style.display = '';
+      } else {
+        badge.style.display = 'none';
       }
+    },
 
-      // Update subject
-      var subjectEl = el.querySelector('.convo-subject');
-      if (c.subject) {
-        if (!subjectEl) {
-          var previewEl2 = el.querySelector('.convo-preview');
-          var subj = document.createElement('div');
-          subj.className = 'convo-subject';
-          subj.textContent = c.subject;
-          if (previewEl2) previewEl2.parentNode.insertBefore(subj, previewEl2);
-        } else if (subjectEl.textContent !== c.subject) {
-          subjectEl.textContent = c.subject;
-        }
-      } else if (subjectEl) {
-        subjectEl.remove();
+    _notifyBrowser(body, title) {
+      if ('Notification' in window && Notification.permission === 'granted') {
+        try {
+          new Notification(title || 'AtendeFlow', {
+            body: body,
+            icon: '/assets/img/favicon.png',
+            requireInteraction: true,
+          });
+        } catch (_) {}
+      } else if ('Notification' in window && Notification.permission === 'default') {
+        Notification.requestPermission();
       }
+    },
 
-      // Update status dot
-      var dot = el.querySelector('.status-badge-dot');
-      if (dot) {
-        var show = c.status === 'open' || c.status === 'new';
-        dot.style.display = show ? '' : 'none';
-      } else if (c.status === 'open' || c.status === 'new') {
-        if (avatarContainer) {
-          var newDot = document.createElement('div');
-          newDot.className = 'status-badge-dot';
-          avatarContainer.appendChild(newDot);
-        }
+    _requestPermission() {
+      if ('Notification' in window && Notification.permission === 'default') {
+        Notification.requestPermission();
       }
+    },
+
+    destroy() {
+      if (this.eventSource) {
+        this.eventSource.close();
+        this.eventSource = null;
+      }
+      this._stopPolling();
     },
   };
 
@@ -976,13 +965,16 @@
   // Init on DOM ready
   // ──────────────────────────────────────────
   function init() {
+    SoundManager._initAudioOnGesture();
+    // Global notification watcher (all pages)
+    GlobalNotifier.init();
+
     if (document.querySelector('.inbox-page')) {
-      FiltersPanel.init();
       DragManager.init();
       KeyboardNav.init();
       InfiniteScroll.init();
       MobileSearchFix.init();
-      ConvListPoller.init();
+      LiveFeed.init();
     }
     if (document.getElementById('messageInput')) {
       ComposerShortcuts.init();
@@ -998,8 +990,8 @@
   }
 
   window.__enhancements = {
-    FiltersPanel, DragManager, ComposerShortcuts, FormEnhancer,
-    KeyboardNav, InfiniteScroll, ConversationCache, TagManagerEnhancer, MobileSearchFix,
-    ConvListPoller, SoundManager,
+    DragManager, ComposerShortcuts, FormEnhancer,
+    KeyboardNav, InfiniteScroll, TagManagerEnhancer, MobileSearchFix,
+    LiveFeed, SoundManager, GlobalNotifier,
   };
 })();

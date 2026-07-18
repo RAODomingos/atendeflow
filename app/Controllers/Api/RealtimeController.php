@@ -26,6 +26,9 @@ class RealtimeController
 
         UserPresence::update($userId);
 
+        // Libera session lock para não bloquear outras requisições AJAX
+        session_write_close();
+
         header('Content-Type: text/event-stream');
         header('Cache-Control: no-cache');
         header('Connection: keep-alive');
@@ -79,25 +82,4 @@ class RealtimeController
         }
     }
 
-    /**
-     * POST /api/v2/realtime/ping
-     * Mantém presença do usuário atualizada
-     */
-    public function ping(Request $request): void
-    {
-        $userId = Auth::id();
-        if ($userId) {
-            UserPresence::update($userId);
-        }
-        View::json(['ok' => true, 'time' => time()]);
-    }
-
-    /**
-     * GET /api/v2/realtime/online-users
-     */
-    public function onlineUsers(Request $request): void
-    {
-        UserPresence::cleanup();
-        View::json(UserPresence::getOnlineUsers());
-    }
 }

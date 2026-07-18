@@ -79,6 +79,31 @@ class SettingsController
         ]);
     }
 
+    public function notifications(Request $request): void
+    {
+        $userId = Auth::id();
+        $prefs = \App\Models\UserPreference::getAll($userId);
+
+        View::renderWithLayout('settings/notifications', 'main', [
+            'title' => 'Notificações e Sons',
+            'activePage' => 'settings_notifications',
+            'prefs' => $prefs,
+        ]);
+    }
+
+    public function saveNotifications(Request $request): void
+    {
+        $userId = Auth::id();
+
+        \App\Models\UserPreference::set($userId, 'sound_enabled', (bool) $request->post('sound_enabled'));
+        \App\Models\UserPreference::set($userId, 'sound_new_message', $request->post('sound_new_message') ?: 'default');
+        \App\Models\UserPreference::set($userId, 'sound_new_conversation', $request->post('sound_new_conversation') ?: 'default');
+        \App\Models\UserPreference::set($userId, 'browser_notif_enabled', (bool) $request->post('browser_notif_enabled'));
+
+        Session::setFlash('success', 'Preferências de notificação salvas.');
+        View::redirect('/settings/notifications');
+    }
+
     public function saveGeneral(Request $request): void
     {
         \App\Models\Setting::set('business_hours_enabled', $request->post('business_hours_enabled') ? '1' : '0');
@@ -244,28 +269,6 @@ class SettingsController
         );
         Session::setFlash('success', 'Chave do widget regenerada.');
         View::redirect('/channels');
-    }
-
-    public function widgetDemo(Request $request, string $widgetKey): void
-    {
-        $widget = Database::getInstance()->fetch(
-            "SELECT w.*, f.name as flow_name
-             FROM webchat_widgets w
-             LEFT JOIN flows f ON f.id = w.flow_id
-             WHERE w.widget_key = ?",
-            [$widgetKey]
-        );
-
-        if (!$widget) {
-            http_response_code(404);
-            echo 'Widget não encontrado.';
-            exit;
-        }
-
-        View::render('settings/demo', [
-            'title' => 'Demo - ' . $widget['title'],
-            'widget' => $widget,
-        ]);
     }
 
     public function inboxes(Request $request): void

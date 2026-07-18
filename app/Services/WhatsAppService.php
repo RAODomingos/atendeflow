@@ -294,7 +294,7 @@ class WhatsAppService
                 $this->logWebhook('PHONE_RESOLVED', ['lid' => $originalFrom, 'phone' => $realPhone]);
             }
         }
-        $contact = Contact::findOrCreate($message->senderName ?? $message->from, null, $phone);
+        $contact = Contact::findOrCreate($message->senderName ?? preg_replace('/\D/', '', $phone), null, $phone);
 
         // Atualiza nome e foto de perfil do WhatsApp (se disponíveis e ainda não definidos).
         $this->syncContactProfile($contact, $message);
@@ -352,7 +352,7 @@ class WhatsAppService
             return;
         }
 
-        // Message revoke (cliente apagou a mensagem)
+        // Message revoke (cliente/agente apagou a mensagem)
         if ($message->extra['event_type'] ?? '' === 'message.revoked') {
             $existing = Database::getInstance()->fetch(
                 "SELECT id FROM messages WHERE channel_message_id = ? AND conversation_id = ? LIMIT 1",
@@ -366,6 +366,13 @@ class WhatsAppService
                 ], 'id = ?', [$existing['id']]);
                 $this->logWebhook('MESSAGE_REVOKED', ['msg_id' => $existing['id']]);
             }
+            // Insere mensagem de sistema informando que a mensagem foi apagada
+            $who = $message->fromMe ? 'Você' : ($message->senderName ?? 'O cliente');
+            Conversation::addMessage($conversation['id'], [
+                'type' => 'system',
+                'content' => $who . ' apagou uma mensagem',
+                'direction' => $message->fromMe ? 'outbound' : 'inbound',
+            ]);
             return;
         }
 
@@ -430,16 +437,53 @@ class WhatsAppService
 
         // Preenche o nome se estiver vazio ou se for apenas o número do telefone
         // (valor automático usado na criação do contato via WhatsApp).
-        $autoName = (string) $contact['phone'] !== ''
-            && (string) $contact['name'] === (string) $contact['phone'];
+        $rawName = (string) $contact['name'];
+        $rawPhone = (string) $contact['phone'];
+        $autoName = $rawPhone !== '' && (
+            $rawName === $rawPhone
+            || preg_match('/^\d+@(c\.us|s\.whatsapp\.net|lid)$/', $rawName)
+        );
         if ((empty($contact['name']) || $autoName) && !empty($message->senderName)) {
             $upd['name'] = $message->senderName;
         }
 
-        if (empty($contact['avatar']) && !empty($message->avatarUrl)) {
-            $local = \download_remote_image($message->avatarUrl, 'avatars');
-            if ($local) {
-                $upd['avatar'] = $local;
+        if (empty($contact['avatar'])) {
+            $originalFrom = $message->extra['original_from'] ?? '';
+            if ($originalFrom !== '') {
+                try {
+                    $connection = WhatsAppConnection::findByProviderId('waha', $message->providerId);
+                    if ($connection) {
+                        $provider = WhatsAppManager::forConnection($connection);
+                        $picResult = $provider->getProfilePicture($connection, $originalFrom);
+                        if ($picResult) {
+                            if (str_starts_with($picResult, 'data:')) {
+                                $raw = base64_decode(explode(',', $picResult, 2)[1] ?? '');
+                                if ($raw !== '') {
+                                    $ext = 'jpg';
+                                    $dir = upload_dir() . '/avatars';
+                                    if (!is_dir($dir)) @mkdir($dir, 0755, true);
+                                    $name = bin2hex(random_bytes(12)) . '.' . $ext;
+                                    if (file_put_contents($dir . '/' . $name, $raw) !== false) {
+                                        $upd['avatar'] = 'avatars/' . $name;
+                                    }
+                                }
+                            } else {
+                                $local = \download_remote_image($picResult, 'avatars');
+                                if ($local) {
+                                    $upd['avatar'] = $local;
+                                }
+                            }
+                        }
+                    }
+                } catch (\Throwable $e) {
+                    error_log('syncContactProfile getProfilePicture error: ' . $e->getMessage());
+                }
+            }
+            if (empty($upd['avatar'] ?? null) && !empty($message->avatarUrl)) {
+                $local = \download_remote_image($message->avatarUrl, 'avatars');
+                if ($local) {
+                    $upd['avatar'] = $local;
+                }
             }
         }
 
@@ -670,11 +714,13 @@ class WhatsAppService
         }
 
         if ($connection['status'] !== 'connected') {
+            error_log("sendOutbound: {$conversationId}/{$messageId} conexão não conectada, status={$connection['status']}");
             return null;
         }
 
         $contact = Contact::find((int) $conversation['contact_id']);
         if (!$contact || empty($contact['phone'])) {
+            error_log("sendOutbound: {$conversationId}/{$messageId} contato sem telefone");
             return null;
         }
 
@@ -690,10 +736,14 @@ class WhatsAppService
         try {
             $result = $provider->send($connection, $contact['phone'], $type, $content, $options);
         } catch (\Throwable $e) {
+            error_log("sendOutbound: {$conversationId}/{$messageId} exception: " . $e->getMessage());
             return null;
         }
 
         $providerMessageId = $result['provider_message_id'] ?? null;
+        if (!$providerMessageId) {
+            error_log("sendOutbound: {$conversationId}/{$messageId} sem provider_message_id no retorno");
+        }
         if ($providerMessageId) {
             Database::getInstance()->update(
                 'messages',

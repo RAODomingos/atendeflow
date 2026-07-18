@@ -118,13 +118,21 @@ $csat = $conversation['csat'] ?? null;
                 <?php if ($showDate): ?>
                 <div class="msg-date-sep"><span><?= format_date_sep($msg['created_at']) ?></span></div>
                 <?php endif; ?>
-                <div class="message <?= $msg['direction'] === 'outbound' ? 'message-out' : 'message-in' ?> <?= $msg['type'] === 'internal_note' ? 'message-note' : '' ?> <?= $grouped ? 'message-grouped' : '' ?>" data-mid="<?= $msg['id'] ?>" data-text="<?= e(strip_tags($msg['content'])) ?>">
+                <div class="message <?= $msg['direction'] === 'outbound' ? 'message-out' : 'message-in' ?> <?= $msg['type'] === 'internal_note' ? 'message-note' : '' ?> <?= $msg['type'] === 'system' ? 'message-system' : '' ?> <?= $msg['type'] === 'sticker' ? 'message-sticker' : '' ?> <?= $grouped ? 'message-grouped' : '' ?>" data-mid="<?= $msg['id'] ?>" data-text="<?= e(strip_tags($msg['content'])) ?>">
                     <?php if (!$grouped): ?>
                     <div class="msg-avatar msg-avatar-<?= $sender ?>"><?= $av ?></div>
                     <?php endif; ?>
                     <div class="message-body <?= $isDeleted ? 'is-deleted' : '' ?>">
                         <?php if ($isDeleted): ?>
                         <div class="message-deleted"><i class="fas fa-ban"></i> Mensagem excluída</div>
+                        <?php endif; ?>
+                        <?php if (!empty($msg['reply_to_data'])): ?>
+                        <div class="msg-quote" onclick="scrollToMessage(<?= (int) $msg['reply_to_data']['id'] ?>)">
+                            <div class="msg-quote-content">
+                                <div class="msg-quote-name"><?= ($msg['reply_to_data']['direction'] ?? '') === 'outbound' ? 'Você' : e($contact['name'] ?? 'Contato') ?></div>
+                                <div class="msg-quote-text"><?= e(mb_substr(strip_tags(str_replace(['[',']'], '', $msg['reply_to_data']['content'] ?? '')), 0, 100)) ?></div>
+                            </div>
+                        </div>
                         <?php endif; ?>
                         <?php if ($msg['type'] === 'internal_note'): ?>
                             <div class="message-note-header">
@@ -153,6 +161,8 @@ $csat = $conversation['csat'] ?? null;
                                 <span class="reaction-emoji"><?= e($rEmoji) ?></span>
                                 <span class="reaction-label">reagiu a uma mensagem</span>
                             </div>
+                        <?php elseif ($msg['type'] === 'system'): ?>
+                            <div class="message-content"><?= e($msg['content']) ?></div>
                         <?php elseif ($isFile && $meta): ?>
                             <div class="message-content">
                                 <?php if ($mediaType === 'image' || $mediaType === 'sticker'): ?>
@@ -210,6 +220,8 @@ $csat = $conversation['csat'] ?? null;
                                 <button type="button" class="msg-act msg-act-danger" title="Excluir" onclick="deleteMessage(<?= $msg['id'] ?>)"><i class="fas fa-trash"></i></button>
                             <?php endif; ?>
                         </div>
+                        <button type="button" class="msg-reaction-btn" data-mid="<?= $msg['id'] ?>" title="Reagir" onclick="toggleReactionPicker(<?= $msg['id'] ?>, event)"><i class="far fa-smile"></i></button>
+                        <div class="reaction-picker" id="rp-<?= $msg['id'] ?>" data-mid="<?= $msg['id'] ?>"><?php foreach (['👍','❤️','😂','😮','😢','🙏'] as $re): ?><span class="rp-emoji" onclick="sendReaction(<?= $msg['id'] ?>, '<?= $re ?>')"><?= $re ?></span><?php endforeach; ?></div>
                         <?php endif; ?>
                     </div>
                 </div>
@@ -223,10 +235,16 @@ $csat = $conversation['csat'] ?? null;
             <form action="<?= url('inbox/') ?><?= $conv['id'] ?>/messages" method="POST" enctype="multipart/form-data" class="composer-form" id="composerForm">
                 <?= csrf_field() ?>
                 <input type="hidden" name="type" id="msgType" value="text">
+                <div class="quote-bar" id="quoteBar" style="display:none">
+                    <i class="fas fa-quote-right" style="color:var(--primary)"></i>
+                    <span class="quote-text" id="quotePreview"></span>
+                    <button type="button" class="quote-close" onclick="clearQuote()">&times;</button>
+                </div>
                 <div class="composer-main">
                     <div class="composer-input">
                         <textarea name="content" id="messageInput" rows="1"
                                   placeholder="Digite sua mensagem... (Enter para enviar, '/' resposta, ':' macro)"></textarea>
+                        <input type="hidden" name="reply_to" id="replyToInput" value="">
                     </div>
                     <div class="composer-tools">
                         <label class="composer-btn composer-attach" title="Anexar arquivo">
@@ -234,6 +252,8 @@ $csat = $conversation['csat'] ?? null;
                             <input type="file" name="file" id="attachInput"
                                    accept="image/*,audio/*,video/*,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.zip" hidden>
                         </label>
+                        <button type="button" class="composer-btn" title="Resposta pronta" onclick="openCannedModal()"><i class="fas fa-bookmark"></i></button>
+                        <button type="button" class="composer-btn" title="Macro" onclick="openMacroModal()"><i class="fas fa-bolt"></i></button>
                         <button type="button" class="composer-btn composer-emoji" id="emojiToggle" title="Emoji"><i class="fas fa-smile"></i></button>
                         <button type="button" class="composer-btn composer-internal" id="internalToggle"
                                 onclick="toggleInternal()" title="Mensagem interna (não enviada ao cliente)">
@@ -245,8 +265,6 @@ $csat = $conversation['csat'] ?? null;
                             <i class="fas fa-signature"></i> <span id="signatureLabel">Assinatura</span>
                         </button>
                         <?php endif; ?>
-                        <button type="button" class="composer-btn" title="Resposta pronta" onclick="openCannedModal()"><i class="fas fa-bookmark"></i></button>
-                        <button type="button" class="composer-btn" title="Macro" onclick="openMacroModal()"><i class="fas fa-bolt"></i></button>
                     </div>
                     <button type="submit" class="composer-send" id="sendBtn" title="Enviar (Enter)">
                         <i class="fas fa-paper-plane"></i>
@@ -264,7 +282,12 @@ $csat = $conversation['csat'] ?? null;
         <div class="conv-drawer" id="clientDrawer">
             <div class="conv-drawer-header">
                 <h4><i class="fas fa-user"></i> Cliente</h4>
-                <button type="button" class="drawer-close" onclick="toggleClientDrawer()" title="Fechar">&times;</button>
+                <div style="display:flex;align-items:center;gap:4px">
+                    <button type="button" class="drawer-close" onclick="openContactEditModal()" title="Editar contato" style="font-size:14px;width:28px;height:28px">
+                        <i class="fas fa-pen"></i>
+                    </button>
+                    <button type="button" class="drawer-close" onclick="toggleClientDrawer()" title="Fechar">&times;</button>
+                </div>
             </div>
             <div class="conv-drawer-body">
                 <div class="client-profile-card">
@@ -631,15 +654,55 @@ $csat = $conversation['csat'] ?? null;
     </div>
 </div>
 
+<!-- Contact Edit Modal -->
+<div class="modal" id="contactEditModal">
+    <div class="modal-content" style="max-width:480px">
+        <div class="modal-header">
+            <h3><i class="fas fa-user-edit"></i> Editar Contato</h3>
+            <button class="modal-close" onclick="closeContactEditModal()">&times;</button>
+        </div>
+        <form action="<?= url('contacts/' . ((int)$contact['id'] ?? 0) . '/update') ?>" method="POST" id="contactEditForm" onsubmit="return submitContactEdit(event)">
+            <?= csrf_field() ?>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label><i class="fas fa-user"></i> Nome</label>
+                    <input type="text" name="name" class="form-control" value="<?= e($contact['name'] ?? '') ?>" required>
+                </div>
+                <div class="form-group">
+                    <label><i class="fas fa-envelope"></i> E-mail</label>
+                    <input type="email" name="email" class="form-control" value="<?= e($contact['email'] ?? '') ?>">
+                </div>
+                <div class="form-group">
+                    <label><i class="fas fa-phone"></i> Telefone</label>
+                    <input type="text" name="phone" class="form-control" value="<?= e($contact['phone'] ?? '') ?>">
+                </div>
+                <div class="form-group">
+                    <label><i class="fas fa-id-card"></i> Documento</label>
+                    <input type="text" name="document" class="form-control" value="<?= e($contact['document'] ?? '') ?>">
+                </div>
+                <div class="form-group">
+                    <label><i class="fas fa-building"></i> Empresa</label>
+                    <input type="text" name="company" class="form-control" value="<?= e($contact['company'] ?? '') ?>">
+                </div>
+            </div>
+            <div class="modal-footer" style="justify-content:center;gap:8px;padding:12px 20px">
+                <button type="button" class="btn btn-outline" onclick="closeContactEditModal()">Cancelar</button>
+                <button type="submit" class="btn btn-primary" id="contactEditBtn"><i class="fas fa-save"></i> Salvar</button>
+            </div>
+        </form>
+    </div>
+</div>
+
 <script>
-const CONV_ID = <?= (int) $conv['id'] ?>;
-const DEPT_ID = <?= (int) ($conv['department_id'] ?? 0) ?>;
-const CONTACT_INITIAL = '<?= e($initial) ?>';
-const CONTACT_AVATAR = '<?= e($contact['avatar'] ?? '') ?>';
+var CONV_ID = <?= (int) $conv['id'] ?>;
+var DEPT_ID = <?= (int) ($conv['department_id'] ?? 0) ?>;
+var CONTACT_INITIAL = '<?= e($initial) ?>';
+var CONTACT_AVATAR = '<?= e($contact['avatar'] ?? '') ?>';
+var CONTACT_NAME = '<?= e($contact['name'] ?? 'Contato') ?>';
 var FIRST_MID = <?= (int) ($firstMid ?? 0) ?>;
-const CSRF = document.querySelector('input[name=_csrf_token]')?.value || '';
-const API = '<?= rtrim(base_url('api'), '/') ?>';
-const BASE = '<?= rtrim(parse_url(base_url('/'), PHP_URL_PATH), '/') ?>';
+var CSRF = document.querySelector('input[name=_csrf_token]')?.value || '';
+var API = '<?= rtrim(base_url('api'), '/') ?>';
+var BASE = '<?= rtrim(parse_url(base_url('/'), PHP_URL_PATH), '/') ?>';
 
 function csrfForm() { const f = new FormData(); f.append('_csrf_token', CSRF); return f; }
 function postJson(url, body) {
@@ -650,7 +713,9 @@ function postJson(url, body) {
         .then(r => r.json()).catch(() => ({ success: false }));
 }
 
-function toggleClientDrawer() { document.querySelector('.conversation-view')?.classList.toggle('drawer-open'); }
+function toggleClientDrawer() {
+    document.querySelector('.conversation-view')?.classList.toggle('drawer-open');
+}
 
 /* ---------- Tag Manager ---------- */
 function initTagManager(convId) {
@@ -811,11 +876,38 @@ function closeCannedModal() { document.getElementById('cannedModal').style.displ
 function openMacroModal() { document.getElementById('macroModal').style.display = 'flex'; loadMacros(); }
 function closeMacroModal() { document.getElementById('macroModal').style.display = 'none'; }
 function closeEditModal() { document.getElementById('editModal').style.display = 'none'; }
+function openContactEditModal() { document.getElementById('contactEditModal').style.display = 'flex'; }
+function closeContactEditModal() { document.getElementById('contactEditModal').style.display = 'none'; }
+function submitContactEdit(e) {
+    e.preventDefault();
+    var form = document.getElementById('contactEditForm');
+    var btn = document.getElementById('contactEditBtn');
+    btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Salvando...';
+    var fd = new FormData(form);
+    fetch(form.action, {
+        method: 'POST',
+        headers: { 'X-Requested-With': 'XMLHttpRequest' },
+        body: fd
+    }).then(function(r) { return r.json(); }).then(function(resp) {
+        if (resp && resp.success !== false) {
+            closeContactEditModal();
+            toast('Contato atualizado com sucesso');
+            setTimeout(function() { location.reload(); }, 800);
+        } else {
+            alert(resp.error || 'Erro ao atualizar contato');
+        }
+    }).catch(function() {
+        alert('Erro de conexão. Tente novamente.');
+    }).finally(function() {
+        btn.disabled = false; btn.innerHTML = '<i class="fas fa-save"></i> Salvar';
+    });
+    return false;
+}
 document.querySelectorAll('.modal').forEach(m => m.addEventListener('click', e => { if (e.target === m) m.style.display = 'none'; }));
 document.addEventListener('keydown', e => { if (e.key === 'Escape') document.querySelectorAll('.modal').forEach(m => m.style.display = 'none'); });
 
 /* CSAT star picker */
-const csatPick = document.getElementById('csatPick');
+var csatPick = document.getElementById('csatPick');
 if (csatPick) {
     csatPick.querySelectorAll('.csat-star').forEach(st => st.addEventListener('click', () => {
         const v = parseInt(st.dataset.v, 10);
@@ -938,9 +1030,21 @@ function copyMessage(id) {
     var t = msgText(id); if (navigator.clipboard) navigator.clipboard.writeText(t);
     toast('Mensagem copiada');
 }
+var quoteTarget = null;
 function quoteMessage(id) {
-    var t = msgText(id); var ta = document.getElementById('messageInput');
-    ta.value = (ta.value ? ta.value + '\n' : '') + '> ' + t.split('\n').join('\n> '); ta.focus();
+    var el = document.querySelector('.message[data-mid="' + id + '"]');
+    var text = el ? (el.getAttribute('data-text') || '') : '';
+    quoteTarget = id;
+    var bar = document.getElementById('quoteBar');
+    var preview = document.getElementById('quotePreview');
+    if (bar) bar.style.display = 'flex';
+    if (preview) preview.textContent = text.substring(0, 80);
+    document.getElementById('messageInput').focus();
+}
+function clearQuote() {
+    quoteTarget = null;
+    var bar = document.getElementById('quoteBar');
+    if (bar) bar.style.display = 'none';
 }
 var editId = null;
 function editMessage(id) { editId = id; document.getElementById('editContent').value = msgText(id); document.getElementById('editModal').style.display = 'flex'; }
@@ -977,6 +1081,38 @@ function deleteMessage(id) {
     });
 }
 
+/* ---------- Reações ---------- */
+var activeRp = null;
+function toggleReactionPicker(mid, event) {
+    if (event) event.stopPropagation();
+    var picker = document.getElementById('rp-' + mid);
+    if (!picker) return;
+    if (picker.classList.contains('open')) {
+        picker.classList.remove('open');
+        activeRp = null;
+    } else {
+        if (activeRp) activeRp.classList.remove('open');
+        picker.classList.add('open');
+        activeRp = picker;
+    }
+}
+document.addEventListener('click', function() {
+    if (activeRp) { activeRp.classList.remove('open'); activeRp = null; }
+});
+function sendReaction(mid, emoji) {
+    var picker = document.getElementById('rp-' + mid);
+    if (picker) picker.classList.remove('open');
+    activeRp = null;
+    postJson('/inbox/' + CONV_ID + '/messages/' + mid + '/reaction', { reaction: emoji }).then(function(r) {
+        if (r.success !== false) toast('Reação enviada');
+        else toast('Erro ao enviar reação');
+    });
+}
+function scrollToMessage(mid) {
+    var el = document.querySelector('.message[data-mid="' + mid + '"]');
+    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+}
+
 /* ---------- Busca dentro da conversa ---------- */
 function toggleMsgSearch() {
     var box = document.getElementById('convMsgSearch');
@@ -996,7 +1132,7 @@ function filterMessages() {
 }
 
 /* ---------- Polling: mensagens + meta + notificação ---------- */
-const msgContainer = document.getElementById('convMessagesList');
+var msgContainer = document.getElementById('convMessagesList');
 function esc(s) { var d = document.createElement('div'); d.textContent = s == null ? '' : s; return d.innerHTML; }
 function avatarSrc(p) { return (typeof p === 'string' && p.indexOf('http') === 0) ? p : (uploadsBase + '/' + p); }
 function nl2br(s) { return esc(s); }
@@ -1058,6 +1194,8 @@ function fileContentHtml(type, content, uploadsBase) {
 function renderMessageHtml(m, uploadsBase) {
     var cls = 'message ' + (m.direction === 'outbound' ? 'message-out' : 'message-in');
     if (m.type === 'internal_note') cls += ' message-note';
+    if (m.type === 'system') cls += ' message-system';
+    if (m.type === 'sticker') cls += ' message-sticker';
     var avHtml;
     if (m.direction === 'outbound' && m.user_avatar) {
         avHtml = '<img src="' + esc(avatarSrc(m.user_avatar)) + '" class="msg-avatar-img" alt="">';
@@ -1072,6 +1210,14 @@ function renderMessageHtml(m, uploadsBase) {
     if (deleted) {
         body += '<div class="message-deleted"><i class="fas fa-ban"></i> Mensagem excluída</div>';
     }
+    // Quote preview
+    if (m.reply_to_data) {
+        var qname = m.reply_to_data.direction === 'outbound' ? 'Você' : (CONTACT_NAME || 'Contato');
+        var qtext = (m.reply_to_data.content || '').replace(/<[^>]+>/g, '').substring(0, 100);
+        body += '<div class="msg-quote" onclick="scrollToMessage(' + m.reply_to_data.id + ')">' +
+            '<div class="msg-quote-content"><div class="msg-quote-name">' + esc(qname) + '</div>' +
+            '<div class="msg-quote-text">' + esc(qtext) + '</div></div></div>';
+    }
     if (m.type === 'internal_note') {
         body += '<div class="message-note-header"><i class="fas fa-lock"></i> Nota interna' + (m.user_name ? ' - ' + esc(m.user_name) : '') + '</div>';
         body += '<div class="message-content">' + nl2br(m.content) + '</div>';
@@ -1079,6 +1225,8 @@ function renderMessageHtml(m, uploadsBase) {
         var cdat = {}; try { cdat = JSON.parse(m.content); } catch (e) {}
         body += '<div class="message-content csat-request-note"><i class="fas fa-smile"></i> ' + nl2br(cdat.prompt || 'Solicitação de avaliação enviada ao cliente.') +
             (cdat.url ? ' <a href="' + esc(cdat.url) + '" target="_blank" rel="noopener">Avaliar</a>' : '') + '</div>';
+    } else if (m.type === 'system') {
+        body += '<div class="message-content">' + esc(m.content) + '</div>';
     } else if (mtype) {
         body += '<div class="message-content">' + fileContentHtml(mtype, m.content, uploadsBase) + '</div>';
     } else {
@@ -1088,6 +1236,7 @@ function renderMessageHtml(m, uploadsBase) {
     if (m.user_name && m.direction === 'outbound') time += ' - ' + esc(m.user_name);
     if (m.updated_at && m.updated_at !== m.created_at) time += ' <span class="msg-edited">(editada)</span>';
     var actions = '';
+    var reactionPicker = '';
     if (!deleted) {
         actions = '<button type="button" class="msg-act" title="Copiar" onclick="copyMessage(' + m.id + ')"><i class="fas fa-copy"></i></button>' +
                   '<button type="button" class="msg-act" title="Citar" onclick="quoteMessage(' + m.id + ')"><i class="fas fa-quote-right"></i></button>';
@@ -1095,6 +1244,9 @@ function renderMessageHtml(m, uploadsBase) {
             actions += '<button type="button" class="msg-act" title="Editar" onclick="editMessage(' + m.id + ')"><i class="fas fa-edit"></i></button>' +
                        '<button type="button" class="msg-act msg-act-danger" title="Excluir" onclick="deleteMessage(' + m.id + ')"><i class="fas fa-trash"></i></button>';
         }
+        reactionPicker = '<button type="button" class="msg-reaction-btn" data-mid="' + m.id + '" title="Reagir" onclick="toggleReactionPicker(' + m.id + ', event)"><i class="far fa-smile"></i></button>' +
+            '<div class="reaction-picker" id="rp-' + m.id + '" data-mid="' + m.id + '">' +
+            ['👍','❤️','😂','😮','😢','🙏'].map(function(e){return '<span class="rp-emoji" onclick="sendReaction(' + m.id + ', \'' + e + '\')">' + e + '</span>';}).join('') + '</div>';
     }
     var reactionsHtml = renderReactions(m.reactions);
     return '<div class="' + cls + '" data-mid="' + m.id + '" data-text="' + esc((m.content || '').replace(/<[^>]+>/g, '')) + '">' +
@@ -1102,6 +1254,7 @@ function renderMessageHtml(m, uploadsBase) {
         '<div class="message-body' + (deleted ? ' is-deleted' : '') + '">' + body +
         '<div class="message-time">' + time + '</div>' +
         '<div class="msg-actions">' + actions + '</div>' +
+        reactionPicker +
         reactionsHtml +
         '</div></div>';
 }
@@ -1234,6 +1387,10 @@ document.getElementById('messageInput')?.addEventListener('keydown', function(e)
 (function() {
     var form = document.getElementById('composerForm');
     if (!form) return;
+    function doneProgress() {
+        var bar = document.getElementById('topProgress');
+        if (bar) { bar.classList.remove('active'); bar.classList.add('done'); setTimeout(function() { bar.classList.remove('done'); }, 500); }
+    }
     form.addEventListener('submit', function(e) {
         e.preventDefault();
         var ta = document.getElementById('messageInput');
@@ -1242,6 +1399,7 @@ document.getElementById('messageInput')?.addEventListener('keydown', function(e)
         if (!ta.value.trim() && !(fileInput && fileInput.files.length)) return;
         if (btn) btn.disabled = true;
         var fd = new FormData(form);
+        if (quoteTarget) fd.set('reply_to', quoteTarget);
         fetch(form.action, {
             method: 'POST',
             headers: { 'X-Requested-With': 'XMLHttpRequest' },
@@ -1252,6 +1410,7 @@ document.getElementById('messageInput')?.addEventListener('keydown', function(e)
                 decorateDates();
                 scrollConvBottom();
                 ta.value = '';
+                clearQuote();
                 closeSuggest();
                 if (internalOn) toggleInternal();
                 if (fileInput) fileInput.value = '';
@@ -1262,7 +1421,10 @@ document.getElementById('messageInput')?.addEventListener('keydown', function(e)
             }
         }).catch(function() {
             alert('Erro ao enviar mensagem. Tente novamente.');
-        }).finally(function() { if (btn) btn.disabled = false; });
+        }).finally(function() {
+            if (btn) btn.disabled = false;
+            doneProgress();
+        });
     });
 })();
 ensureCannedData();
@@ -1354,6 +1516,9 @@ function toast(msg) {
     document.body.appendChild(t); setTimeout(function() { t.remove(); }, 1800);
 }
 
-scrollConvBottom();
-decorateDates();
+requestAnimationFrame(function() {
+    scrollConvBottom();
+    decorateDates();
+    requestAnimationFrame(scrollConvBottom);
+});
 </script>

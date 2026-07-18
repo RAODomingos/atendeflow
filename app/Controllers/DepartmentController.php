@@ -105,12 +105,6 @@ class DepartmentController
         View::redirect('/departments');
     }
 
-    public function apiList(Request $request): void
-    {
-        $departments = Department::all();
-        View::json($departments);
-    }
-
     public function apiUsers(Request $request, int $id): void
     {
         View::json(Department::getUsers($id));

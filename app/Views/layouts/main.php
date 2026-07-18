@@ -57,7 +57,6 @@
             <nav class="sidebar" id="sidebar">
                 <div class="sidebar-inner">
                     <div class="nav-section">
-                        <span class="nav-section-title">Menu</span>
                         <a href="<?= route('dashboard') ?>" class="sidebar-btn <?= $activePage === 'dashboard' ? 'active' : '' ?>">
                             <i class="fa-solid fa-th-large"></i>
                             <span>Dashboard</span>
@@ -107,63 +106,81 @@
                             </a>
                         <?php endforeach; ?>
                     </div>
-                    <div class="nav-section">
-                        <span class="nav-section-title">Gestão</span>
-                        <a href="<?= route('contacts') ?>" class="sidebar-btn <?= $activePage === 'contacts' ? 'active' : '' ?>">
-                            <i class="fa-solid fa-address-book"></i>
-                            <span>Contatos</span>
-                        </a>
-                        <a href="<?= route('departments') ?>" class="sidebar-btn <?= $activePage === 'departments' ? 'active' : '' ?>">
-                            <i class="fa-solid fa-layer-group"></i>
-                            <span>Departamentos</span>
-                        </a>
-                        <a href="<?= route('flows') ?>" class="sidebar-btn <?= $activePage === 'flows' ? 'active' : '' ?>">
-                            <i class="fa-solid fa-diagram-project"></i>
-                            <span>Fluxos</span>
-                        </a>
-                        <a href="<?= url('library') ?>" class="sidebar-btn <?= ($activePage ?? '') === 'library' ? 'active' : '' ?>">
-                            <i class="fa-solid fa-book"></i>
-                            <span>Tags e Respostas</span>
-                        </a>
+                    <?php $gestaoActive = in_array($activePage ?? '', ['contacts', 'departments', 'flows', 'library']); ?>
+                    <div class="nav-section <?= $gestaoActive ? 'expanded' : '' ?>">
+                        <div class="nav-section-title nav-dropdown-toggle" onclick="this.parentElement.classList.toggle('expanded')">
+                            <span>Gestão</span>
+                            <i class="fa-solid fa-chevron-down chevron"></i>
+                        </div>
+                        <div class="nav-dropdown-menu">
+                            <a href="<?= route('contacts') ?>" class="sidebar-btn <?= $activePage === 'contacts' ? 'active' : '' ?>">
+                                <i class="fa-solid fa-address-book"></i>
+                                <span>Contatos</span>
+                            </a>
+                            <a href="<?= route('departments') ?>" class="sidebar-btn <?= $activePage === 'departments' ? 'active' : '' ?>">
+                                <i class="fa-solid fa-layer-group"></i>
+                                <span>Departamentos</span>
+                            </a>
+                            <a href="<?= route('flows') ?>" class="sidebar-btn <?= $activePage === 'flows' ? 'active' : '' ?>">
+                                <i class="fa-solid fa-diagram-project"></i>
+                                <span>Fluxos</span>
+                            </a>
+                            <a href="<?= url('library') ?>" class="sidebar-btn <?= ($activePage ?? '') === 'library' ? 'active' : '' ?>">
+                                <i class="fa-solid fa-book"></i>
+                                <span>Tags e Respostas</span>
+                            </a>
+                        </div>
                     </div>
-                    <div class="nav-section">
-                        <span class="nav-section-title">Relatórios</span>
-                        <a href="<?= url('reports') ?>" class="sidebar-btn <?= ($activePage ?? '') === 'reports' ? 'active' : '' ?>">
-                            <i class="fa-solid fa-chart-pie"></i>
-                            <span>Visão Geral</span>
-                        </a>
-                        <a href="<?= url('reports/conversations') ?>" class="sidebar-btn <?= ($activePage ?? '') === 'reports_conversations' ? 'active' : '' ?>">
-                            <i class="fa-solid fa-comments"></i>
-                            <span>Conversas</span>
-                        </a>
-                        <a href="<?= url('reports/agents') ?>" class="sidebar-btn <?= ($activePage ?? '') === 'reports_agents' ? 'active' : '' ?>">
-                            <i class="fa-solid fa-users"></i>
-                            <span>Atendentes</span>
-                        </a>
-                        <a href="<?= url('reports/csat') ?>" class="sidebar-btn <?= ($activePage ?? '') === 'reports_csat' ? 'active' : '' ?>">
-                            <i class="fa-solid fa-star"></i>
-                            <span>Satisfação (CSAT)</span>
-                        </a>
+                    <?php $relatoriosActive = in_array($activePage ?? '', ['reports', 'reports_conversations', 'reports_agents', 'reports_csat']); ?>
+                    <div class="nav-section <?= $relatoriosActive ? 'expanded' : '' ?>">
+                        <div class="nav-section-title nav-dropdown-toggle" onclick="this.parentElement.classList.toggle('expanded')">
+                            <span>Relatórios</span>
+                            <i class="fa-solid fa-chevron-down chevron"></i>
+                        </div>
+                        <div class="nav-dropdown-menu">
+                            <a href="<?= url('reports') ?>" class="sidebar-btn <?= ($activePage ?? '') === 'reports' ? 'active' : '' ?>">
+                                <i class="fa-solid fa-chart-pie"></i>
+                                <span>Visão Geral</span>
+                            </a>
+                            <a href="<?= url('reports/conversations') ?>" class="sidebar-btn <?= ($activePage ?? '') === 'reports_conversations' ? 'active' : '' ?>">
+                                <i class="fa-solid fa-comments"></i>
+                                <span>Conversas</span>
+                            </a>
+                            <a href="<?= url('reports/agents') ?>" class="sidebar-btn <?= ($activePage ?? '') === 'reports_agents' ? 'active' : '' ?>">
+                                <i class="fa-solid fa-users"></i>
+                                <span>Atendentes</span>
+                            </a>
+                            <a href="<?= url('reports/csat') ?>" class="sidebar-btn <?= ($activePage ?? '') === 'reports_csat' ? 'active' : '' ?>">
+                                <i class="fa-solid fa-star"></i>
+                                <span>Satisfação (CSAT)</span>
+                            </a>
+                        </div>
                     </div>
                     <?php if (\App\Core\Auth::isAdmin()): ?>
-                    <div class="nav-section">
-                        <span class="nav-section-title">Administração</span>
-                        <a href="<?= route('users') ?>" class="sidebar-btn <?= $activePage === 'users' ? 'active' : '' ?>">
-                            <i class="fa-solid fa-users-cog"></i>
-                            <span>Usuários</span>
-                        </a>
-                        <a href="<?= url('channels') ?>" class="sidebar-btn <?= ($activePage ?? '') === 'channels' ? 'active' : '' ?>">
-                            <i class="fa-solid fa-plug"></i>
-                            <span>Canais</span>
-                        </a>
-                        <a href="<?= url('inboxes') ?>" class="sidebar-btn <?= ($activePage ?? '') === 'inboxes' ? 'active' : '' ?>">
-                            <i class="fa-solid fa-inbox"></i>
-                            <span>Caixas de Entrada</span>
-                        </a>
-                        <a href="<?= url('settings') ?>" class="sidebar-btn <?= ($activePage ?? '') === 'settings' ? 'active' : '' ?>">
-                            <i class="fa-solid fa-cog"></i>
-                            <span>Configurações</span>
-                        </a>
+                    <?php $adminActive = in_array($activePage ?? '', ['users', 'channels', 'inboxes', 'settings']); ?>
+                    <div class="nav-section <?= $adminActive ? 'expanded' : '' ?>">
+                        <div class="nav-section-title nav-dropdown-toggle" onclick="this.parentElement.classList.toggle('expanded')">
+                            <span>Administração</span>
+                            <i class="fa-solid fa-chevron-down chevron"></i>
+                        </div>
+                        <div class="nav-dropdown-menu">
+                            <a href="<?= route('users') ?>" class="sidebar-btn <?= $activePage === 'users' ? 'active' : '' ?>">
+                                <i class="fa-solid fa-users-cog"></i>
+                                <span>Usuários</span>
+                            </a>
+                            <a href="<?= url('channels') ?>" class="sidebar-btn <?= ($activePage ?? '') === 'channels' ? 'active' : '' ?>">
+                                <i class="fa-solid fa-plug"></i>
+                                <span>Canais</span>
+                            </a>
+                            <a href="<?= url('inboxes') ?>" class="sidebar-btn <?= ($activePage ?? '') === 'inboxes' ? 'active' : '' ?>">
+                                <i class="fa-solid fa-inbox"></i>
+                                <span>Caixas de Entrada</span>
+                            </a>
+                            <a href="<?= url('settings') ?>" class="sidebar-btn <?= ($activePage ?? '') === 'settings' ? 'active' : '' ?>">
+                                <i class="fa-solid fa-cog"></i>
+                                <span>Configurações</span>
+                            </a>
+                        </div>
                     </div>
                     <?php endif; ?>
                 </div>
@@ -212,13 +229,9 @@
         <!-- Sidebar overlay - mobile/tablet only -->
         <div class="sidebar-overlay" id="sidebarOverlay" style="display:none; opacity:0; transition:opacity 0.3s;"></div>
 
-        <div id="vue-toasts"></div>
-
         <div class="top-progress" id="topProgress"></div>
 
-    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
-    <script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
     <script src="<?= asset('assets/js/app.js') ?>"></script>
     <script src="<?= asset('assets/js/app-enhancements.js') ?>"></script>
     <script>
@@ -276,7 +289,7 @@
         });
     })();
 
-    // Notifications system
+    // Notifications system (unread conversations + system notifications)
     (function() {
         const notifBtn = document.getElementById('notifBtn');
         const notifDropdown = document.getElementById('notifDropdown');
@@ -287,69 +300,157 @@
 
         const baseUrl = document.querySelector('meta[name="base-url"]')?.content || '';
 
-        function fetchUnreadCount() {
-            fetch(baseUrl + '/notifications/unread-count')
-                .then(r => r.json())
-                .then(data => {
-                    const count = data.count || 0;
-                    if (count > 0) {
-                        notifBadge.textContent = count > 99 ? '99+' : count;
-                        notifBadge.style.display = '';
-                    } else {
-                        notifBadge.style.display = 'none';
-                    }
-                })
-                .catch(() => {});
+        var channelIcons = {
+            whatsapp: 'fab fa-whatsapp',
+            webchat: 'fas fa-comment-dots',
+            email: 'fas fa-envelope',
+            telegram: 'fab fa-telegram',
+            facebook: 'fab fa-facebook',
+            instagram: 'fab fa-instagram',
+            phone: 'fas fa-phone',
+        };
+
+        function esc(s) {
+            if (s == null) return '';
+            var d = document.createElement('div');
+            d.textContent = String(s);
+            return d.innerHTML;
+        }
+
+        function timeAgo(dt) {
+            if (!dt) return '';
+            var d = new Date(String(dt).replace(' ', 'T'));
+            if (isNaN(d)) return '';
+            var now = new Date();
+            var diffMs = now - d;
+            var sec = Math.floor(diffMs / 1000);
+            if (sec < 60) return 'agora';
+            var min = Math.floor(sec / 60);
+            if (min < 60) return min + 'm';
+            var hr = Math.floor(min / 60);
+            if (hr < 24) return hr + 'h';
+            var days = Math.floor(hr / 24);
+            if (days < 30) return days + 'd';
+            return d.toLocaleDateString('pt-BR');
+        }
+
+        function truncate(text, limit) {
+            if (!text) return 'Sem mensagens';
+            if (text.length <= limit) return text;
+            return text.substring(0, limit) + '...';
+        }
+
+        function fetchUnreadConversations() {
+            var params = new URLSearchParams(window.location.search);
+            var inboxVal = params.get('inbox');
+            var url = baseUrl + '/api/unread-conversations';
+            if (inboxVal) url += '?inbox=' + encodeURIComponent(inboxVal);
+            return fetch(url, {
+                headers: { 'X-Requested-With': 'XMLHttpRequest' }
+            }).then(function(r) { return r.json(); }).catch(function() { return { conversations: [], total_unread: 0 }; });
         }
 
         function fetchNotifications() {
-            fetch(baseUrl + '/notifications?limit=20')
-                .then(r => r.json())
-                .then(data => {
-                    const notifications = data.notifications || [];
-                    notifList.innerHTML = '';
-                    if (notifications.length === 0) {
-                        notifList.innerHTML = '<div class="notif-empty">Nenhuma notificação</div>';
-                        return;
+            return fetch(baseUrl + '/notifications?limit=10', {
+                headers: { 'X-Requested-With': 'XMLHttpRequest' }
+            }).then(function(r) { return r.json(); }).catch(function() { return { notifications: [], unread_count: 0 }; });
+        }
+
+        function renderDropdown() {
+            notifList.innerHTML = '<div class="notif-loading"><i class="fas fa-spinner fa-spin"></i> Carregando...</div>';
+
+            Promise.all([fetchUnreadConversations(), fetchNotifications()])
+                .then(function(results) {
+                    var convData = results[0];
+                    var notifData = results[1];
+                    var conversations = convData.conversations || [];
+                    var notifications = notifData.notifications || [];
+                    var html = '';
+
+                    // Section: Unread conversations
+                    if (conversations.length > 0) {
+                        html += '<div class="notif-section-label"><i class="fas fa-comment-dots"></i> Mensagens não lidas</div>';
+                        conversations.forEach(function(c) {
+                            var chIcon = channelIcons[c.channel_type] || 'fas fa-comment-dots';
+                            var chColor = c.channel_type === 'whatsapp' ? '#25D366'
+                                : c.channel_type === 'webchat' ? '#4361ee'
+                                : c.channel_type === 'email' ? '#f59e0b'
+                                : c.channel_type === 'telegram' ? '#0088cc'
+                                : '#6c757d';
+                            var initial = (c.contact_name || '?').charAt(0).toUpperCase();
+                            var avatarHtml = c.contact_avatar
+                                ? '<img class="notif-msg-avatar" src="' + (c.contact_avatar.indexOf('http') === 0 ? '' : baseUrl + '/uploads/') + esc(c.contact_avatar) + '" alt="">'
+                                : '<div class="notif-msg-avatar notif-msg-avatar-placeholder">' + esc(initial) + '</div>';
+                            html += '<a href="' + baseUrl + '/inbox/' + c.id + '" class="notif-msg-item">'
+                                + avatarHtml
+                                + '<div class="notif-msg-content">'
+                                + '<div class="notif-msg-header">'
+                                + '<span class="notif-msg-name">' + esc(c.contact_name || 'Cliente') + '</span>'
+                                + '<span class="notif-msg-channel" style="color:' + chColor + '"><i class="' + chIcon + '"></i></span>'
+                                + '<span class="notif-msg-time">' + timeAgo(c.last_message_at || c.created_at) + '</span>'
+                                + '</div>'
+                                + '<div class="notif-msg-preview">' + esc(truncate(c.last_message, 100)) + '</div>'
+                                + (c.unread_count > 1 ? '<span class="notif-msg-count">' + c.unread_count + ' mensagens</span>' : '')
+                                + '</div>'
+                                + '</a>';
+                        });
+                        html += '<div class="notif-section-divider"></div>';
                     }
-                    notifications.forEach(function(n) {
-                        const item = document.createElement('div');
-                        item.className = 'notif-item' + (n.is_read ? '' : ' notif-unread');
-                        item.dataset.id = n.id;
-                        item.innerHTML = [
-                            '<div class="notif-icon"><i class="fa-solid fa-',
-                            n.notification_type === 'mention' ? 'at' : 'user-plus',
-                            '"></i></div>',
-                            '<div class="notif-content">',
-                            '<div class="notif-title">', utils.esc(n.title || ''), '</div>',
-                            '<div class="notif-body">', utils.esc(n.body || ''), '</div>',
-                            '<div class="notif-time">', utils.timeAgo(n.created_at), '</div>',
-                            '</div>',
-                            n.is_read ? '' : '<button class="notif-mark-one" data-id="' + n.id + '"><i class="fa-solid fa-check"></i></button>'
-                        ].join('');
+
+                    // Section: System notifications
+                    if (notifications.length > 0) {
+                        html += '<div class="notif-section-label"><i class="fas fa-bell"></i> Notificações</div>';
+                        notifications.forEach(function(n) {
+                            var isUnread = !n.is_read;
+                            html += '<div class="notif-item' + (isUnread ? ' notif-unread' : '') + '" data-id="' + n.id + '">'
+                                + '<div class="notif-icon"><i class="fa-solid fa-' + (n.notification_type === 'mention' ? 'at' : 'user-plus') + '"></i></div>'
+                                + '<div class="notif-content">'
+                                + '<div class="notif-title">' + esc(n.title || '') + '</div>'
+                                + '<div class="notif-body">' + esc(n.body || '') + '</div>'
+                                + '<div class="notif-time">' + timeAgo(n.created_at) + '</div>'
+                                + '</div>'
+                                + (isUnread ? '<button class="notif-mark-one" data-id="' + n.id + '"><i class="fa-solid fa-check"></i></button>' : '')
+                                + '</div>';
+                        });
+                    }
+
+                    if (!conversations.length && !notifications.length) {
+                        html = '<div class="notif-empty">Nenhuma notificação</div>';
+                    }
+
+                    notifList.innerHTML = html;
+
+                    // Bind notification click events
+                    notifList.querySelectorAll('.notif-item').forEach(function(item) {
                         item.addEventListener('click', function(e) {
                             if (e.target.closest('.notif-mark-one')) return;
-                            if (n.conversation_id) {
-                                window.location = baseUrl + '/inbox/' + n.conversation_id;
+                            var id = item.dataset.id;
+                            if (id) {
+                                window.location = baseUrl + '/inbox/' + id;
                             }
                         });
-                        const markOne = item.querySelector('.notif-mark-one');
-                        if (markOne) {
-                            markOne.addEventListener('click', function(e) {
-                                e.stopPropagation();
-                                fetch(baseUrl + '/notifications/' + n.id + '/read', {
-                                    method: 'POST',
-                                    headers: { 'X-Requested-With': 'XMLHttpRequest' },
-                                    body: new URLSearchParams({ _csrf_token: utils.csrf() })
-                                }).then(function() {
-                                    item.classList.remove('notif-unread');
-                                    markOne.remove();
-                                    fetchUnreadCount();
-                                }).catch(function() {});
-                            });
-                        }
-                        notifList.appendChild(item);
                     });
+
+                    // Bind mark-one click
+                    notifList.querySelectorAll('.notif-mark-one').forEach(function(btn) {
+                        btn.addEventListener('click', function(e) {
+                            e.stopPropagation();
+                            var id = btn.dataset.id;
+                            fetch(baseUrl + '/notifications/' + id + '/read', {
+                                method: 'POST',
+                                headers: { 'X-Requested-With': 'XMLHttpRequest' },
+                                body: new URLSearchParams({ _csrf_token: utils.csrf() })
+                            }).then(function() {
+                                var item = btn.closest('.notif-item');
+                                if (item) {
+                                    item.classList.remove('notif-unread');
+                                    btn.remove();
+                                }
+                            }).catch(function() {});
+                        });
+                    });
+
+                    notifDropdown.dataset.loaded = '1';
                 })
                 .catch(function() {
                     notifList.innerHTML = '<div class="notif-empty">Erro ao carregar notificações</div>';
@@ -358,14 +459,11 @@
 
         notifBtn.addEventListener('click', function(e) {
             e.stopPropagation();
-            const isOpen = notifDropdown.classList.contains('open');
+            var isOpen = notifDropdown.classList.contains('open');
             document.querySelectorAll('.notif-dropdown.open').forEach(function(el) { el.classList.remove('open'); });
             if (!isOpen) {
                 notifDropdown.classList.add('open');
-                if (!notifDropdown.dataset.loaded) {
-                    fetchNotifications();
-                    notifDropdown.dataset.loaded = '1';
-                }
+                renderDropdown();
             }
         });
 
@@ -376,12 +474,11 @@
                     headers: { 'X-Requested-With': 'XMLHttpRequest' },
                     body: new URLSearchParams({ _csrf_token: utils.csrf() })
                 }).then(function() {
-                    notifList.querySelectorAll('.notif-item').forEach(function(item) {
+                    notifList.querySelectorAll('.notif-item.notif-unread').forEach(function(item) {
                         item.classList.remove('notif-unread');
                         var mark = item.querySelector('.notif-mark-one');
                         if (mark) mark.remove();
                     });
-                    fetchUnreadCount();
                 }).catch(function() {});
             });
         }
@@ -392,9 +489,6 @@
         notifDropdown.addEventListener('click', function(e) {
             e.stopPropagation();
         });
-
-        fetchUnreadCount();
-        setInterval(fetchUnreadCount, 30000);
     })();
     </script>
 </body>

@@ -2,6 +2,7 @@
 /** @var array $macros */
 /** @var array $departments */
 /** @var array $tags */
+/** @var array $inboxes */
 ?>
 <div class="page-form">
     <div class="page-toolbar">
@@ -58,6 +59,17 @@
                         </div>
                     </div>
                 </div>
+                <div class="form-row">
+                    <div class="form-group col-4">
+                        <label><i class="fas fa-exchange-alt"></i> Ação: transferir p/ caixa</label>
+                        <select name="action_transfer_inbox_id" class="form-control">
+                            <option value="">Nenhuma</option>
+                            <?php foreach ($inboxes as $ib): ?>
+                                <option value="<?= $ib['id'] ?>"><?= e($ib['name']) ?></option>
+                            <?php endforeach; ?>
+                        </select>
+                    </div>
+                </div>
                 <div class="form-actions">
                     <button type="submit" class="btn btn-primary">
                         <i class="fas fa-plus"></i> Criar Macro
@@ -82,6 +94,7 @@
                         if (!empty($acts['status'])) $actLabels[] = 'Status: ' . $acts['status'];
                         if (!empty($acts['tag_id'])) $actLabels[] = 'Etiqueta #' . $acts['tag_id'];
                         if (!empty($acts['assign_me'])) $actLabels[] = 'Atribuir a mim';
+                        if (!empty($acts['transfer_inbox_id'])) $actLabels[] = 'Transferir p/ caixa #' . $acts['transfer_inbox_id'];
                     ?>
                         <tr>
                             <td><strong><?= e($m['title']) ?></strong></td>

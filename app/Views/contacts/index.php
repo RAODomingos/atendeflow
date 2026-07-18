@@ -80,7 +80,7 @@
                                             <a href="<?= url('contacts/') ?><?= $contact['id'] ?>/edit" class="btn btn-sm btn-outline" title="Editar">
                                                 <i class="fas fa-edit"></i>
                                             </a>
-                                            <button type="button" class="btn btn-sm btn-outline btn-icon-danger" title="Excluir" onclick="confirmDeleteContact(<?= $contact['id'] ?>, '<?= htmlspecialchars(addslashes($contact['name']), ENT_QUOTES) ?>')">
+                                            <button type="button" class="btn btn-sm btn-outline btn-icon-danger" title="Excluir" onclick="confirmDeleteContact(<?= $contact['id'] ?>, <?= htmlspecialchars(json_encode($contact['name'], JSON_UNESCAPED_UNICODE), ENT_QUOTES) ?>)">
                                                 <i class="fas fa-trash"></i>
                                             </button>
                                         </div>
@@ -101,6 +101,7 @@
 
 <script>
 var contactSearchTimer;
+var contactsBaseUrl = <?= json_encode(url('contacts/'), JSON_UNESCAPED_SLASHES) ?>;
 function debounceContactSearch(input) {
     clearTimeout(contactSearchTimer);
     contactSearchTimer = setTimeout(function() { input.closest('form').submit(); }, 400);
@@ -131,7 +132,7 @@ function sortTable(col) {
 function confirmDeleteContact(id, name) {
     if (confirm('Excluir contato "' + name + '"? Esta ação não pode ser desfeita.')) {
         var form = document.getElementById('deleteContactForm');
-        form.action = '/contacts/' + id + '/delete';
+        form.action = contactsBaseUrl + id + '/delete';
         form.submit();
     }
 }

@@ -215,12 +215,6 @@ class UserController
         View::redirect('/profile');
     }
 
-    public function apiList(Request $request): void
-    {
-        $users = User::all();
-        View::json($users);
-    }
-
     private function processAvatar(Request $request): ?string
     {
         if ($request->post('remove_avatar')) {

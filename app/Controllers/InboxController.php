@@ -33,7 +33,7 @@ class InboxController
         $search = trim((string) $request->input('search'));
         $statusFilter = $request->input('fstatus');
         if ($statusFilter === null) {
-            $statusFilter = 'new';
+            $statusFilter = 'active';
         }
 
         $filters = [];
@@ -63,11 +63,13 @@ class InboxController
                 'counts' => Conversation::countByStatus(Auth::id()),
                 'unread' => Conversation::getUnreadCount(Auth::id()),
                 'departments' => Department::all(),
+                'contacts' => Contact::all(),
                 'inboxes' => $inboxes,
                 'activeInbox' => (int) $inboxId,
                 'search' => $search,
                 'fstatus' => $statusFilter,
                 'detail' => $detail,
+                'channels' => \App\Models\Channel::getWhatsapp(),
             ]);
             return;
         }
@@ -82,10 +84,12 @@ class InboxController
             'counts' => Conversation::countByStatus(Auth::id()),
             'unread' => Conversation::getUnreadCount(Auth::id()),
             'departments' => Department::all(),
+            'contacts' => Contact::all(),
             'inboxes' => $inboxes,
             'search' => $search,
             'fstatus' => $statusFilter,
             'detail' => $detail,
+            'channels' => \App\Models\Channel::getWhatsapp(),
         ]);
     }
 
@@ -154,17 +158,6 @@ class InboxController
             'inboxes' => Inbox::getUserInboxes(Auth::id()),
             'activeTab' => 'mine',
         ]);
-    }
-
-    public function department(Request $request, int $id): void
-    {
-        $data = $this->conversationService->getInboxData(null, $id);
-        $data['title'] = 'Departamento';
-        $data['activePage'] = 'inbox';
-        $data['activeTab'] = 'department';
-        $data['inboxes'] = Inbox::getUserInboxes(Auth::id());
-
-        View::renderWithLayout('inbox/index', 'main', $data);
     }
 
     public function unassigned(Request $request): void
@@ -245,6 +238,7 @@ class InboxController
         $hasText = !empty(trim($content ?? ''));
         $uploaded = null;
         $createdIds = [];
+        $replyTo = $request->post('reply_to') ? (int) $request->post('reply_to') : null;
 
         $isInternal = $request->post('type') === 'internal';
 
@@ -274,7 +268,9 @@ class InboxController
                 $id,
                 json_encode($meta),
                 $messageType,
-                Auth::id()
+                Auth::id(),
+                null,
+                $replyTo
             );
             $createdIds[] = $msgId;
             if ($messageType !== 'internal_note') {
@@ -288,7 +284,7 @@ class InboxController
             if ($type === 'text') {
                 $text = $this->applyWhatsAppSignature($id, $text);
             }
-            $msgId = $this->conversationService->sendMessage($id, $text, $type, Auth::id());
+            $msgId = $this->conversationService->sendMessage($id, $text, $type, Auth::id(), null, $replyTo);
             $createdIds[] = $msgId;
             if ($type !== 'internal_note') {
                 $this->dispatchWhatsApp($id, $msgId, $type, $text);
@@ -454,6 +450,13 @@ class InboxController
     {
         $inboxes = Inbox::getUserInboxes(Auth::id());
         $ids = array_column($inboxes, 'id');
+
+        // Filter by specific inbox if provided
+        $inboxId = $request->input('inbox');
+        if ($inboxId && in_array((int) $inboxId, $ids)) {
+            $ids = [(int) $inboxId];
+        }
+
         $filters = [];
         $statusFilter = $request->input('fstatus');
         if ($statusFilter && $statusFilter !== 'all') {
@@ -461,6 +464,45 @@ class InboxController
         }
         $conversations = Conversation::getConversationsForInboxes($ids, Auth::id(), $filters);
         View::json($conversations);
+    }
+
+    public function apiCreateConversation(Request $request): void
+    {
+        $contactId = (int) $request->post('contact_id');
+        $departmentId = $request->post('department_id') ? (int) $request->post('department_id') : null;
+        $channelId = (int) $request->post('channel_id');
+        $subject = $request->post('subject');
+
+        if (!$contactId || !$channelId) {
+            View::json(['error' => 'Selecione um contato e um canal.'], 422);
+            return;
+        }
+
+        $contact = Contact::find($contactId);
+        if (!$contact) {
+            View::json(['error' => 'Contato não encontrado.'], 404);
+            return;
+        }
+
+        $conversationId = Conversation::create([
+            'contact_id' => $contactId,
+            'department_id' => $departmentId,
+            'channel_id' => $channelId,
+            'inbox_id' => Inbox::resolveInboxForChannel($channelId),
+            'assigned_user_id' => Auth::id(),
+            'subject' => $subject,
+            'status' => 'open',
+        ]);
+
+        Conversation::addEvent($conversationId, 'created', 'Atendimento criado manualmente', Auth::id());
+
+        $messageText = $request->post('message');
+        if (!empty(trim($messageText ?? ''))) {
+            $msgId = $this->conversationService->sendMessage($conversationId, $messageText, 'text', Auth::id());
+            $this->dispatchWhatsApp($conversationId, $msgId, 'text', $messageText);
+        }
+
+        View::json(['id' => $conversationId]);
     }
 
     /**
@@ -555,6 +597,24 @@ class InboxController
             View::json(['success' => true]);
         }
         View::redirect("/inbox?conv={$id}");
+    }
+
+    public function sendReaction(Request $request, int $id, int $mid): void
+    {
+        $reaction = trim((string) $request->post('reaction'));
+        if ($reaction === '') {
+            View::json(['success' => false, 'error' => 'Reação vazia']);
+            return;
+        }
+        $ok = Conversation::updateMessageReaction($mid, $reaction);
+        if ($ok) {
+            try {
+                (new \App\Services\WhatsAppService())->sendReaction($id, $mid, $reaction);
+            } catch (\Throwable $e) {
+                error_log('sendReaction: ' . $e->getMessage());
+            }
+        }
+        View::json(['success' => $ok]);
     }
 
     public function editMessage(Request $request, int $id, int $mid): void
@@ -697,6 +757,9 @@ class InboxController
                 if (!empty($actions['assign_me'])) {
                     $this->conversationService->assign($id, Auth::id());
                 }
+                if (!empty($actions['transfer_inbox_id'])) {
+                    $this->conversationService->transfer($id, null, null, (int) $actions['transfer_inbox_id']);
+                }
             }
             $ok = true;
         }
@@ -720,6 +783,7 @@ class InboxController
             'macros' => Macro::all(),
             'departments' => Department::all(),
             'tags' => Tag::all(),
+            'inboxes' => Inbox::getUserInboxes(Auth::id()),
         ]);
     }
 
@@ -737,6 +801,9 @@ class InboxController
         }
         if ($request->post('action_assign_me')) {
             $actions['assign_me'] = true;
+        }
+        if ($request->post('action_transfer_inbox_id')) {
+            $actions['transfer_inbox_id'] = (int) $request->post('action_transfer_inbox_id');
         }
 
         if ($title === '') {

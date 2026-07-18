@@ -21,6 +21,18 @@ CREATE TABLE users (
     INDEX idx_users_role (role)
 );
 
+-- User notification preferences
+CREATE TABLE user_preferences (
+    id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    user_id BIGINT UNSIGNED NOT NULL,
+    preference_key VARCHAR(100) NOT NULL,
+    preference_value TEXT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    UNIQUE KEY uq_user_pref (user_id, preference_key),
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+
 -- Departments
 CREATE TABLE departments (
     id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
@@ -301,6 +313,8 @@ CREATE TABLE messages (
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     INDEX idx_messages_conversation (conversation_id),
     INDEX idx_messages_created (created_at),
+    INDEX idx_messages_conv_created_id (conversation_id, created_at, id),
+    INDEX idx_messages_unread (conversation_id, direction, is_read, user_id),
     FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE,
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL
 );
@@ -434,6 +448,19 @@ CREATE TABLE flow_answers (
 );
 
 -- Canned responses
+CREATE TABLE IF NOT EXISTS macros (
+    id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    title VARCHAR(150) NOT NULL,
+    content TEXT NULL,
+    department_id BIGINT UNSIGNED NULL,
+    user_id BIGINT UNSIGNED NULL,
+    actions JSON NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    FOREIGN KEY (department_id) REFERENCES departments(id) ON DELETE CASCADE,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 CREATE TABLE canned_responses (
     id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
     title VARCHAR(150) NOT NULL,
