@@ -119,7 +119,7 @@ CREATE TABLE contact_tags (
 -- Channels (whatsapp, webchat, email)
 CREATE TABLE channels (
     id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-    type ENUM('whatsapp', 'webchat', 'email') NOT NULL,
+    type ENUM('whatsapp', 'webchat') NOT NULL,
     name VARCHAR(150) NOT NULL,
     is_active TINYINT(1) NOT NULL DEFAULT 1,
     config JSON NULL,
@@ -149,29 +149,6 @@ CREATE TABLE whatsapp_connections (
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     INDEX idx_wa_provider (provider, instance_name),
-    FOREIGN KEY (channel_id) REFERENCES channels(id) ON DELETE CASCADE
-);
-
--- Email accounts
-CREATE TABLE email_accounts (
-    id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-    channel_id BIGINT UNSIGNED NOT NULL,
-    email VARCHAR(255) NOT NULL,
-    display_name VARCHAR(150) NULL,
-    imap_host VARCHAR(255) NOT NULL,
-    imap_port INT NOT NULL DEFAULT 993,
-    imap_encryption ENUM('ssl', 'tls', 'none') NOT NULL DEFAULT 'ssl',
-    imap_username VARCHAR(255) NULL,
-    imap_password_encrypted TEXT NULL,
-    smtp_host VARCHAR(255) NOT NULL,
-    smtp_port INT NOT NULL DEFAULT 587,
-    smtp_encryption ENUM('tls', 'ssl', 'none') NOT NULL DEFAULT 'tls',
-    smtp_username VARCHAR(255) NULL,
-    smtp_password_encrypted TEXT NULL,
-    last_sync_at DATETIME NULL,
-    is_active TINYINT(1) NOT NULL DEFAULT 1,
-    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     FOREIGN KEY (channel_id) REFERENCES channels(id) ON DELETE CASCADE
 );
 
@@ -368,7 +345,7 @@ CREATE TABLE flows (
     id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
     name VARCHAR(150) NOT NULL,
     description TEXT NULL,
-    channel_scope ENUM('all', 'webchat', 'whatsapp', 'email') NOT NULL DEFAULT 'all',
+    channel_scope ENUM('all', 'webchat', 'whatsapp') NOT NULL DEFAULT 'all',
     is_active TINYINT(1) NOT NULL DEFAULT 1,
     start_node_id BIGINT UNSIGNED NULL,
     created_by BIGINT UNSIGNED NOT NULL,

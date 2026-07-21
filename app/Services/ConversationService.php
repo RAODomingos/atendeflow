@@ -359,17 +359,21 @@ class ConversationService
     }
 
     /**
-     * Entrega uma mensagem outbound ao WhatsApp (se aplicável).
+     * Entrega uma mensagem outbound ao WhatsApp ou E-mail (se aplicável).
      */
     private function deliverOutbound(int $conversationId, int $messageId, string $type, string $content): void
     {
         try {
             $conv = Conversation::find($conversationId);
-            if ($conv && ($conv['channel_type'] ?? null) === 'whatsapp') {
+            if (!$conv) return;
+
+            $channelType = $conv['channel_type'] ?? null;
+
+            if ($channelType === 'whatsapp') {
                 (new \App\Services\WhatsAppService())->sendOutbound($conversationId, $messageId, $type, $content);
             }
         } catch (\Throwable $e) {
-            error_log('WhatsApp outbound error: ' . $e->getMessage());
+            error_log('Outbound delivery error: ' . $e->getMessage());
         }
     }
 

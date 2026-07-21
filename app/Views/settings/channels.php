@@ -98,37 +98,6 @@
         </div>
     </div>
 
-    <!-- E-mail -->
-    <div class="card mt-2">
-        <div class="card-header d-flex between">
-            <h3><i class="fas fa-envelope"></i> E-mail</h3>
-            <button class="btn btn-sm btn-outline" onclick="openDrawer('email')"><i class="fas fa-plus"></i> Adicionar</button>
-        </div>
-        <div class="card-body p-0">
-            <?php if (empty($emailAccounts)): ?>
-                <div class="empty-state"><p>Nenhuma conta de e-mail.</p></div>
-            <?php else: ?>
-                <table class="table">
-                    <thead>
-                        <tr><th>Canal</th><th>E-mail</th><th>SMTP</th><th>IMAP</th><th>Setor</th><th>Status</th><th>Ações</th></tr>
-                    </thead>
-                    <tbody>
-                        <?php foreach ($emailAccounts as $ea): ?>
-                            <tr>
-                                <td><?= e($ea['channel_name']) ?></td>
-                                <td><?= e($ea['email']) ?></td>
-                                <td><code><?= e($ea['smtp_host']) ?>:<?= $ea['smtp_port'] ?></code></td>
-                                <td><code><?= e($ea['imap_host']) ?>:<?= $ea['imap_port'] ?></code></td>
-                                <td><?= e($ea['department_name'] ?? '-') ?></td>
-                                <td><span class="badge <?= $ea['is_active'] ? 'badge-success' : 'badge-secondary' ?>"><?= $ea['is_active'] ? 'Ativo' : 'Inativo' ?></span></td>
-                                <td class="action-cell">-</td>
-                            </tr>
-                        <?php endforeach; ?>
-                    </tbody>
-                </table>
-            <?php endif; ?>
-        </div>
-    </div>
 </div>
 
 <!-- Drawer: Criar / Editar Canal -->
@@ -143,7 +112,6 @@
         <div class="af-type-tabs" id="typeTabs">
             <button type="button" class="af-type-tab active" data-type="webchat" onclick="setType('webchat')">ChatWeb</button>
             <button type="button" class="af-type-tab" data-type="whatsapp" onclick="setType('whatsapp')">WhatsApp</button>
-            <button type="button" class="af-type-tab" data-type="email" onclick="setType('email')">E-mail</button>
         </div>
 
         <form id="channelForm" method="POST" autocomplete="off">
@@ -246,22 +214,6 @@
             </div>
 
             <!-- ============ E-mail ============ -->
-            <div id="form-email" class="af-subform" style="display:none">
-                <div class="form-group">
-                    <label>Nome do canal *</label>
-                    <input type="text" name="name" class="form-control" placeholder="Ex: Suporte E-mail" required>
-                </div>
-                <div class="form-group">
-                    <label>Setor (departamento)</label>
-                    <select name="department_id" class="form-control">
-                        <option value="">Nenhum</option>
-                        <?php foreach ($departments as $dept): ?>
-                            <option value="<?= $dept['id'] ?>"><?= e($dept['name']) ?></option>
-                        <?php endforeach; ?>
-                    </select>
-                </div>
-                <div class="form-hint">As credenciais SMTP/IMAP serão configuradas em seguida.</div>
-            </div>
         </form>
     </div>
 
@@ -308,6 +260,7 @@
     </div>
 </div>
 
+<!-- Modal: Categorias de E-mail -->
 <!-- Modal: QR Code de conexão WhatsApp -->
 <div class="modal" id="qrModal">
     <div class="modal-content" style="max-width:420px">
@@ -412,7 +365,7 @@ function resetForm() {
 function setType(type) {
     document.getElementById('fType').value = type;
     document.querySelectorAll('.af-type-tab').forEach(t => t.classList.toggle('active', t.dataset.type === type));
-    ['webchat','whatsapp','email'].forEach(t => {
+    ['webchat','whatsapp'].forEach(t => {
         const sub = document.getElementById('form-' + t);
         const active = (t === type);
         sub.style.display = active ? 'block' : 'none';
@@ -490,6 +443,11 @@ document.querySelectorAll('.modal').forEach(m => {
 
 // Estado inicial: garante que apenas o sub-form ativo envie dados
 setType('webchat');
+function escHtml(str) {
+    const div = document.createElement('div');
+    div.textContent = str;
+    return div.innerHTML;
+}
 
 // ------------------------------------------------------------
 // WhatsApp — QR Code / pareamento
