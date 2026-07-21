@@ -23,10 +23,6 @@ return [
             ],
         ],
     ],
-    'email' => [
-        'sync_interval' => 60,
-        'max_emails_per_sync' => 50,
-    ],
     'webchat' => [
         'session_lifetime' => 1440,
         'polling_interval' => 3000,

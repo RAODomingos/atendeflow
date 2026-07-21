@@ -1,10 +1,17 @@
 <?php
 /*
- * Configurações do PHP para nível de erro mais alto
+ * Configurações do PHP — erros vão para o log, NUNCA para o output.
+ * Com display_errors=1, warnings/notices do PHP são impressos no corpo da resposta,
+ * corrompendo respostas JSON (ex: "Unexpected non-whitespace character after JSON").
  */
 error_reporting(E_ALL);
-ini_set('display_errors', '1');
-ini_set('display_startup_errors', '1');
+ini_set('display_errors', '0');          // ← NÃO exibir erros no output
+ini_set('display_startup_errors', '0');
+ini_set('log_errors', '1');              // ← Registrar erros no log do PHP/Apache
+
+// Buffer global: captura qualquer output acidental (warnings vazados, BOM, espaços)
+// antes de qualquer header ou resposta JSON ser enviada.
+ob_start();
 
 /*
  * Configurações do Composer Autoload

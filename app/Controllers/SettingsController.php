@@ -30,11 +30,6 @@ class SettingsController
 
         $whatsappConnections = \App\Models\WhatsAppConnection::allWithDetails();
 
-        $emailChannelIds = array_column(
-            Database::getInstance()->fetchAll("SELECT channel_id FROM email_accounts"),
-            'channel_id'
-        );
-
         $webchatWidgets = Database::getInstance()->fetchAll(
             "SELECT w.*, ch.name as channel_name, ch.department_id,
                     d.name as department_name, f.name as flow_name
@@ -53,8 +48,6 @@ class SettingsController
             'channels' => $channels,
             'whatsappConnectionIds' => $whatsappConnectionIds,
             'whatsappConnections' => $whatsappConnections,
-            'emailChannelIds' => $emailChannelIds,
-            'emailAccounts' => [],
             'webchatWidgets' => $webchatWidgets,
             'departments' => Department::all(),
             'flows' => $flows,
@@ -427,4 +420,5 @@ class SettingsController
         }
         Inbox::setUsers($inboxId, array_map('intval', $users));
     }
+
 }
