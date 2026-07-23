@@ -421,6 +421,21 @@
 .afw-file-name { font-size: 13px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .afw-file-size { font-size: 11px; opacity: .7; }
 
+/* ── Interactive buttons & list menu ──────────────────────── */
+.afw-buttons { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.afw-interact-btn {
+    display: block; width: 100%;
+    padding: 10px 14px; border: 1.5px solid var(--afw-primary);
+    background: var(--afw-surface); color: var(--afw-primary);
+    border-radius: 12px; font-size: 13px; font-family: inherit;
+    font-weight: 600; cursor: pointer; transition: all .12s;
+    text-align: center;
+}
+.afw-interact-btn:hover { background: var(--afw-primary); color: #fff; }
+.afw-interact-btn:disabled, .afw-interact-btn.afw-interact-used { opacity: .5; cursor: default; background: var(--afw-bg); color: var(--afw-text-soft); border-color: var(--afw-border); }
+.afw-list-menu { margin-top: 8px; display: flex; flex-direction: column; gap: 4px; }
+.afw-list-title { font-size: 11px; font-weight: 600; color: var(--afw-text-soft); text-transform: uppercase; letter-spacing: .3px; margin-bottom: 2px; }
+
 /* ── Mobile (bottom sheet) ───────────────────────────────── */
 @media (max-width: 480px) {
     .afw-panel {

@@ -46,6 +46,7 @@ $router->group('', function (Router $router) {
     $router->get('/inbox/new', [InboxController::class, 'newConversation']);
     $router->post('/inbox/new', [InboxController::class, 'createConversation']);
     $router->get('/inbox/{id}/panel', [InboxController::class, 'conversationPanel']);
+    $router->get('/inbox/{id}/pdf', [InboxController::class, 'downloadPdf']);
     $router->get('/inbox/{id}', [InboxController::class, 'show']);
     $router->post('/inbox/{id}/messages', [InboxController::class, 'sendMessage']);
     $router->post('/inbox/{id}/settings', [InboxController::class, 'updateSettings']);

@@ -61,6 +61,7 @@ $csat = $conversation['csat'] ?? null;
                     <button class="btn btn-sm btn-icon" onclick="openCsatModal()" title="Avaliação"><i class="fas fa-smile"></i></button>
                     <button class="btn btn-sm btn-icon" onclick="openMergeModal()" title="Mesclar"><i class="fas fa-code-merge"></i></button>
                     <button class="btn btn-sm btn-icon" onclick="window.print()" title="Imprimir"><i class="fas fa-print"></i></button>
+                    <a href="<?= url('inbox/') ?><?= $conv['id'] ?>/pdf" class="btn btn-sm btn-icon" title="Baixar PDF"><i class="fas fa-file-pdf"></i></a>
                     <button class="btn btn-sm btn-icon" onclick="openTransferModal()" title="Transferir"><i class="fas fa-exchange-alt"></i></button>
                     <?php if (empty($conv['assigned_user_id'])): ?>
                         <form action="<?= url('inbox/') ?><?= $conv['id'] ?>/assign" method="POST" class="conv-action-form" style="display:inline">

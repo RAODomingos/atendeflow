@@ -294,6 +294,9 @@
         if (type === 'csat_request' && !isUser) {
             return renderCsatCard(text, avatar, time);
         }
+        if ((type === 'button_list' || type === 'list_menu') && !isUser) {
+            return renderInteractiveMsg(type, text, avatar, time);
+        }
         var wrap = document.createElement('div');
         wrap.className = 'afw-msg ' + (isUser ? 'afw-msg--user' : 'afw-msg--bot');
         var body = (type && type !== 'text') ? renderFileContent(type, fileContent || text, isUser) : esc(text);
@@ -305,6 +308,47 @@
                 '<span class="afw-time">' + (time || nowTime()) + '</span>' +
             '</div>';
         messagesEl.appendChild(wrap);
+        return wrap;
+    }
+
+    function renderInteractiveMsg(type, content, avatar, time) {
+        var data = {};
+        try { data = JSON.parse(content); } catch (e) { data = { text: content }; }
+        var wrap = document.createElement('div');
+        wrap.className = 'afw-msg afw-msg--bot';
+        var html = msgAvatar(avatar) +
+            '<div class="afw-msg-content">' +
+            '<div class="afw-bubble">' + esc(data.text || '') + '</div>';
+
+        if (type === 'button_list') {
+            html += '<div class="afw-buttons">';
+            (data.buttons || []).forEach(function (b) {
+                html += '<button type="button" class="afw-interact-btn" data-value="' + esc(b.id || b.label) + '">' + esc(b.label) + '</button>';
+            });
+            html += '</div>';
+        } else if (type === 'list_menu') {
+            html += '<div class="afw-list-menu">';
+            html += '<div class="afw-list-title">' + esc(data.title || 'Opções') + '</div>';
+            (data.items || []).forEach(function (item) {
+                html += '<button type="button" class="afw-interact-btn afw-list-item" data-value="' + esc(item.id || item.label) + '">' + esc(item.label) + '</button>';
+            });
+            html += '</div>';
+        }
+
+        html += '<span class="afw-time">' + (time || nowTime()) + '</span></div>';
+        wrap.innerHTML = html;
+        messagesEl.appendChild(wrap);
+
+        wrap.querySelectorAll('.afw-interact-btn').forEach(function (btn) {
+            btn.addEventListener('click', function () {
+                var val = btn.getAttribute('data-value') || btn.textContent;
+                send(val);
+                btn.disabled = true;
+                btn.classList.add('afw-interact-used');
+            });
+        });
+
+        if (isNearBottom()) scrollToBottom();
         return wrap;
     }
 
@@ -669,6 +713,17 @@
             .then(function (data) {
                 touchSession();
                 if (data.messages && data.messages.length) {
+                    var news = data.messages.filter(function (m) {
+                        return m.direction === 'outbound' && m.type !== 'system' && m.type !== 'internal_note' && (!lastPoll || m.created_at > lastPoll);
+                    });
+                    if (news.length) {
+                        hideTyping();
+                        var near = isNearBottom();
+                        news.forEach(function (m) { if (m.content) renderMsg(m.content, false, m.user_name || TITLE, m.avatar_url || AVATAR, m.type, m.content); });
+                        if (near) scrollToBottom(); else bumpUnread();
+                        showQuick(QUICK_REPLIES);
+                        playReceiveSound();
+                    }
                     lastPoll = data.messages[data.messages.length - 1].created_at;
                 }
             })

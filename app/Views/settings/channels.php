@@ -64,7 +64,7 @@
             <?php else: ?>
                 <table class="table">
                     <thead>
-                        <tr><th>Canal</th><th>Provedor</th><th>Número</th><th>Status</th><th>Setor</th><th>Última conexão</th><th>Ações</th></tr>
+                        <tr><th>Canal</th><th>Provedor</th><th>Número</th><th>Status</th><th>Setor</th><th>Fluxo</th><th>Última conexão</th><th>Ações</th></tr>
                     </thead>
                     <tbody>
                         <?php foreach ($whatsappConnections as $wc): ?>
@@ -78,10 +78,14 @@
                                     </span>
                                 </td>
                                 <td><?= e($wc['department_name'] ?? '-') ?></td>
+                                <td><?= e($wc['flow_name'] ?? '-') ?></td>
                                 <td><?= $wc['last_connected_at'] ? format_datetime($wc['last_connected_at']) : '-' ?></td>
                                 <td class="action-cell">
                                     <button class="btn btn-sm btn-outline" onclick="openQrModal(<?= (int) $wc['channel_id'] ?>, '<?= e($wc['channel_name']) ?>')" title="Conectar / QR Code">
                                         <i class="fas fa-qrcode"></i> Conectar
+                                    </button>
+                                    <button class="btn btn-sm btn-outline" onclick="editWhatsappChannel(<?= (int) $wc['channel_id'] ?>)" title="Editar canal">
+                                        <i class="fas fa-edit"></i>
                                     </button>
                                     <?php if ($wc['status'] === 'connected'): ?>
                                         <form action="<?= url('whatsapp/') ?><?= (int) $wc['channel_id'] ?>/disconnect" method="POST" style="display:inline" onsubmit="return confirm('Desconectar este número?');">
@@ -89,6 +93,10 @@
                                             <button type="submit" class="btn btn-sm btn-outline" title="Desconectar"><i class="fas fa-power-off"></i></button>
                                         </form>
                                     <?php endif; ?>
+                                    <form action="<?= url('channels/') ?><?= (int) $wc['channel_id'] ?>/delete" method="POST" style="display:inline" onsubmit="return confirm('Excluir este canal?')">
+                                        <?= csrf_field() ?>
+                                        <button type="submit" class="btn btn-sm btn-danger" title="Excluir"><i class="fas fa-trash"></i></button>
+                                    </form>
                                 </td>
                             </tr>
                         <?php endforeach; ?>
@@ -186,7 +194,7 @@
             <div id="form-whatsapp" class="af-subform" style="display:none">
                 <div class="form-group">
                     <label>Nome do canal *</label>
-                    <input type="text" name="name" class="form-control" placeholder="Ex: WhatsApp Vendas" required>
+                    <input type="text" name="name" id="waName" class="form-control" placeholder="Ex: WhatsApp Vendas" required>
                 </div>
                 <div class="form-group">
                     <label>Provedor</label>
@@ -203,12 +211,22 @@
                 </div>
                 <div class="form-group">
                     <label>Setor (departamento)</label>
-                    <select name="department_id" class="form-control">
+                    <select name="department_id" id="waDept" class="form-control">
                         <option value="">Nenhum</option>
                         <?php foreach ($departments as $dept): ?>
                             <option value="<?= $dept['id'] ?>"><?= e($dept['name']) ?></option>
                         <?php endforeach; ?>
                     </select>
+                </div>
+                <div class="form-group">
+                    <label>Fluxo de atendimento</label>
+                    <select name="flow_id" id="waFlow" class="form-control">
+                        <option value="">Nenhum (atendimento livre)</option>
+                        <?php foreach ($flows as $flow): ?>
+                            <option value="<?= $flow['id'] ?>"><?= e($flow['name']) ?></option>
+                        <?php endforeach; ?>
+                    </select>
+                    <small class="form-hint">Opcional. Se definido, o fluxo automatizado inicia o atendimento.</small>
                 </div>
                 <div class="form-hint">Após salvar, clique em <strong>Conectar / QR Code</strong> para parear o número.</div>
             </div>
@@ -310,6 +328,22 @@ const WIDGETS = <?= json_encode(
     JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE
 ) ?>;
 
+const WHATSAPP_CHANNELS = <?= json_encode(
+    empty($whatsappConnections) ? (object) [] : array_combine(
+        array_column($whatsappConnections, 'channel_id'),
+        array_map(function ($wc) {
+            return [
+                'name' => $wc['channel_name'],
+                'provider' => $wc['provider'] ?? 'waha',
+                'instance_name' => $wc['instance_name'] ?? '',
+                'department_id' => $wc['department_id'],
+                'flow_id' => $wc['flow_id'],
+            ];
+        }, $whatsappConnections)
+    ),
+    JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE
+) ?>;
+
 let drawerMode = 'create';
 
 function openDrawer(type) {
@@ -328,7 +362,7 @@ function editChannel(channelId) {
     const w = WIDGETS[channelId];
     if (!w) return;
     drawerMode = 'edit';
-    document.getElementById('drawerTitle').textContent = 'Editar Canal';
+    document.getElementById('drawerTitle').textContent = 'Editar Canal ChatWeb';
     document.getElementById('drawerSubmit').textContent = 'Salvar Alterações';
     document.getElementById('channelForm').action = BASE_URL + '/channels/' + channelId + '/update';
     document.getElementById('fChannelId').value = channelId;
@@ -347,6 +381,26 @@ function editChannel(channelId) {
     });
 
     setType('webchat');
+    showDrawer();
+}
+
+function editWhatsappChannel(channelId) {
+    const wc = WHATSAPP_CHANNELS[channelId];
+    if (!wc) return;
+    drawerMode = 'edit';
+    document.getElementById('drawerTitle').textContent = 'Editar Canal WhatsApp';
+    document.getElementById('drawerSubmit').textContent = 'Salvar Alterações';
+    document.getElementById('channelForm').action = BASE_URL + '/channels/' + channelId + '/update';
+    document.getElementById('fChannelId').value = channelId;
+    document.getElementById('typeTabs').style.display = 'none';
+
+    document.getElementById('waName').value = wc.name || '';
+    if (document.getElementById('waProvider')) document.getElementById('waProvider').value = wc.provider || 'waha';
+    if (document.getElementById('waInstanceName')) document.getElementById('waInstanceName').value = wc.instance_name || '';
+    if (document.getElementById('waDept')) document.getElementById('waDept').value = wc.department_id || '';
+    if (document.getElementById('waFlow')) document.getElementById('waFlow').value = wc.flow_id || '';
+
+    setType('whatsapp');
     showDrawer();
 }
 
