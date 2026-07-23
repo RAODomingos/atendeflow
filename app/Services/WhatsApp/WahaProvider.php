@@ -159,6 +159,89 @@ class WahaProvider implements WhatsAppProviderInterface
         }
     }
 
+    public function sendButton(array $connection, string $to, string $text, array $buttons): array
+    {
+        $session = $connection['instance_name'] ?? '';
+        $phone = $this->normalizePhone($to);
+        $headers = $this->authHeaders();
+
+        $sendWithSuffix = function (string $suffix) use ($session, $phone, $text, $buttons, $headers) {
+            $chatId = $phone . $suffix;
+            $waButtons = [];
+            foreach ($buttons as $b) {
+                $waButtons[] = ['buttonText' => ['displayText' => $b['label']]];
+            }
+
+            $resp = $this->client->post('/api/sendButton', [
+                'session' => $session,
+                'chatId' => $chatId,
+                'text' => $text,
+                'buttons' => $waButtons,
+            ], $headers);
+            return $resp;
+        };
+
+        $resp = $sendWithSuffix('@c.us');
+        if (($resp['status'] ?? 0) === 500) {
+            $body = $resp['body'] ?? [];
+            $errMsg = is_array($body) ? (string) ($body['exception']['message'] ?? '') : '';
+            if (str_contains($errMsg, 'No LID for user')) {
+                $resp = $sendWithSuffix('@lid');
+            }
+        }
+
+        return [
+            'provider_message_id' => $this->extractMessageId($resp['body'] ?? []),
+            'raw' => $resp['body'],
+        ];
+    }
+
+    public function sendList(array $connection, string $to, string $text, string $title, array $items): array
+    {
+        $session = $connection['instance_name'] ?? '';
+        $phone = $this->normalizePhone($to);
+        $headers = $this->authHeaders();
+
+        $sendWithSuffix = function (string $suffix) use ($session, $phone, $text, $title, $items, $headers) {
+            $chatId = $phone . $suffix;
+
+            $rows = [];
+            foreach ($items as $i => $item) {
+                $rows[] = [
+                    'rowId' => (string) ($item['id'] ?? $i),
+                    'title' => $item['label'] ?? '',
+                    'description' => '',
+                ];
+            }
+
+            $resp = $this->client->post('/api/sendList', [
+                'session' => $session,
+                'chatId' => $chatId,
+                'text' => $text,
+                'title' => $title,
+                'buttonText' => 'Ver opções',
+                'sections' => [
+                    ['title' => 'Opções', 'rows' => $rows],
+                ],
+            ], $headers);
+            return $resp;
+        };
+
+        $resp = $sendWithSuffix('@c.us');
+        if (($resp['status'] ?? 0) === 500) {
+            $body = $resp['body'] ?? [];
+            $errMsg = is_array($body) ? (string) ($body['exception']['message'] ?? '') : '';
+            if (str_contains($errMsg, 'No LID for user')) {
+                $resp = $sendWithSuffix('@lid');
+            }
+        }
+
+        return [
+            'provider_message_id' => $this->extractMessageId($resp['body'] ?? []),
+            'raw' => $resp['body'],
+        ];
+    }
+
     public function send(array $connection, string $to, string $type, string $content, array $options = []): array
     {
         $session = $connection['instance_name'] ?? '';

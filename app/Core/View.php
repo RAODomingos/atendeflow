@@ -25,6 +25,22 @@ class View
         require $viewPath;
     }
 
+    public static function renderBuffer(string $view, array $data = []): string
+    {
+        $data = array_merge(self::$shared, $data);
+        extract($data);
+
+        $viewPath = __DIR__ . '/../Views/' . $view . '.php';
+
+        if (!file_exists($viewPath)) {
+            throw new \RuntimeException("View not found: {$view}");
+        }
+
+        ob_start();
+        require $viewPath;
+        return ob_get_clean();
+    }
+
     public static function renderWithLayout(string $view, string $layout, array $data = []): void
     {
         $data = array_merge(self::$shared, $data);

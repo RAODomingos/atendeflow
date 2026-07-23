@@ -1,0 +1,8 @@
+-- Add new node types for chatbot builder
+ALTER TABLE flow_nodes MODIFY COLUMN node_type ENUM(
+    'start', 'message', 'menu', 'question', 'collect_field',
+    'condition', 'assign_department', 'assign_user',
+    'add_tag', 'handoff', 'end',
+    'button_list', 'list_menu', 'send_file', 'delay',
+    'image', 'audio', 'video'
+) NOT NULL;

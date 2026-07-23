@@ -407,11 +407,17 @@ class WhatsAppService
             'channel_message_id' => $message->messageId,
         ]);
 
-        // Executa fluxo ativo, se houver.
+        // Executa fluxo ativo, ou inicia o fluxo caso o canal possua um fluxo configurado.
         $flowState = \App\Models\Flow::getActiveFlowState($conversation['id']);
         if ($flowState) {
             $flowEngine = new FlowEngineService();
             $flowEngine->handleCustomerMessage($conversation['id'], $type === 'text' ? $message->content : '');
+        } else {
+            $channel = Database::getInstance()->fetch("SELECT * FROM channels WHERE id = ?", [$connection['channel_id']]);
+            if ($channel && !empty($channel['flow_id']) && empty($conversation['assigned_user_id'])) {
+                $flowEngine = new FlowEngineService();
+                $flowEngine->start($conversation['id'], (int) $channel['flow_id']);
+            }
         }
 
         // Marca contato como ativo.
@@ -734,7 +740,15 @@ class WhatsAppService
         }
 
         try {
-            $result = $provider->send($connection, $contact['phone'], $type, $content, $options);
+            if ($type === 'button_list' && method_exists($provider, 'sendButton')) {
+                $meta = json_decode($content, true) ?: ['text' => '', 'buttons' => []];
+                $result = $provider->sendButton($connection, $contact['phone'], $meta['text'] ?? '', $meta['buttons'] ?? []);
+            } elseif ($type === 'list_menu' && method_exists($provider, 'sendList')) {
+                $meta = json_decode($content, true) ?: ['text' => '', 'title' => '', 'items' => []];
+                $result = $provider->sendList($connection, $contact['phone'], $meta['text'] ?? '', $meta['title'] ?? '', $meta['items'] ?? []);
+            } else {
+                $result = $provider->send($connection, $contact['phone'], $type, $content, $options);
+            }
         } catch (\Throwable $e) {
             error_log("sendOutbound: {$conversationId}/{$messageId} exception: " . $e->getMessage());
             return null;

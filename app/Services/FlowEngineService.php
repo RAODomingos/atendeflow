@@ -53,7 +53,7 @@ class FlowEngineService
             return;
         }
 
-        if ($currentNode['node_type'] === 'menu') {
+        if (in_array($currentNode['node_type'], ['menu', 'button_list', 'list_menu'], true)) {
             $this->handleMenuResponse($conversationId, $currentNode, $messageText, $flow);
         } elseif ($currentNode['node_type'] === 'question') {
             $this->handleQuestionResponse($conversationId, $currentNode, $messageText, $flow);
@@ -78,21 +78,17 @@ class FlowEngineService
         }
 
         if (!$selectedOption) {
-            Conversation::addMessage($conversationId, [
-                'type' => 'text',
-                'content' => $node['config']['invalid_message'] ?? 'Opção inválida. Por favor, escolha uma opção válida:',
-                'direction' => 'outbound',
-            ]);
+            $this->dispatchOutboundMessage(
+                $conversationId,
+                'text',
+                $node['config']['invalid_message'] ?? 'Opção inválida. Por favor, escolha uma opção válida:'
+            );
 
             $optionsList = [];
             foreach ($node['options'] as $i => $opt) {
                 $optionsList[] = ($i + 1) . ' - ' . $opt['label'];
             }
-            Conversation::addMessage($conversationId, [
-                'type' => 'text',
-                'content' => implode("\n", $optionsList),
-                'direction' => 'outbound',
-            ]);
+            $this->dispatchOutboundMessage($conversationId, 'text', implode("\n", $optionsList));
 
             return;
         }
@@ -167,53 +163,117 @@ class FlowEngineService
 
             case 'message':
                 $content = $this->processTemplate($node['content'] ?? '', $conv);
-                Conversation::addMessage($conversationId, [
-                    'type' => 'text',
-                    'content' => $content,
-                    'direction' => 'outbound',
-                ]);
+                $this->dispatchOutboundMessage($conversationId, 'text', $content);
                 $this->goToNextNode($conversationId, $node);
                 break;
 
             case 'menu':
                 $content = $this->processTemplate($node['content'] ?? '', $conv);
-                Conversation::addMessage($conversationId, [
-                    'type' => 'text',
-                    'content' => $content,
-                    'direction' => 'outbound',
-                ]);
+                $this->dispatchOutboundMessage($conversationId, 'text', $content);
 
                 $optionsList = [];
                 foreach ($node['options'] as $i => $opt) {
                     $optionsList[] = ($i + 1) . ' - ' . $opt['label'];
                 }
-                Conversation::addMessage($conversationId, [
-                    'type' => 'text',
-                    'content' => implode("\n", $optionsList),
-                    'direction' => 'outbound',
-                ]);
+                $this->dispatchOutboundMessage($conversationId, 'text', implode("\n", $optionsList));
 
                 Flow::saveFlowState($conversationId, $conv['flow_id'] ?? $node['flow_id'], $node['id']);
                 break;
 
             case 'question':
                 $content = $this->processTemplate($node['content'] ?? '', $conv);
-                Conversation::addMessage($conversationId, [
-                    'type' => 'text',
-                    'content' => $content,
-                    'direction' => 'outbound',
-                ]);
+                $this->dispatchOutboundMessage($conversationId, 'text', $content);
                 Flow::saveFlowState($conversationId, $conv['flow_id'] ?? $node['flow_id'], $node['id']);
                 break;
 
             case 'collect_field':
                 $content = $this->processTemplate($node['content'] ?? '', $conv);
-                Conversation::addMessage($conversationId, [
-                    'type' => 'text',
-                    'content' => $content,
-                    'direction' => 'outbound',
-                ]);
+                $this->dispatchOutboundMessage($conversationId, 'text', $content);
                 Flow::saveFlowState($conversationId, $conv['flow_id'] ?? $node['flow_id'], $node['id']);
+                break;
+
+            case 'button_list':
+                $content = $this->processTemplate($node['content'] ?? '', $conv);
+                $buttons = [];
+                foreach ($node['options'] ?? [] as $opt) {
+                    $buttons[] = ['id' => $opt['value'] ?? $opt['label'], 'label' => $opt['label']];
+                }
+                $this->dispatchOutboundMessage($conversationId, 'button_list', json_encode(['text' => $content, 'buttons' => $buttons], JSON_UNESCAPED_UNICODE));
+                Flow::saveFlowState($conversationId, $conv['flow_id'] ?? $node['flow_id'], $node['id']);
+                break;
+
+            case 'list_menu':
+                $content = $this->processTemplate($node['content'] ?? '', $conv);
+                $items = [];
+                foreach ($node['options'] ?? [] as $opt) {
+                    $items[] = ['id' => $opt['value'] ?? $opt['label'], 'label' => $opt['label']];
+                }
+                $listTitle = $node['config']['list_title'] ?? 'Opções';
+                $this->dispatchOutboundMessage($conversationId, 'list_menu', json_encode(['text' => $content, 'title' => $listTitle, 'items' => $items], JSON_UNESCAPED_UNICODE));
+                Flow::saveFlowState($conversationId, $conv['flow_id'] ?? $node['flow_id'], $node['id']);
+                break;
+
+            case 'image':
+            case 'audio':
+            case 'video':
+                $config = $node['config'] ?? [];
+                $fileUrl = $config['file_url'] ?? '';
+                if ($fileUrl) {
+                    $this->dispatchOutboundMessage($conversationId, $node['node_type'], json_encode(['url' => $fileUrl], JSON_UNESCAPED_SLASHES));
+                }
+                $this->goToNextNode($conversationId, $node);
+                break;
+
+            case 'send_file':
+                $config = $node['config'] ?? [];
+                $fileUrl = $config['file_url'] ?? '';
+                $fileName = $config['file_name'] ?? 'arquivo';
+                if ($fileUrl) {
+                    $this->dispatchOutboundMessage($conversationId, 'file', json_encode(['url' => $fileUrl, 'name' => $fileName], JSON_UNESCAPED_SLASHES));
+                }
+                $this->goToNextNode($conversationId, $node);
+                break;
+
+            case 'delay':
+                $config = $node['config'] ?? [];
+                $seconds = (int) ($config['seconds'] ?? 2);
+                sleep($seconds);
+                $this->goToNextNode($conversationId, $node);
+                break;
+
+            case 'condition':
+                $config = $node['config'] ?? [];
+                $variable = $config['variable'] ?? '';
+                $expected = $config['expected'] ?? '';
+                $matched = false;
+
+                if ($variable && $expected) {
+                    $answer = Flow::getLastAnswer($conversationId, $node['id']);
+                    $fieldValue = $answer['answer_text'] ?? '';
+                    if (mb_strtolower(trim($fieldValue)) === mb_strtolower(trim($expected))) {
+                        $matched = true;
+                    }
+                }
+
+                if ($matched && !empty($node['options'])) {
+                    $nextNodeId = $node['options'][0]['next_node_id'];
+                } else {
+                    $nextNodeId = $node['options'][1]['next_node_id'] ?? ($node['options'][0]['next_node_id'] ?? null);
+                }
+
+                if ($nextNodeId) {
+                    $condFlow = Flow::find($node['flow_id']);
+                    if ($condFlow) {
+                        foreach ($condFlow['nodes'] as $n) {
+                            if ($n['id'] === $nextNodeId) {
+                                Flow::saveFlowState($conversationId, $condFlow['id'], $nextNodeId);
+                                $this->executeNode($conversationId, $n);
+                                return;
+                            }
+                        }
+                    }
+                }
+                Flow::completeFlowState($conversationId);
                 break;
 
             case 'assign_department':
@@ -251,11 +311,7 @@ class FlowEngineService
                 break;
 
             case 'handoff':
-                Conversation::addMessage($conversationId, [
-                    'type' => 'text',
-                    'content' => $node['content'] ?? 'Um de nossos atendentes vai atender você em breve.',
-                    'direction' => 'outbound',
-                ]);
+                $this->dispatchOutboundMessage($conversationId, 'text', $node['content'] ?? 'Um de nossos atendentes vai atender você em breve.');
                 Conversation::update($conversationId, ['status' => 'new']);
                 Flow::completeFlowState($conversationId);
                 Conversation::addEvent($conversationId, 'flow_completed', 'Fluxo finalizado, encaminhado para atendimento humano');
@@ -287,6 +343,27 @@ class FlowEngineService
         }
 
         Flow::completeFlowState($conversationId);
+    }
+
+    private function dispatchOutboundMessage(int $conversationId, string $type, string $content): int
+    {
+        $messageId = Conversation::addMessage($conversationId, [
+            'type' => $type,
+            'content' => $content,
+            'direction' => 'outbound',
+        ]);
+
+        $conv = Conversation::find($conversationId);
+        if ($conv && ($conv['channel_type'] ?? '') === 'whatsapp') {
+            try {
+                $service = new WhatsAppService();
+                $service->sendOutbound($conversationId, $messageId, $type, $content);
+            } catch (\Throwable $e) {
+                error_log("FlowEngine WhatsApp outbound error: " . $e->getMessage());
+            }
+        }
+
+        return $messageId;
     }
 
     private function processTemplate(string $content, array $conversation): string

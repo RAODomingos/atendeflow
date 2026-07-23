@@ -156,6 +156,7 @@ class SettingsController
             'type' => $type ?: 'webchat',
             'name' => $name,
             'department_id' => $departmentId ? (int) $departmentId : null,
+            'flow_id' => $request->post('flow_id') ? (int) $request->post('flow_id') : null,
         ]);
 
         if ($type === 'webchat') {
@@ -205,6 +206,7 @@ class SettingsController
         Database::getInstance()->update('channels', [
             'name' => $name,
             'department_id' => $departmentId ? (int) $departmentId : null,
+            'flow_id' => $request->post('flow_id') ? (int) $request->post('flow_id') : null,
         ], 'id = ?', [$id]);
 
         if ($channel['type'] === 'webchat') {
@@ -224,6 +226,20 @@ class SettingsController
                     'ask_cnpj' => $request->post('ask_cnpj') ? 1 : 0,
                     'require_cnpj' => $request->post('require_cnpj') ? 1 : 0,
                 ], 'id = ?', [$widget['id']]);
+            }
+        } elseif ($channel['type'] === 'whatsapp') {
+            $connection = \App\Models\WhatsAppConnection::findByChannel($id);
+            if ($connection) {
+                $connData = [];
+                if ($request->post('provider')) {
+                    $connData['provider'] = $request->post('provider');
+                }
+                if ($request->post('instance_name') !== null) {
+                    $connData['instance_name'] = $request->post('instance_name') ?: null;
+                }
+                if (!empty($connData)) {
+                    \App\Models\WhatsAppConnection::update((int) $connection['id'], $connData);
+                }
             }
         }
 

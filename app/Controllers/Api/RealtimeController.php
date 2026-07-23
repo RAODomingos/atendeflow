@@ -51,9 +51,10 @@ class RealtimeController
             // Check for new notifications (polling every 3 seconds)
             if (time() - $lastCheck >= 3) {
                 $notifications = Database::getInstance()->fetchAll(
-                    "SELECT n.*, c.contact_name, u.name as from_user_name
+                    "SELECT n.*, ct.name as contact_name, u.name as from_user_name
                      FROM notifications n
                      LEFT JOIN conversations c ON c.id = n.conversation_id
+                     LEFT JOIN contacts ct ON ct.id = c.contact_id
                      LEFT JOIN users u ON u.id = JSON_UNQUOTE(JSON_EXTRACT(n.metadata, '$.from_user_id'))
                      WHERE n.user_id = ? AND n.id > ? AND n.is_read = 0
                      ORDER BY n.id ASC",

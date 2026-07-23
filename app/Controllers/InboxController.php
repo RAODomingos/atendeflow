@@ -19,6 +19,21 @@ use App\Services\ConversationService;
 
 class InboxController
 {
+    private function conversationData(int $id): ?array
+    {
+        $conversation = Conversation::find($id);
+        if (!$conversation) return null;
+        if ($conversation['inbox_id'] && !Inbox::canAccess((int) $conversation['inbox_id'], Auth::id())) return null;
+
+        return [
+            'conversation' => $conversation,
+            'messages' => Conversation::getMessages($id),
+            'events' => Conversation::getEvents($id),
+            'contact' => Contact::find($conversation['contact_id']),
+            'csat' => Conversation::getCsat($id),
+            'allTags' => Tag::all(),
+        ];
+    }
     private ConversationService $conversationService;
 
     public function __construct()
@@ -230,6 +245,29 @@ class InboxController
             'csat' => Conversation::getCsat($conversation['id']),
             'allTags' => Tag::all(),
         ]);
+    }
+
+    public function downloadPdf(Request $request, int $id): void
+    {
+        $data = $this->conversationData($id);
+        if (!$data) {
+            Session::setFlash('error', 'Conversa não encontrada.');
+            View::redirect('/inbox');
+        }
+
+        $html = View::renderBuffer('inbox/pdf', $data);
+
+        $dompdf = new \Dompdf\Dompdf();
+        $dompdf->setPaper('A4');
+        $dompdf->loadHtml($html);
+        $dompdf->render();
+
+        while (ob_get_level()) {
+            ob_end_clean();
+        }
+
+        $dompdf->stream("conversa-{$id}.pdf", ['Attachment' => true]);
+        exit;
     }
 
     public function sendMessage(Request $request, int $id): void

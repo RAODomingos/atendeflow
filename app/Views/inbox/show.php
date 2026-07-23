@@ -6,6 +6,9 @@
             </a>
             <div class="conv-status-badge"><?= status_badge($conversation['status']) ?></div>
             <div class="conv-actions">
+                <a href="<?= url('inbox/') ?><?= $conversation['id'] ?>/pdf" class="btn btn-sm btn-outline" title="Baixar PDF">
+                    <i class="fas fa-file-pdf"></i>
+                </a>
                 <button class="btn btn-sm btn-outline" onclick="openTransferModal()" title="Transferir">
                     <i class="fas fa-exchange-alt"></i>
                 </button>

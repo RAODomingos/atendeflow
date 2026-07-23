@@ -174,6 +174,14 @@ class Flow
         ]);
     }
 
+    public static function getLastAnswer(int $conversationId, int $nodeId): ?array
+    {
+        return Database::getInstance()->fetch(
+            "SELECT * FROM flow_answers WHERE conversation_id = ? AND flow_node_id = ? ORDER BY id DESC LIMIT 1",
+            [$conversationId, $nodeId]
+        );
+    }
+
     public static function duplicate(int $flowId, int $newUserId): ?int
     {
         $flow = self::find($flowId);

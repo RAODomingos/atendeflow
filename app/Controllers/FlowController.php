@@ -141,22 +141,17 @@ class FlowController
         $nodes = json_decode($nodesJson, true);
         if (!is_array($nodes)) return;
 
-        $nodeIds = [];
+        $frontToDb = [];
 
         foreach ($nodes as $nodeData) {
-            $config = [];
-            if (!empty($nodeData['department_id'])) $config['department_id'] = (int) $nodeData['department_id'];
-            if (!empty($nodeData['user_id'])) $config['user_id'] = (int) $nodeData['user_id'];
-            if (!empty($nodeData['tag_id'])) $config['tag_id'] = (int) $nodeData['tag_id'];
-            if (!empty($nodeData['save_field'])) $config['save_field'] = $nodeData['save_field'];
-            if (!empty($nodeData['invalid_message'])) $config['invalid_message'] = $nodeData['invalid_message'];
-            if (!empty($nodeData['auto_advance'])) $config['auto_advance'] = true;
+            $config = $nodeData['config'] ?? [];
 
-            $tempKey = $nodeData['temp_key'] ?? bin2hex(random_bytes(8));
+            $frontId = $nodeData['id'] ?? bin2hex(random_bytes(8));
+            $type = $nodeData['type'] ?? 'message';
 
             $nodeId = Flow::addNode($flowId, [
                 'node_key' => bin2hex(random_bytes(16)),
-                'node_type' => $nodeData['type'] ?? 'message',
+                'node_type' => $type,
                 'title' => $nodeData['title'] ?? '',
                 'content' => $nodeData['content'] ?? '',
                 'config' => !empty($config) ? json_encode($config) : null,
@@ -164,49 +159,45 @@ class FlowController
                 'position_y' => (int) ($nodeData['y'] ?? 0),
             ]);
 
-            $nodeIds[$tempKey] = $nodeId;
+            $frontToDb[$frontId] = $nodeId;
 
             if (!empty($nodeData['options'])) {
                 foreach ($nodeData['options'] as $i => $opt) {
                     Flow::addOption($nodeId, [
-                        'label' => $opt['label'],
-                        'value' => $opt['value'] ?? $opt['label'],
+                        'label' => $opt['label'] ?? '',
+                        'value' => $opt['value'] ?? ($opt['label'] ?? ''),
                         'sort_order' => $i,
-                        'next_node_id' => null, // Will be updated after all nodes created
+                        'next_node_id' => null,
                     ]);
                 }
             }
 
-            // Set as start node
-            if (($nodeData['type'] ?? '') === 'start') {
+            if ($type === 'start') {
                 Database::getInstance()->update('flows', ['start_node_id' => $nodeId], 'id = ?', [$flowId]);
             }
         }
 
-        // Update option next_node_ids
         foreach ($nodes as $nodeData) {
-            if (!empty($nodeData['options'])) {
-                $tempKey = $nodeData['temp_key'];
-                $nodeId = $nodeIds[$tempKey] ?? null;
-                if (!$nodeId) continue;
+            if (empty($nodeData['options']) || empty($nodeData['id'])) continue;
+            $nodeId = $frontToDb[$nodeData['id']] ?? null;
+            if (!$nodeId) continue;
 
-                $options = Database::getInstance()->fetchAll(
-                    "SELECT * FROM flow_options WHERE node_id = ? ORDER BY sort_order",
-                    [$nodeId]
-                );
+            $options = Database::getInstance()->fetchAll(
+                "SELECT * FROM flow_options WHERE node_id = ? ORDER BY sort_order",
+                [$nodeId]
+            );
 
-                foreach ($options as $i => $option) {
-                    $optData = $nodeData['options'][$i] ?? null;
-                    if ($optData && !empty($optData['next_node_temp_key'])) {
-                        $nextNodeId = $nodeIds[$optData['next_node_temp_key']] ?? null;
-                        if ($nextNodeId) {
-                            Database::getInstance()->update(
-                                'flow_options',
-                                ['next_node_id' => $nextNodeId],
-                                'id = ?',
-                                [$option['id']]
-                            );
-                        }
+            foreach ($options as $i => $option) {
+                $optData = $nodeData['options'][$i] ?? null;
+                if ($optData && !empty($optData['next_node_id'])) {
+                    $nextDbId = $frontToDb[$optData['next_node_id']] ?? null;
+                    if ($nextDbId) {
+                        Database::getInstance()->update(
+                            'flow_options',
+                            ['next_node_id' => $nextDbId],
+                            'id = ?',
+                            [$option['id']]
+                        );
                     }
                 }
             }
