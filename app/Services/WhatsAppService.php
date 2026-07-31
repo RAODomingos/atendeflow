@@ -234,9 +234,10 @@ class WhatsAppService
         $this->logWebhook('RECEIVED', [
             'query' => $_GET,
             'event' => $payload['EventType'] ?? $payload['event'] ?? null,
-            'instance' => $payload['instanceName'] ?? $payload['instance'] ?? null,
+            'instance' => $payload['instanceName'] ?? $payload['instance'] ?? $payload['session'] ?? null,
             'has_message' => isset($payload['message']),
             'has_data' => isset($payload['data']),
+            'has_payload' => isset($payload['payload']),
         ]);
 
         $providerName = $this->resolveProviderFromPayload($payload);
@@ -244,7 +245,7 @@ class WhatsAppService
 
         // Eventos de conexão/status da instância (EventType: connection, qrcode, status...).
         $event = strtolower((string) ($payload['EventType'] ?? $payload['event'] ?? ($payload['data']['event'] ?? '')));
-        if (in_array($event, ['connection', 'status', 'qrcode', 'qrcode.update', 'qrcode.updated', 'state'], true)) {
+        if (in_array($event, ['connection', 'connections.update', 'status', 'qrcode', 'qrcode.update', 'qrcode.updated', 'state', 'session.status'], true)) {
             $this->handleConnectionEvent($payload, $providerName);
             return;
         }
@@ -270,6 +271,10 @@ class WhatsAppService
 
         // Validação opcional do segredo do webhook.
         $secret = $_GET['secret'] ?? '';
+        // Uazapi pode adicionar /messages/text ao final da URL; extrai apenas a parte hex
+        if (preg_match('/^([a-f0-9]{32})/i', $secret, $m)) {
+            $secret = $m[1];
+        }
         if (!empty($connection['webhook_secret']) && !hash_equals((string) $connection['webhook_secret'], (string) $secret)) {
             $this->logWebhook('SECRET_FAIL', ['got' => $secret, 'expected_len' => strlen($connection['webhook_secret'])]);
             return;
@@ -306,7 +311,7 @@ class WhatsAppService
         $contact = Contact::findOrCreate($message->senderName ?? preg_replace('/\D/', '', $phone), null, $phone);
 
         // Atualiza nome e foto de perfil do WhatsApp (se disponíveis e ainda não definidos).
-        $this->syncContactProfile($contact, $message);
+        $this->syncContactProfile($contact, $message, $providerName);
 
         $conversation = $this->findOrCreateConversation((int) $connection['channel_id'], $contact['id']);
 
@@ -401,8 +406,14 @@ class WhatsAppService
                     'type' => $message->type,
                     'raw_url' => $message->mediaUrl,
                 ]);
-                $type = 'text';
-                $content = '[Mídia recebida (' . $message->type . ') não pôde ser baixada. Verifique a conexão com o provedor WhatsApp.]';
+                $type = $message->type;
+                $content = json_encode([
+                    'error' => 'download_failed',
+                    'name' => ($message->caption ?: $message->type) . '.' . ($this->extFromMime((string) $message->mediaMime) ?: 'bin'),
+                    'size' => 0,
+                    'mime' => $message->mediaMime ?? 'application/octet-stream',
+                    'url' => $message->mediaUrl ?? '',
+                ], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
             }
         } else {
             $type = 'text';
@@ -416,26 +427,31 @@ class WhatsAppService
             'channel_message_id' => $message->messageId,
         ]);
 
-        // Executa fluxo ativo, ou inicia o fluxo caso o canal possua um fluxo configurado.
+        // Detecta se o fluxo está ou será executado (antes de executar,
+        // pois o fluxo pode completar e setar is_active=0 antes da notificação).
+        $wasFlowActive = false;
         $flowState = \App\Models\Flow::getActiveFlowState($conversation['id']);
         if ($flowState) {
+            $wasFlowActive = true;
             error_log("FLOW_ACTIVE: conversation_id={$conversation['id']}, flow_id={$flowState['flow_id']}");
             $flowEngine = new FlowEngineService();
             $flowEngine->handleCustomerMessage($conversation['id'], $type === 'text' ? $message->content : '');
         } else {
             $channel = Database::getInstance()->fetch("SELECT * FROM channels WHERE id = ?", [$connection['channel_id']]);
-            error_log("FLOW_CHECK: channel_id={$connection['channel_id']}, channel_exists=" . ($channel ? 'yes' : 'no') . ", assigned_user_id=" . ($conversation['assigned_user_id'] ?? 'null'));
-            if ($channel && empty($conversation['assigned_user_id'])) {
-                // Usar o novo método de seleção de fluxo com priorização
-                $flow = \App\Models\Flow::getBestFlowForChannel($channel['type'], [
-                    'department_id' => $conversation['department_id'],
-                    'tags' => [], // TODO: buscar tags do contato
-                ]);
-                error_log("FLOW_SELECTION: channel_type={$channel['type']}, flow_found=" . ($flow ? 'yes' : 'no') . ", flow_id=" . ($flow['id'] ?? 'null'));
-                if ($flow) {
-                    $flowEngine = new FlowEngineService();
-                    $flowEngine->start($conversation['id'], $flow['id']);
-                    error_log("FLOW_STARTED: conversation_id={$conversation['id']}, flow_id={$flow['id']}");
+            error_log("FLOW_CHECK: channel_id={$connection['channel_id']}, channel_exists=" . ($channel ? 'yes' : 'no') . ", assigned_user_id=" . ($conversation['assigned_user_id'] ?? 'null') . ", channel_flow_id=" . ($channel['flow_id'] ?? 'null'));
+            if ($channel && empty($conversation['assigned_user_id']) && !in_array($conversation['status'], ['closed', 'resolved', 'spam'])) {
+                if (!empty($channel['flow_id'])) {
+                    $flow = \App\Models\Flow::find((int) $channel['flow_id']);
+                    if ($flow && $flow['is_active']) {
+                        $wasFlowActive = true;
+                        error_log("FLOW_STARTED: conversation_id={$conversation['id']}, flow_id={$flow['id']}");
+                        $flowEngine = new FlowEngineService();
+                        $flowEngine->start($conversation['id'], $flow['id']);
+                    } else {
+                        error_log("FLOW_SKIPPED: flow_id={$channel['flow_id']} não encontrado ou inativo");
+                    }
+                } else {
+                    error_log("FLOW_SKIPPED: canal sem flow_id definido");
                 }
             }
         }
@@ -444,6 +460,24 @@ class WhatsAppService
         Contact::touchActivity($contact['id']);
 
         $this->logWebhook('STORED', ['message_id' => $msgId ?? null, 'conversation_id' => $conversation['id'] ?? null]);
+
+        // Notifica o(s) usuário(s) responsável(eis) sobre a nova mensagem.
+        // O NotificationService resolve automaticamente os destinatários
+        // (atendente atribuído -> membros da caixa -> admins) e deduplica
+        // reentradas do mesmo webhook.
+        $preview = $type === 'text'
+            ? (string) $content
+            : ($message->caption ?: (['image' => '📷 Imagem', 'audio' => '🎵 Áudio', 'video' => '🎬 Vídeo', 'file' => '📎 Arquivo', 'sticker' => '🖼️ Sticker'][$type] ?? 'Mídia'));
+
+        try {
+            \App\Services\NotificationService::notifyNewMessage(
+                (int) $conversation['id'],
+                (int) $msgId,
+                $preview
+            );
+        } catch (\Throwable $e) {
+            $this->logWebhook('NOTIF_ERROR', ['error' => $e->getMessage()]);
+        }
 
         // Mensagem de ausência fora do horário de funcionamento.
         try {
@@ -457,7 +491,7 @@ class WhatsAppService
      * Sincroniza o nome e a foto de perfil do WhatsApp no contato.
      * Só preenche quando ainda não há valor (não sobrescreve dados manuais).
      */
-    private function syncContactProfile(array $contact, IncomingMessage $message): void
+    private function syncContactProfile(array $contact, IncomingMessage $message, string $providerName = 'uazapi'): void
     {
         $upd = [];
 
@@ -477,10 +511,10 @@ class WhatsAppService
             $originalFrom = $message->extra['original_from'] ?? '';
             if ($originalFrom !== '') {
                 try {
-                    $connection = WhatsAppConnection::findByProviderId('waha', $message->providerId);
-                    if ($connection) {
-                        $provider = WhatsAppManager::forConnection($connection);
-                        $picResult = $provider->getProfilePicture($connection, $originalFrom);
+                    $conn = WhatsAppConnection::findByProviderId($providerName, $message->providerId);
+                    if ($conn) {
+                        $picProvider = WhatsAppManager::forConnection($conn);
+                        $picResult = $picProvider->getProfilePicture($conn, $originalFrom);
                         if ($picResult) {
                             if (str_starts_with($picResult, 'data:')) {
                                 $raw = base64_decode(explode(',', $picResult, 2)[1] ?? '');
@@ -523,11 +557,13 @@ class WhatsAppService
      * retornando os metadados no mesmo formato usado no envio — assim ela
      * renderiza de forma confiável e persistente, independente do provedor.
      */
-    private function resolveInboundMedia(WhatsAppProviderInterface $provider, array $connection, IncomingMessage $message): ?array
+    private function resolveInboundMedia(object $provider, array $connection, IncomingMessage $message): ?array
     {
         $info = null;
         try {
-            $info = $provider->downloadMedia($connection, $message->messageId);
+            if (method_exists($provider, 'downloadMedia')) {
+                $info = $provider->downloadMedia($connection, $message->messageId);
+            }
         } catch (\Throwable $e) {
             $this->logWebhook('MEDIA_DOWNLOAD_ERR', ['error' => $e->getMessage(), 'mid' => $message->messageId]);
             $info = null;
@@ -552,16 +588,7 @@ class WhatsAppService
             $data = base64_decode($base64);
             $size = strlen($data);
         } elseif (is_string($sourceUrl) && preg_match('#^https?://#', $sourceUrl)) {
-            // Se a URL for da WAHA, inclui a API Key no download
-            $headers = null;
-            if (str_contains($sourceUrl, '/api/files/')) {
-                $config = require dirname(__DIR__, 2) . '/config/integrations.php';
-                $apiKey = $config['whatsapp']['providers']['waha']['api_key'] ?? '';
-                if ($apiKey) {
-                    $headers = ['X-Api-Key: ' . $apiKey];
-                }
-            }
-            $dl = \download_remote_file($sourceUrl, 0, $headers);
+            $dl = \download_remote_file($sourceUrl, 0);
             if ($dl) {
                 $data = $dl['data'];
                 $size = $dl['size'];
@@ -578,7 +605,19 @@ class WhatsAppService
             return null;
         }
 
+        // Valida se o conteúdo baixado corresponde ao tipo esperado
         $mime = ($info['mime'] ?? null) ?: $message->mediaMime;
+        if (!$this->isValidContent($data, $mime, $message->type, $sourceUrl ?? '')) {
+            $this->logWebhook('MEDIA_INVALID_CONTENT', [
+                'mid' => $message->messageId,
+                'type' => $message->type,
+                'mime' => $mime,
+                'size' => strlen($data),
+                'url' => $sourceUrl ?? '',
+            ]);
+            return null;
+        }
+
         $ext = $this->extFromMime((string) $mime) ?: ($this->extFromUrl($sourceUrl ?? '') ?: 'bin');
 
         $dir = upload_dir() . '/messages';
@@ -601,6 +640,35 @@ class WhatsAppService
             'size' => $size,
             'mime' => $realMime,
         ];
+    }
+
+    private function isValidContent(string $data, ?string $expectedMime, string $msgType, string $sourceUrl): bool
+    {
+        if (strlen($data) < 12) {
+            return false;
+        }
+        $first4 = substr($data, 0, 4);
+        $magicMap = [
+            "\xff\xd8\xff"      => ['image/jpeg', 'image'],
+            "\x89\x50\x4e\x47"  => ['image/png', 'image'],
+            "\x47\x49\x46\x38"  => ['image/gif', 'image'],
+            "\x52\x49\x46\x46"  => ['image/webp', 'image'],
+            "%PDF"              => ['application/pdf', 'file'],
+            "PK\x03\x04"        => ['application/zip', 'file'],
+        ];
+        foreach ($magicMap as $magic => [$mimeMatch, $typeMatch]) {
+            $len = strlen($magic);
+            if (substr($data, 0, $len) === $magic) {
+                if ($expectedMime && stripos($expectedMime, $mimeMatch) === false && stripos($mimeMatch, $expectedMime) === false) {
+                    return false;
+                }
+                return true;
+            }
+        }
+        if (in_array($msgType, ['image', 'sticker'], true)) {
+            return false;
+        }
+        return true;
     }
 
     private function extFromMime(string $mime): ?string
@@ -626,10 +694,14 @@ class WhatsAppService
 
     private function handleConnectionEvent(array $payload, string $providerName): void
     {
+        $instanceRaw = $payload['instance'] ?? null;
+        $instanceName = is_array($instanceRaw) ? ($instanceRaw['name'] ?? '') : '';
         $providerId = (string) (
-            $payload['instanceName']
-            ?? $payload['instance']
-            ?? ($payload['data']['instanceName'] ?? ($payload['data']['instance'] ?? ''))
+            $payload['session']
+            ?? $payload['instanceName']
+            ?? $instanceName
+            ?? $instanceRaw
+            ?? ($payload['data']['session'] ?? ($payload['data']['instanceName'] ?? ($payload['data']['name'] ?? ($payload['data']['instance'] ?? ''))))
         );
         if (!$providerId) {
             return;
@@ -641,20 +713,21 @@ class WhatsAppService
             return;
         }
 
-        // O provedor costuma enviar o estado em `state`/`status` (no payload ou em `data`).
+        // O provedor costuma enviar o estado em `state`/`status` (no payload, payload.payload ou em `data`).
         $raw = strtolower((string) (
-            $payload['state'] ?? $payload['status']
+            $payload['instance']['status'] ?? $payload['state'] ?? $payload['status']
+            ?? ($payload['payload']['state'] ?? ($payload['payload']['status'] ?? ''))
             ?? ($payload['data']['state'] ?? ($payload['data']['status'] ?? ''))
         ));
 
         $status = match (true) {
-            $raw === '' => 'connected', // evento de conexão sem estado explícito => conectado
-            str_contains($raw, 'connect') || $raw === 'open' || $raw === 'authenticated' || $raw === 'online'
-                => 'connected',
-            str_contains($raw, 'qr') || str_contains($raw, 'pair') || str_contains($raw, 'wait') || $raw === 'connecting'
-                => 'waiting_qr',
-            str_contains($raw, 'disconnect') || $raw === 'close' || $raw === 'offline'
+            // IMPORTANTE: "disconnected" contém "connect", então precisa vir ANTES de "connected"
+            $raw === 'failed' || $raw === 'stopped' || str_contains($raw, 'disconnect') || $raw === 'close' || $raw === 'offline'
                 => 'disconnected',
+            $raw === '' || $raw === 'working' || str_contains($raw, 'connect') || $raw === 'open' || $raw === 'authenticated' || $raw === 'online'
+                => 'connected',
+            $raw === 'starting' || str_contains($raw, 'qr') || str_contains($raw, 'pair') || str_contains($raw, 'wait') || $raw === 'connecting'
+                => 'waiting_qr',
             default => null,
         };
 
@@ -663,23 +736,33 @@ class WhatsAppService
         }
 
         $update = ['status' => $status];
+
+        // Salva o token da instância vindo no webhook (Uazapi envia token)
+        $token = $payload['token'] ?? ($payload['data']['token'] ?? '');
+        if ($token && empty($connection['instance_token'])) {
+            $update['instance_token'] = $token;
+        }
+
+        // Salva o phone_number do owner (disponível no webhook da Uazapi em instance.owner)
+        $instanceRawOwner = is_array($payload['instance'] ?? null) ? ($payload['instance']['owner'] ?? null) : null;
+        $owner = $instanceRawOwner ?? $payload['owner'] ?? ($payload['me']['id'] ?? ($payload['data']['owner'] ?? ($payload['chat']['owner'] ?? null)));
+        if ($owner && empty($connection['phone_number'])) {
+            $ownerNorm = preg_replace('/\D/', '', (string) $owner);
+            if ($ownerNorm !== '') {
+                $update['phone_number'] = $ownerNorm;
+            }
+        }
+
         if ($status === 'connected') {
             $update['last_connected_at'] = date('Y-m-d H:i:s');
             $update['error_message'] = null;
-            $owner = $payload['owner'] ?? ($payload['data']['owner'] ?? ($payload['chat']['owner'] ?? null));
-            if ($owner && empty($connection['phone_number'])) {
-                $ownerNorm = preg_replace('/\D/', '', (string) $owner);
-                if ($ownerNorm !== '') {
-                    $update['phone_number'] = $ownerNorm;
-                }
-            }
             try {
                 $this->configureWebhook($connection);
             } catch (\Throwable $e) {
                 $this->logWebhook('CONFIG_WEBHOOK_ERR', ['error' => $e->getMessage()]);
             }
         } elseif ($status === 'waiting_qr') {
-            $qr = $payload['qrcode'] ?? ($payload['qrCode'] ?? ($payload['data']['qrcode'] ?? null));
+            $qr = $payload['instance']['qrcode'] ?? $payload['qrcode'] ?? ($payload['qrCode'] ?? ($payload['data']['qrcode'] ?? null));
             if ($qr) {
                 $update['qr_code'] = is_string($qr) ? $qr : json_encode($qr);
             }
@@ -720,7 +803,7 @@ class WhatsAppService
             return null;
         }
 
-        // Mantém o status sincronizado com o provedor antes de enviar.
+        // Sincroniza status rapidamente se estiver desconectado
         if ($connection['status'] !== 'connected') {
             try {
                 $state = WhatsAppManager::forConnection($connection)->getStatus($connection);
@@ -735,13 +818,13 @@ class WhatsAppService
                     ]);
                 }
             } catch (\Throwable $e) {
-                // Mantém o que temos; o bloqueio abaixo vale se ainda estiver offline.
+                error_log("sendOutbound: {$conversationId}/{$messageId} getStatus falhou: " . $e->getMessage());
             }
         }
 
+        // Tenta enviar mesmo se status não for 'connected'; o provider retornará erro se offline.
         if ($connection['status'] !== 'connected') {
-            error_log("sendOutbound: {$conversationId}/{$messageId} conexão não conectada, status={$connection['status']}");
-            return null;
+            error_log("sendOutbound: {$conversationId}/{$messageId} tentando enviar mesmo com status={$connection['status']}");
         }
 
         $contact = Contact::find((int) $conversation['contact_id']);
@@ -763,9 +846,21 @@ class WhatsAppService
             if ($type === 'button_list' && method_exists($provider, 'sendButton')) {
                 $meta = json_decode($content, true) ?: ['text' => '', 'buttons' => []];
                 $result = $provider->sendButton($connection, $contact['phone'], $meta['text'] ?? '', $meta['buttons'] ?? []);
+                if (empty($result['provider_message_id'])) {
+                    error_log("sendOutbound: {$conversationId}/{$messageId} sendButton falhou, fallback para texto");
+                    $optionLabels = array_column($meta['buttons'] ?? [], 'label');
+                    $fallbackText = ($meta['text'] ?? '') . "\n\n" . implode("\n", array_map(fn($i, $l) => ($i+1) . ' - ' . $l, array_keys($optionLabels), $optionLabels));
+                    $result = $provider->send($connection, $contact['phone'], 'text', $fallbackText, []);
+                }
             } elseif ($type === 'list_menu' && method_exists($provider, 'sendList')) {
                 $meta = json_decode($content, true) ?: ['text' => '', 'title' => '', 'items' => []];
                 $result = $provider->sendList($connection, $contact['phone'], $meta['text'] ?? '', $meta['title'] ?? '', $meta['items'] ?? []);
+                if (empty($result['provider_message_id'])) {
+                    error_log("sendOutbound: {$conversationId}/{$messageId} sendList falhou, fallback para texto");
+                    $optionLabels = array_column($meta['items'] ?? [], 'label');
+                    $fallbackText = ($meta['text'] ?? '') . "\n\n" . ($meta['title'] ?? 'Opções') . ":\n" . implode("\n", array_map(fn($i, $l) => ($i+1) . ' - ' . $l, array_keys($optionLabels), $optionLabels));
+                    $result = $provider->send($connection, $contact['phone'], 'text', $fallbackText, []);
+                }
             } else {
                 $result = $provider->send($connection, $contact['phone'], $type, $content, $options);
             }
@@ -776,7 +871,9 @@ class WhatsAppService
 
         $providerMessageId = $result['provider_message_id'] ?? null;
         if (!$providerMessageId) {
-            error_log("sendOutbound: {$conversationId}/{$messageId} sem provider_message_id no retorno");
+            $raw = $result['raw'] ?? [];
+            $errMsg = is_array($raw) ? (json_encode($raw, JSON_UNESCAPED_UNICODE)) : (string) $raw;
+            error_log("sendOutbound: {$conversationId}/{$messageId} sem provider_message_id. Resposta: {$errMsg}");
         }
         if ($providerMessageId) {
             Database::getInstance()->update(
@@ -788,6 +885,46 @@ class WhatsAppService
         }
 
         return $providerMessageId;
+    }
+
+    /**
+     * Envia uma mensagem de texto diretamente para um número de telefone,
+     * sem vincular a uma conversa existente. Útil para notificações de fluxo.
+     */
+    public function sendToPhone(int $channelId, string $phone, string $text): ?string
+    {
+        $channel = Database::getInstance()->fetch(
+            "SELECT ch.* FROM channels ch WHERE ch.id = ? AND ch.type = 'whatsapp'",
+            [$channelId]
+        );
+        if (!$channel) {
+            error_log("sendToPhone: channel {$channelId} não encontrado ou não é WhatsApp");
+            return null;
+        }
+
+        $connection = WhatsAppConnection::findByChannel($channelId);
+        if (!$connection) {
+            error_log("sendToPhone: conexão WhatsApp não encontrada para channel {$channelId}");
+            return null;
+        }
+
+        if ($connection['status'] !== 'connected') {
+            error_log("sendToPhone: conexão WhatsApp não está conectada (status={$connection['status']})");
+            return null;
+        }
+
+        try {
+            $provider = WhatsAppManager::forConnection($connection);
+            $result = $provider->send($connection, $phone, 'text', $text, []);
+            $providerMessageId = $result['provider_message_id'] ?? null;
+            if (!$providerMessageId) {
+                error_log("sendToPhone: sem provider_message_id para {$phone}");
+            }
+            return $providerMessageId;
+        } catch (\Throwable $e) {
+            error_log("sendToPhone: erro ao enviar para {$phone}: " . $e->getMessage());
+            return null;
+        }
     }
 
     /**
@@ -926,9 +1063,17 @@ class WhatsAppService
 
     private function resolveProviderFromPayload(array $payload): string
     {
-        // Se o payload traz o provedor explícito, usa-o; senão assume o padrão.
         if (!empty($payload['provider']) && is_string($payload['provider'])) {
             return $payload['provider'];
+        }
+        // Uazapi envia BaseUrl nos webhooks (ex.: https://free.uazapi.com)
+        if (!empty($payload['BaseUrl']) && is_string($payload['BaseUrl'])) {
+            return 'uazapi';
+        }
+        // Uazapi usa nomes de evento específicos
+        $event = $payload['event'] ?? $payload['EventType'] ?? '';
+        if (in_array($event, ['connection', 'messages', 'qrcode', 'connections.update', 'messages.upsert', 'qrcode.updated'], true)) {
+            return 'uazapi';
         }
         return WhatsAppManager::defaultProviderName();
     }

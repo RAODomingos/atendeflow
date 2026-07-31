@@ -217,29 +217,36 @@
         </div>
 
         <div class="conv-composer">
-            <form action="<?= url('inbox/') ?><?= $conversation['id'] ?>/messages" method="POST" enctype="multipart/form-data" class="composer-form" id="composerForm">
+            <?php $convFinished = in_array($conversation['status'], ['resolved', 'closed', 'spam']); ?>
+            <?php if ($convFinished): ?>
+                <div class="composer-locked">
+                    <i class="fas fa-lock"></i> Conversa <?= $conversation['status'] === 'spam' ? 'marcada como spam' : 'finalizada' ?>. Não é possível enviar mensagens.
+                </div>
+            <?php endif; ?>
+            <form action="<?= $convFinished ? '#' : url('inbox/') . $conversation['id'] . '/messages' ?>" method="POST" enctype="multipart/form-data" class="composer-form" id="composerForm">
                 <?= csrf_field() ?>
                 <label class="btn btn-sm btn-outline composer-attach" title="Anexar arquivo">
                     <i class="fas fa-paperclip"></i>
                     <input type="file" name="file" id="attachInput"
-                           accept="image/*,audio/*,video/*,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.zip" hidden>
+                           accept="image/*,audio/*,video/*,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.zip" hidden <?= $convFinished ? 'disabled' : '' ?>>
                 </label>
                 <textarea name="content" id="messageInput" rows="2"
-                          placeholder="Digite sua mensagem... (Enter para enviar)"></textarea>
+                          placeholder="<?= $convFinished ? 'Conversa finalizada' : 'Digite sua mensagem... (Enter para enviar)' ?>"
+                          <?= $convFinished ? 'disabled' : '' ?>></textarea>
                 <div class="composer-actions">
-                    <button type="button" class="btn btn-sm btn-outline" title="Resposta pronta" onclick="openCannedModal()">
+                    <button type="button" class="btn btn-sm btn-outline" title="Resposta pronta" onclick="openCannedModal()" <?= $convFinished ? 'disabled' : '' ?>>
                         <i class="fas fa-bookmark"></i>
                     </button>
-                    <button type="button" class="btn btn-sm btn-outline" title="Macros" onclick="openMacrosModal()">
+                    <button type="button" class="btn btn-sm btn-outline" title="Macros" onclick="openMacrosModal()" <?= $convFinished ? 'disabled' : '' ?>>
                         <i class="fas fa-bolt"></i>
                     </button>
                     <?php if (($conversation['channel_type'] ?? '') === 'whatsapp'): ?>
                     <button type="button" class="btn btn-sm btn-outline composer-signature <?= empty($conversation['signature_enabled']) ? '' : 'active' ?>" id="signatureToggle"
-                            onclick="toggleSignature(<?= (int) $conversation['id'] ?>)" title="Assinatura automática no WhatsApp">
+                            onclick="toggleSignature(<?= (int) $conversation['id'] ?>)" title="Assinatura automática no WhatsApp" <?= $convFinished ? 'disabled' : '' ?>>
                         <i class="fas fa-signature"></i> <span>Assinatura</span>
                     </button>
                     <?php endif; ?>
-                    <button type="submit" class="btn btn-primary btn-sm send-btn">
+                    <button type="submit" class="btn btn-primary btn-sm send-btn" <?= $convFinished ? 'disabled' : '' ?>>
                         <i class="fas fa-paper-plane"></i> Enviar
                     </button>
                 </div>

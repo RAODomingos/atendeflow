@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Core\Database;
+use App\Services\BusinessHoursService;
 
 class Flow
 {
@@ -70,18 +71,29 @@ class Flow
         $nodeMap = [];
         foreach ($flow['nodes'] as $node) {
             $oldId = $node['id'];
-            unset($node['id']);
-            $node['flow_id'] = $newFlowId;
-            $newId = self::addNode($newFlowId, $node);
+            $cleanNode = [
+                'flow_id' => $newFlowId,
+                'node_key' => $node['node_key'] ?? bin2hex(random_bytes(16)),
+                'node_type' => $node['node_type'],
+                'title' => $node['title'] ?? '',
+                'content' => $node['content'] ?? '',
+                'config' => is_array($node['config'] ?? null) ? json_encode($node['config']) : ($node['config'] ?? null),
+                'position_x' => $node['position_x'] ?? 0,
+                'position_y' => $node['position_y'] ?? 0,
+            ];
+            $newId = self::addNode($newFlowId, $cleanNode);
             $nodeMap[$oldId] = $newId;
 
             foreach ($node['options'] as $opt) {
-                unset($opt['id']);
-                $opt['node_id'] = $newId;
-                if ($opt['next_node_id'] && isset($nodeMap[$opt['next_node_id']])) {
-                    $opt['next_node_id'] = $nodeMap[$opt['next_node_id']];
-                }
-                self::addOption($newId, $opt);
+                $cleanOpt = [
+                    'node_id' => $newId,
+                    'label' => $opt['label'] ?? '',
+                    'value' => $opt['value'] ?? '',
+                    'sort_order' => $opt['sort_order'] ?? 0,
+                    'next_node_id' => ($opt['next_node_id'] && isset($nodeMap[$opt['next_node_id']]))
+                        ? $nodeMap[$opt['next_node_id']] : null,
+                ];
+                self::addOption($newId, $cleanOpt);
             }
 
             if ($node['node_type'] === 'start') {
@@ -235,15 +247,11 @@ class Flow
                 }
             }
 
-            // Verificar critérios de horário
+            // Verificar critérios de horário via BusinessHoursService (departamento-aware)
             if (!empty($config['business_hours_only'])) {
-                $hour = (int) date('H');
-                $dayOfWeek = (int) date('w'); // 0 = domingo, 6 = sábado
-                
-                if ($dayOfWeek === 0 || $dayOfWeek === 6) {
-                    $matches = false; // Fim de semana
-                } elseif ($hour < 9 || $hour >= 18) {
-                    $matches = false; // Fora do horário comercial
+                $deptId = !empty($context['department_id']) ? (int) $context['department_id'] : null;
+                if (!BusinessHoursService::isOpen($deptId)) {
+                    $matches = false;
                 }
             }
 
@@ -361,18 +369,33 @@ class Flow
         $nodeMap = [];
         foreach ($flow['nodes'] as $node) {
             $oldId = $node['id'];
-            unset($node['id']);
-            $node['flow_id'] = $newFlowId;
-            $newId = self::addNode($newFlowId, $node);
+            $cleanNode = [
+                'flow_id' => $newFlowId,
+                'node_key' => $node['node_key'] ?? bin2hex(random_bytes(16)),
+                'node_type' => $node['node_type'],
+                'title' => $node['title'] ?? '',
+                'content' => $node['content'] ?? '',
+                'config' => is_array($node['config'] ?? null) ? json_encode($node['config']) : ($node['config'] ?? null),
+                'position_x' => $node['position_x'] ?? 0,
+                'position_y' => $node['position_y'] ?? 0,
+            ];
+            $newId = self::addNode($newFlowId, $cleanNode);
             $nodeMap[$oldId] = $newId;
 
             foreach ($node['options'] as $opt) {
-                unset($opt['id']);
-                $opt['node_id'] = $newId;
-                if ($opt['next_node_id'] && isset($nodeMap[$opt['next_node_id']])) {
-                    $opt['next_node_id'] = $nodeMap[$opt['next_node_id']];
-                }
-                self::addOption($newId, $opt);
+                $cleanOpt = [
+                    'node_id' => $newId,
+                    'label' => $opt['label'] ?? '',
+                    'value' => $opt['value'] ?? '',
+                    'sort_order' => $opt['sort_order'] ?? 0,
+                    'next_node_id' => ($opt['next_node_id'] && isset($nodeMap[$opt['next_node_id']]))
+                        ? $nodeMap[$opt['next_node_id']] : null,
+                ];
+                self::addOption($newId, $cleanOpt);
+            }
+
+            if ($node['node_type'] === 'start') {
+                Database::getInstance()->update('flows', ['start_node_id' => $newId], 'id = ?', [$newFlowId]);
             }
         }
 

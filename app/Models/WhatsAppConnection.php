@@ -55,7 +55,7 @@ class WhatsAppConnection
     public static function allWithDetails(): array
     {
         return Database::getInstance()->fetchAll(
-            "SELECT wc.*, ch.name as channel_name, ch.flow_id, d.name as department_name, f.name as flow_name
+            "SELECT wc.*, ch.name as channel_name, ch.flow_id, ch.department_id, d.name as department_name, f.name as flow_name
              FROM whatsapp_connections wc
              JOIN channels ch ON ch.id = wc.channel_id
              LEFT JOIN departments d ON d.id = ch.department_id

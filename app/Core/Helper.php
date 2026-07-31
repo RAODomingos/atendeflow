@@ -1,5 +1,6 @@
 <?php
 
+if (!function_exists('env')) {
 function env(string $key, mixed $default = null): mixed
 {
     static $env = null;
@@ -22,6 +23,7 @@ function env(string $key, mixed $default = null): mixed
     }
 
     return $env[$key] ?? $default;
+}
 }
 
 function base_url(string $path = '/'): string
@@ -569,4 +571,12 @@ function event_color(string $type): string
         'note_added' => '#6b7280',
     ];
     return $map[$type] ?? 'var(--primary)';
+}
+
+function slugify(string $text): string
+{
+    $text = preg_replace('~[^\p{L}\p{N}]+~u', '-', $text);
+    $text = iconv('UTF-8', 'ASCII//TRANSLIT//IGNORE', $text);
+    $text = strtolower(trim($text, '-'));
+    return $text ?: 'sem-nome';
 }

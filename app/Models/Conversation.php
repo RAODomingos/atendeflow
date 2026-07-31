@@ -178,6 +178,7 @@ class Conversation
         if (!empty($filters['status'])) {
             if ($filters['status'] === 'active') {
                 $sql .= " AND c.status IN ('new', 'open', 'waiting_customer', 'waiting_internal')";
+                $sql .= " AND NOT EXISTS (SELECT 1 FROM conversation_flow_states fs WHERE fs.conversation_id = c.id AND fs.is_active = 1)";
             } elseif ($filters['status'] === 'open') {
                 $sql .= " AND c.status IN ('open', 'waiting_customer', 'waiting_internal')";
             } elseif ($filters['status'] === 'resolved_closed') {
@@ -278,20 +279,41 @@ class Conversation
     /**
      * Conversas com fluxo ativo (chatbot)
      */
-    public static function getChatbotConversations(?int $userId = null): array
+     public static function getChatbotConversations(?int $userId = null): array
     {
+        $unreadCondition = "direction = 'inbound' AND is_read = 0";
+
         $sql = "SELECT c.*, ch.type as channel_type, ch.name as channel_name,
                        d.name as department_name, d.color as department_color,
                        u.name as assigned_user_name, ct.name as contact_name,
                        ct.email as contact_email, ct.phone as contact_phone,
                        ct.avatar as contact_avatar,
-                       fs.flow_id, fs.current_node_id, fs.timeout_at
+                       fs.flow_id, fs.current_node_id, fs.timeout_at,
+                       latest_msg.content as last_message,
+                       latest_msg.type as last_message_type,
+                       latest_msg.created_at as last_message_at,
+                       COALESCE(msg_stats.message_count, 0) as message_count,
+                       COALESCE(msg_stats.unread_count, 0) as unread_count
                 FROM conversations c
                 JOIN contacts ct ON ct.id = c.contact_id
                 LEFT JOIN departments d ON d.id = c.department_id
                 LEFT JOIN users u ON u.id = c.assigned_user_id
                 LEFT JOIN channels ch ON ch.id = c.channel_id
                 JOIN conversation_flow_states fs ON fs.conversation_id = c.id AND fs.is_active = 1
+                LEFT JOIN (
+                    SELECT m1.conversation_id, m1.content, m1.created_at, m1.type
+                    FROM messages m1
+                    WHERE m1.id = (
+                        SELECT MAX(m2.id) FROM messages m2 WHERE m2.conversation_id = m1.conversation_id
+                    )
+                ) latest_msg ON latest_msg.conversation_id = c.id
+                LEFT JOIN (
+                    SELECT conversation_id,
+                           COUNT(*) as message_count,
+                           SUM(CASE WHEN {$unreadCondition} THEN 1 ELSE 0 END) as unread_count
+                    FROM messages
+                    GROUP BY conversation_id
+                ) msg_stats ON msg_stats.conversation_id = c.id
                 WHERE c.status NOT IN ('closed', 'resolved', 'spam')";
 
         $params = [];
@@ -438,6 +460,9 @@ class Conversation
             if (!empty($m['reply_to']) && isset($replyMap[$m['reply_to']])) {
                 $m['reply_to_data'] = $replyMap[$m['reply_to']];
             }
+            $m['avatar_url'] = $m['direction'] === 'inbound'
+                ? ($m['contact_avatar'] ?? null)
+                : ($m['user_avatar'] ?? null);
         }
         return $msgs;
     }
@@ -592,11 +617,32 @@ class Conversation
 
     public static function markMessagesAsRead(int $conversationId, int $userId): int
     {
+        $now = date('Y-m-d H:i:s');
         return Database::getInstance()->update(
             'messages',
-            ['is_read' => 1],
+            [
+                'is_read' => 1,
+                'read_at' => $now,
+            ],
             'conversation_id = ? AND direction = ? AND (user_id != ? OR user_id IS NULL) AND is_read = 0',
             [$conversationId, 'inbound', $userId]
+        );
+    }
+
+    /**
+     * Marca mensagens outbound como "entregues" (delivered_at) para o cliente.
+     * Chamado pelo webhook de WhatsApp ao confirmar a entrega.
+     */
+    public static function markMessagesDelivered(array $messageIds, ?string $when = null): int
+    {
+        if (empty($messageIds)) return 0;
+        $when ??= date('Y-m-d H:i:s');
+        $placeholders = implode(',', array_fill(0, count($messageIds), '?'));
+        return Database::getInstance()->update(
+            'messages',
+            ['delivered_at' => $when],
+            "id IN ({$placeholders}) AND direction = 'outbound' AND delivered_at IS NULL",
+            $messageIds
         );
     }
 
@@ -638,5 +684,86 @@ class Conversation
             [$userId, $userId]
         );
         return (int) ($row['total'] ?? 0);
+    }
+
+    public static function getUnreadConversationsCount(int $userId): int
+    {
+        $inboxes = \App\Models\Inbox::getUserInboxes($userId);
+        $inboxIds = array_column($inboxes, 'id');
+        if (empty($inboxIds)) return 0;
+
+        $inboxConditions = [];
+        $params = [$userId];
+        foreach ($inboxIds as $iid) {
+            $inbox = \App\Models\Inbox::find($iid);
+            if ($inbox && ($inbox['type'] ?? '') === 'personal') {
+                $owners = \App\Models\Inbox::getUsers($iid);
+                $ownerIds = array_column($owners, 'id');
+                if ($ownerIds) {
+                    $phs = rtrim(str_repeat('?,', count($ownerIds)), ',');
+                    $inboxConditions[] = "(c.assigned_user_id IN ({$phs}) OR c.channel_id IN (SELECT channel_id FROM inbox_channels WHERE inbox_id = ?))";
+                    foreach ($ownerIds as $oid) { $params[] = $oid; }
+                    $params[] = $iid;
+                } else {
+                    $inboxConditions[] = "c.channel_id IN (SELECT channel_id FROM inbox_channels WHERE inbox_id = ?)";
+                    $params[] = $iid;
+                }
+            } else {
+                $inboxConditions[] = "(c.inbox_id = ? OR c.channel_id IN (SELECT channel_id FROM inbox_channels WHERE inbox_id = ?))";
+                $params[] = $iid;
+                $params[] = $iid;
+            }
+        }
+
+        $inboxWhere = '(' . implode(' OR ', $inboxConditions) . ')';
+
+        $row = Database::getInstance()->fetch(
+            "SELECT COUNT(DISTINCT c.id) as total
+             FROM conversations c
+             JOIN messages m ON m.conversation_id = c.id
+             WHERE m.direction = 'inbound' AND m.is_read = 0
+               AND (m.user_id != ? OR m.user_id IS NULL)
+               AND {$inboxWhere}",
+            $params
+        );
+        return (int) ($row['total'] ?? 0);
+    }
+
+    public static function markAllMessagesAsRead(int $userId): int
+    {
+        $inboxes = \App\Models\Inbox::getUserInboxes($userId);
+        $inboxIds = array_column($inboxes, 'id');
+        if (empty($inboxIds)) return 0;
+
+        $inboxConditions = [];
+        $params = [$userId];
+        foreach ($inboxIds as $iid) {
+            $inbox = \App\Models\Inbox::find($iid);
+            if ($inbox && ($inbox['type'] ?? '') === 'personal') {
+                $owners = \App\Models\Inbox::getUsers($iid);
+                $ownerIds = array_column($owners, 'id');
+                if ($ownerIds) {
+                    $phs = rtrim(str_repeat('?,', count($ownerIds)), ',');
+                    $inboxConditions[] = "(c.assigned_user_id IN ({$phs}) OR c.channel_id IN (SELECT channel_id FROM inbox_channels WHERE inbox_id = ?))";
+                    foreach ($ownerIds as $oid) { $params[] = $oid; }
+                    $params[] = $iid;
+                } else {
+                    $inboxConditions[] = "c.channel_id IN (SELECT channel_id FROM inbox_channels WHERE inbox_id = ?)";
+                    $params[] = $iid;
+                }
+            } else {
+                $inboxConditions[] = "(c.inbox_id = ? OR c.channel_id IN (SELECT channel_id FROM inbox_channels WHERE inbox_id = ?))";
+                $params[] = $iid;
+                $params[] = $iid;
+            }
+        }
+        $inboxWhere = '(' . implode(' OR ', $inboxConditions) . ')';
+
+        return Database::getInstance()->update(
+            'messages m JOIN conversations c ON c.id = m.conversation_id',
+            ['m.is_read' => 1],
+            "m.direction = 'inbound' AND m.is_read = 0 AND (m.user_id != ? OR m.user_id IS NULL) AND {$inboxWhere}",
+            $params
+        );
     }
 }

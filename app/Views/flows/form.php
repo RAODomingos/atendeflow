@@ -98,17 +98,23 @@ const NODE_TYPES = {
     question:           { label: 'Pergunta', icon: 'fa-question-circle', color: '#FFC107', group: 'interact' },
     collect_field:      { label: 'Coletar Dado', icon: 'fa-edit', color: '#6F42C1', group: 'interact' },
     condition:          { label: 'Condição', icon: 'fa-code-branch', color: '#FD7E14', group: 'logic' },
+    day_of_week:        { label: 'Dia da Semana', icon: 'fa-calendar-day', color: '#0891B2', group: 'logic' },
+    time_range:         { label: 'Horário', icon: 'fa-clock', color: '#7C3AED', group: 'logic' },
     delay:              { label: 'Aguardar', icon: 'fa-hourglass', color: '#6C757D', group: 'logic' },
     assign_department:  { label: 'Definir Depto', icon: 'fa-layer-group', color: '#E83E8C', group: 'action' },
     assign_user:        { label: 'Atribuir', icon: 'fa-user-check', color: '#20C997', group: 'action' },
     add_tag:            { label: 'Etiqueta', icon: 'fa-tag', color: '#6C757D', group: 'action' },
     handoff:            { label: 'Encaminhar', icon: 'fa-forward', color: '#DC3545', group: 'action' },
+    notify:             { label: 'Notificar', icon: 'fa-bell', color: '#E83E8C', group: 'action' },
     end:                { label: 'Encerrar', icon: 'fa-stop-circle', color: '#343A40', group: 'flow' },
+    finish:             { label: 'Finalizar', icon: 'fa-check-double', color: '#DC2626', group: 'flow' },
 };
 
 const GROUP_NAMES = {
     flow: 'Controle de Fluxo', msg: 'Mensagens', media: 'Mídia', interact: 'Interação', logic: 'Lógica', action: 'Ações'
 };
+
+const WHATSAPP_CHANNELS = <?= json_encode($whatsappChannels ?? [], JSON_UNESCAPED_UNICODE) ?>;
 
 let nodes = [];
 let connections = [];
@@ -311,7 +317,7 @@ function renderAll() {
         el.style.borderTopColor = nt.color;
         el.style.zIndex = node.zIndex || 1;
 
-        const hasOptionPorts = node.options && node.options.length > 0 && ['menu','button_list','list_menu'].includes(node.type);
+        const hasOptionPorts = node.options && node.options.length > 0 && (['menu','button_list','list_menu','condition','day_of_week','time_range'].includes(node.type));
         let optsHtml = '';
         if (hasOptionPorts) {
             optsHtml = '<div class="fb-node-options">' + node.options.map((o, idx) =>
@@ -339,6 +345,10 @@ function renderAll() {
                 ${node.type === 'delay' && node.config?.seconds ? '<div class="fb-node-meta">⏱ ' + node.config.seconds + 's</div>' : ''}
                 ${(node.type === 'image' || node.type === 'audio' || node.type === 'video' || node.type === 'send_file') && node.config?.file_url ? '<div class="fb-node-meta">📎 ' + e(truncate(node.config.file_url, 40)) + '</div>' : ''}
                 ${node.type === 'button_list' && node.options ? '<div class="fb-node-meta">🔘 ' + node.options.length + ' botão(ns)</div>' : ''}
+                ${node.type === 'notify' && node.config?.phones ? '<div class="fb-node-meta">📞 ' + node.config.phones.length + ' tel.' + (node.config.phones[0] ? ' (' + e(truncate(node.config.phones[0], 13)) + '...)' : '') + '</div>' : ''}
+                ${node.type === 'notify' && !node.config?.phones && node.config?.phone_number ? '<div class="fb-node-meta">📞 ' + e(truncate(node.config.phone_number, 15)) + '</div>' : ''}
+                ${node.type === 'day_of_week' && node.config?.days ? '<div class="fb-node-meta">📅 ' + node.config.days.map(d => ['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'][d]).join(', ') + '</div>' : ''}
+                ${node.type === 'time_range' && node.config?.start_time ? '<div class="fb-node-meta">⏰ ' + e(node.config.start_time) + ' - ' + e(node.config.end_time || '') + '</div>' : ''}
             </div>
             <div class="fb-node-port fb-port-in" title="Conectar entrada"></div>
             <div class="fb-node-port fb-port-out" title="Conectar saída"></div>
@@ -348,9 +358,6 @@ function renderAll() {
             e.stopPropagation();
             if (connectSource) {
                 if (connectSource.nodeId !== node.id) {
-                    if (connectSource.optionIndex === undefined) {
-                        connections = connections.filter(c => !(c.target === node.id));
-                    }
                     const conn = { source: connectSource.nodeId, target: node.id, label: '' };
                     if (connectSource.optionIndex !== undefined) conn.sourceOption = connectSource.optionIndex;
                     connections.push(conn);
@@ -544,6 +551,12 @@ function addNode(type, x, y) {
         zIndex: ++nextZIndex,
     };
     if (type === 'start') { return; }
+    if (['condition', 'day_of_week', 'time_range'].includes(type)) {
+        node.options = [
+            { label: 'SIM', value: 'sim', next_node_id: null },
+            { label: 'NÃO', value: 'nao', next_node_id: null },
+        ];
+    }
     nodes.push(node);
     if (connectSource) {
         const conn = { source: connectSource.nodeId, target: node.id, label: '' };
@@ -629,6 +642,21 @@ function editNode(id) {
         html += '<div class="form-group"><label>Variável</label><input type="text" class="form-control" id="neCondVar" value="' + e(node.config?.variable || '') + '" placeholder="Ex: {opcao}"></div>';
         html += '<div class="form-group"><label>Valor esperado</label><input type="text" class="form-control" id="neCondVal" value="' + e(node.config?.expected || '') + '" placeholder="Ex: Sim"></div>';
     }
+    if (node.type === 'day_of_week') {
+        html += '<div class="form-group"><label>Dias da semana (marque os que deseja)</label><div id="neDays">';
+        const dayNames = ['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'];
+        const checked = node.config?.days || [1,2,3,4,5];
+        dayNames.forEach((name, i) => {
+            html += '<label class="checkbox-inline" style="display:inline-flex;align-items:center;gap:4px;margin:4px 8px 4px 0;font-size:13px">';
+            html += '<input type="checkbox" value="' + i + '"' + (checked.includes(i) ? ' checked' : '') + '> ' + name + '</label>';
+        });
+        html += '</div><small class="text-muted">Se o hoje estiver entre os dias marcados, segue o ramo SIM</small>';
+    }
+    if (node.type === 'time_range') {
+        html += '<div class="form-group"><label>Horário início</label><input type="time" class="form-control" id="neTimeStart" value="' + e(node.config?.start_time || '08:00') + '"></div>';
+        html += '<div class="form-group"><label>Horário fim</label><input type="time" class="form-control" id="neTimeEnd" value="' + e(node.config?.end_time || '18:00') + '"></div>';
+        html += '<small class="text-muted">Se agora estiver entre início e fim, segue o ramo SIM</small>';
+    }
     if (node.type === 'assign_department') {
         html += '<div class="form-group"><label>Departamento</label><select class="form-control" id="neDept"><option value="">Selecione...</option>';
         <?php foreach ($departments as $dept): ?>
@@ -649,6 +677,18 @@ function editNode(id) {
         html += '<option value="<?= $tag['id'] ?>"' + (node.config?.tag_id == <?= $tag['id'] ?> ? ' selected' : '') + '><?= e($tag['name']) ?></option>';
         <?php endforeach; ?>
         html += '</select></div>';
+    }
+    if (node.type === 'notify') {
+        html += '<div class="form-group"><label>Canal WhatsApp para envio</label><select class="form-control" id="neNotifyChannel">';
+        html += '<option value="">Usar canal da conversa</option>';
+        WHATSAPP_CHANNELS.forEach(function(ch) {
+            html += '<option value="' + ch.id + '"' + (node.config?.notify_channel_id == ch.id ? ' selected' : '') + '>' + e(ch.name) + (ch.instance_name ? ' (' + e(ch.instance_name) + ')' : '') + '</option>';
+        });
+        html += '</select></div>';
+        html += '<div class="form-group"><label>Telefones destino (com DDD, um por linha)</label><textarea class="form-control" id="neNotifyPhones" rows="3" placeholder="5511999999999">' + e((node.config?.phones || [node.config?.phone_number || '']).join('\n')) + '</textarea>';
+        html += '<small class="text-muted">Cada número em uma linha. Mínimo 10 dígitos.</small></div>';
+        html += '<div class="form-group"><label>Mensagem a enviar</label><textarea class="form-control" id="neNotifyMsg" rows="4">' + e(node.config?.message_template || '') + '</textarea>';
+        html += '<small class="text-muted">Variáveis: {nome}, {telefone}, {email}, {empresa}, {documento}, {mensagem}</small></div>';
     }
     if (node.type === 'collect_field') {
         html += '<div class="form-group"><label>Campo para salvar</label><select class="form-control" id="neField">';
@@ -742,6 +782,19 @@ function saveNodeModal() {
         node.config.expected = document.getElementById('neCondVal')?.value || '';
     }
 
+    if (node.type === 'day_of_week') {
+        node.config = node.config || {};
+        const checks = document.querySelectorAll('#neDays input[type=checkbox]');
+        node.config.days = [];
+        checks.forEach((cb, i) => { if (cb.checked) node.config.days.push(i); });
+    }
+
+    if (node.type === 'time_range') {
+        node.config = node.config || {};
+        node.config.start_time = document.getElementById('neTimeStart')?.value || '08:00';
+        node.config.end_time = document.getElementById('neTimeEnd')?.value || '18:00';
+    }
+
     if (node.type === 'assign_department') {
         node.config = node.config || {};
         node.config.department_id = document.getElementById('neDept')?.value || null;
@@ -753,6 +806,13 @@ function saveNodeModal() {
     if (node.type === 'add_tag') {
         node.config = node.config || {};
         node.config.tag_id = document.getElementById('neTag')?.value || null;
+    }
+    if (node.type === 'notify') {
+        node.config = node.config || {};
+        node.config.notify_channel_id = document.getElementById('neNotifyChannel')?.value || '';
+        const raw = document.getElementById('neNotifyPhones')?.value || '';
+        node.config.phones = raw.split('\n').map(s => s.trim()).filter(s => s.replace(/\D/g, '').length >= 10);
+        node.config.message_template = document.getElementById('neNotifyMsg')?.value || '';
     }
     if (node.type === 'collect_field') {
         node.config = node.config || {};

@@ -55,6 +55,9 @@
         <?php endif; ?>
         <tr><td>Responsável</td><td><?= e($conversation['assigned_user_name'] ?? 'Sem responsável') ?></td></tr>
         <tr><td>Assunto</td><td><?= e($conversation['subject'] ?? '-') ?></td></tr>
+        <?php if (!empty($conversation['unit'])): ?>
+        <tr><td>Unidade</td><td><?= e($conversation['unit']) ?></td></tr>
+        <?php endif; ?>
         <tr><td>Criada em</td><td><?= format_datetime($conversation['created_at']) ?></td></tr>
         <?php if (!empty($conversation['closed_at'])): ?>
         <tr><td>Fechada em</td><td><?= format_datetime($conversation['closed_at']) ?></td></tr>

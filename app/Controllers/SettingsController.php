@@ -212,10 +212,10 @@ class SettingsController
 
         if ($channel['type'] === 'webchat') {
             $widget = Database::getInstance()->fetch(
-                "SELECT id FROM webchat_widgets WHERE channel_id = ?", [$id]
+                "SELECT id, avatar_url FROM webchat_widgets WHERE channel_id = ?", [$id]
             );
             if ($widget) {
-                Database::getInstance()->update('webchat_widgets', [
+                $widgetData = [
                     'title' => $request->post('widget_title') ?: $name,
                     'department_id' => $departmentId ? (int) $departmentId : null,
                     'is_active' => $request->post('is_active') ? 1 : 0,
@@ -226,7 +226,20 @@ class SettingsController
                     'require_phone' => $request->post('require_phone') ? 1 : 0,
                     'ask_cnpj' => $request->post('ask_cnpj') ? 1 : 0,
                     'require_cnpj' => $request->post('require_cnpj') ? 1 : 0,
-                ], 'id = ?', [$widget['id']]);
+                ];
+
+                $file = $request->file('avatar');
+                $removeAvatar = $request->post('remove_avatar');
+                if (!empty($file['tmp_name'])) {
+                    $uploaded = save_uploaded_file('avatar', null, 'widgets');
+                    if ($uploaded) {
+                        $widgetData['avatar_url'] = upload_url($uploaded['path']);
+                    }
+                } elseif ($removeAvatar) {
+                    $widgetData['avatar_url'] = null;
+                }
+
+                Database::getInstance()->update('webchat_widgets', $widgetData, 'id = ?', [$widget['id']]);
             }
         } elseif ($channel['type'] === 'whatsapp') {
             $connection = \App\Models\WhatsAppConnection::findByChannel($id);
@@ -455,7 +468,7 @@ class SettingsController
         $name = $request->post('name', '');
         $color = $request->post('color', '#6c757d');
         if (empty($name)) {
-            Session::flash('error', 'Nome é obrigatório.');
+            Session::setFlash('error', 'Nome é obrigatório.');
             View::redirect('/settings/substatuses');
             return;
         }
@@ -463,7 +476,7 @@ class SettingsController
             "INSERT INTO conversation_substatuses (name, color, sort_order) VALUES (?, ?, ?)",
             [$name, $color, (int) $request->post('sort_order', 0)]
         );
-        Session::flash('success', 'Sub-status criado com sucesso.');
+        Session::setFlash('success', 'Sub-status criado com sucesso.');
         View::redirect('/settings/substatuses');
     }
 
@@ -472,7 +485,7 @@ class SettingsController
         $name = $request->post('name', '');
         $color = $request->post('color', '#6c757d');
         if (empty($name)) {
-            Session::flash('error', 'Nome é obrigatório.');
+            Session::setFlash('error', 'Nome é obrigatório.');
             View::redirect('/settings/substatuses');
             return;
         }
@@ -480,14 +493,14 @@ class SettingsController
             "UPDATE conversation_substatuses SET name = ?, color = ?, sort_order = ?, is_active = ? WHERE id = ?",
             [$name, $color, (int) $request->post('sort_order', 0), (int) $request->post('is_active', 1), $id]
         );
-        Session::flash('success', 'Sub-status atualizado com sucesso.');
+        Session::setFlash('success', 'Sub-status atualizado com sucesso.');
         View::redirect('/settings/substatuses');
     }
 
     public function deleteSubstatus(Request $request, int $id): void
     {
         Database::getInstance()->execute("DELETE FROM conversation_substatuses WHERE id = ?", [$id]);
-        Session::flash('success', 'Sub-status removido.');
+        Session::setFlash('success', 'Sub-status removido.');
         View::redirect('/settings/substatuses');
     }
 
@@ -507,7 +520,7 @@ class SettingsController
     {
         $name = $request->post('name', '');
         if (empty($name)) {
-            Session::flash('error', 'Nome é obrigatório.');
+            Session::setFlash('error', 'Nome é obrigatório.');
             View::redirect('/settings/subjects');
             return;
         }
@@ -515,7 +528,7 @@ class SettingsController
             "INSERT INTO conversation_subjects (name, sort_order) VALUES (?, ?)",
             [$name, (int) $request->post('sort_order', 0)]
         );
-        Session::flash('success', 'Assunto criado com sucesso.');
+        Session::setFlash('success', 'Assunto criado com sucesso.');
         View::redirect('/settings/subjects');
     }
 
@@ -523,7 +536,7 @@ class SettingsController
     {
         $name = $request->post('name', '');
         if (empty($name)) {
-            Session::flash('error', 'Nome é obrigatório.');
+            Session::setFlash('error', 'Nome é obrigatório.');
             View::redirect('/settings/subjects');
             return;
         }
@@ -531,15 +544,73 @@ class SettingsController
             "UPDATE conversation_subjects SET name = ?, sort_order = ?, is_active = ? WHERE id = ?",
             [$name, (int) $request->post('sort_order', 0), (int) $request->post('is_active', 1), $id]
         );
-        Session::flash('success', 'Assunto atualizado com sucesso.');
+        Session::setFlash('success', 'Assunto atualizado com sucesso.');
         View::redirect('/settings/subjects');
     }
 
     public function deleteSubject(Request $request, int $id): void
     {
         Database::getInstance()->execute("DELETE FROM conversation_subjects WHERE id = ?", [$id]);
-        Session::flash('success', 'Assunto removido.');
+        Session::setFlash('success', 'Assunto removido.');
         View::redirect('/settings/subjects');
+    }
+
+    public function closeReasons(Request $request): void
+    {
+        $reasons = \App\Models\CloseReason::all(false);
+        View::renderWithLayout('settings/close_reasons', 'main', [
+            'title' => 'Motivos de Encerramento',
+            'activePage' => 'settings',
+            'reasons' => $reasons,
+        ]);
+    }
+
+    public function createCloseReason(Request $request): void
+    {
+        $code = trim((string) $request->post('code', ''));
+        $label = trim((string) $request->post('label', ''));
+        if ($code === '' || $label === '') {
+            Session::setFlash('error', 'Código e rótulo são obrigatórios.');
+            View::redirect('/settings/close-reasons');
+            return;
+        }
+        $code = preg_replace('/[^a-z0-9_]/', '', strtolower($code));
+        \App\Models\CloseReason::create([
+            'code' => $code,
+            'label' => $label,
+            'description' => trim((string) $request->post('description', '')) ?: null,
+            'icon' => trim((string) $request->post('icon', 'fa-tag')) ?: 'fa-tag',
+            'color' => trim((string) $request->post('color', '#6c757d')) ?: '#6c757d',
+            'sort_order' => (int) $request->post('sort_order', 0),
+            'is_active' => 1,
+        ]);
+        Session::setFlash('success', 'Motivo criado com sucesso.');
+        View::redirect('/settings/close-reasons');
+    }
+
+    public function updateCloseReason(Request $request, int $id): void
+    {
+        $data = [
+            'label' => trim((string) $request->post('label', '')),
+            'description' => trim((string) $request->post('description', '')) ?: null,
+            'icon' => trim((string) $request->post('icon', 'fa-tag')) ?: 'fa-tag',
+            'color' => trim((string) $request->post('color', '#6c757d')) ?: '#6c757d',
+            'sort_order' => (int) $request->post('sort_order', 0),
+            'is_active' => (int) $request->post('is_active', 1) ? 1 : 0,
+        ];
+        if ($data['color'] && !preg_match('/^#[0-9a-fA-F]{3,7}$/', $data['color'])) {
+            $data['color'] = '#6c757d';
+        }
+        \App\Models\CloseReason::update($id, $data);
+        Session::setFlash('success', 'Motivo atualizado.');
+        View::redirect('/settings/close-reasons');
+    }
+
+    public function deleteCloseReason(Request $request, int $id): void
+    {
+        \App\Models\CloseReason::delete($id);
+        Session::setFlash('success', 'Motivo removido.');
+        View::redirect('/settings/close-reasons');
     }
 
 }

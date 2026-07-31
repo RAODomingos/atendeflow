@@ -1,8 +1,8 @@
 /* ==========================================
    AtendeFlow - UI/UX Enhancements
    Phase 3: Keyboard nav, infinite scroll,
-            cache, loading states, sound,
-            live conversation list update
+             cache, loading states, sound,
+             live conversation list update
    ========================================== */
 
 (function () {
@@ -14,21 +14,21 @@
   const SoundProfiles = {
     message: {
       default: { freq: 520, duration: 0.08, vol: 0.3 },
-      soft: { freq: 400, duration: 0.10, vol: 0.15 },
-      sharp: { freq: 800, duration: 0.06, vol: 0.4 },
-      silent: null,
+      soft:    { freq: 400, duration: 0.10, vol: 0.15 },
+      sharp:   { freq: 800, duration: 0.06, vol: 0.4 },
+      silent:  null,
     },
     new_conv: {
       default: { type: 'two-tone', freqs: [440, 660], duration: 0.25, vol: 0.35 },
-      soft: { type: 'two-tone', freqs: [350, 520], duration: 0.25, vol: 0.18 },
-      sharp: { type: 'two-tone', freqs: [700, 900], duration: 0.2, vol: 0.45 },
-      silent: null,
+      soft:    { type: 'two-tone', freqs: [350, 520], duration: 0.25, vol: 0.18 },
+      sharp:   { type: 'two-tone', freqs: [700, 900], duration: 0.2,  vol: 0.45 },
+      silent:  null,
     },
     incoming: {
       default: { freq: 600, duration: 0.15, vol: 0.3 },
-      soft: { freq: 480, duration: 0.15, vol: 0.15 },
-      sharp: { freq: 850, duration: 0.12, vol: 0.4 },
-      silent: null,
+      soft:    { freq: 480, duration: 0.15, vol: 0.15 },
+      sharp:   { freq: 850, duration: 0.12, vol: 0.4 },
+      silent:  null,
     },
   };
 
@@ -56,6 +56,7 @@
     enable() { this._enabled = true; },
     disable() { this._enabled = false; },
     toggle() { this._enabled = !this._enabled; return this._enabled; },
+    isEnabled() { return this._enabled; },
 
     _initAudioOnGesture() {
       var self = this;
@@ -69,11 +70,11 @@
             ac.resume().then(function() {
               var osc = ac.createOscillator();
               var gain = ac.createGain();
-              gain.gain.value = 0.01;
+              gain.gain.value = 0.0001;
               osc.connect(gain);
               gain.connect(ac.destination);
               osc.start(0);
-              osc.stop(ac.currentTime + 0.01);
+              osc.stop(ac.currentTime + 0.005);
             }).catch(function() {});
           }
         } catch (_) {}
@@ -84,15 +85,31 @@
     },
 
     setProfile(profile) {
-      this._profile = (profile && SoundProfiles.message[profile]) ? profile : 'default';
+      this._profile = (SoundProfiles.message[profile]) ? profile : 'default';
     },
 
     setTypeProfile(type, profile) {
-      if (SoundProfiles[type] && SoundProfiles[type][profile]) {
+      if (SoundProfiles[type] && (SoundProfiles[type][profile] || profile === 'silent')) {
         this._typeProfiles[type] = profile;
       } else {
         delete this._typeProfiles[type];
       }
+    },
+
+    applyPreferences(prefs) {
+      if (!prefs) return;
+      if (prefs.sound_enabled === false) {
+        this.disable();
+      } else {
+        this.enable();
+      }
+      if (prefs.sound_new_message) {
+        this.setTypeProfile('message', prefs.sound_new_message);
+      }
+      if (prefs.sound_new_conversation) {
+        this.setTypeProfile('new_conv', prefs.sound_new_conversation);
+      }
+      this.setTypeProfile('incoming', prefs.sound_new_message || 'default');
     },
 
     play(type, profile) {
@@ -289,13 +306,9 @@
           let val = el.value.trim();
           if (!val) return;
           const corrections = {
-            'gmai.com': 'gmail.com',
-            'yaho.com': 'yahoo.com',
-            'gmil.com': 'gmail.com',
-            'outlok.com': 'outlook.com',
-            'hotmial.com': 'hotmail.com',
-            'gmail.co': 'gmail.com',
-            'yahoo.co': 'yahoo.com',
+            'gmai.com': 'gmail.com', 'yaho.com': 'yahoo.com', 'gmil.com': 'gmail.com',
+            'outlok.com': 'outlook.com', 'hotmial.com': 'hotmail.com',
+            'gmail.co': 'gmail.com', 'yahoo.co': 'yahoo.com',
           };
           const domain = val.split('@')[1];
           if (domain && corrections[domain]) {
@@ -314,15 +327,9 @@
         el.addEventListener('blur', () => {
           let val = el.value.replace(/\D/g, '');
           if (!val) return;
-          if (val.length <= 10) {
-            val = '55' + val;
-          }
-          if (val.length === 12 && val.startsWith('55')) {
-            val = '55' + val.substring(2);
-          }
-          if (val !== el.value.replace(/\D/g, '') && val.length >= 10) {
-            el.value = val;
-          }
+          if (val.length <= 10) val = '55' + val;
+          if (val.length === 12 && val.startsWith('55')) val = '55' + val.substring(2);
+          if (val !== el.value.replace(/\D/g, '') && val.length >= 10) el.value = val;
         });
       });
     },
@@ -349,7 +356,7 @@
       document.addEventListener('keydown', (e) => {
         if (!this.items.length) return;
         if (/^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName || '')) return;
-        const isConvPage = document.querySelector('.inbox-page');
+        const isConvPage = document.querySelector('.app-inbox');
         if (!isConvPage) return;
 
         const k = e.key;
@@ -437,9 +444,7 @@
             this.hasMore = false;
           }
         })
-        .catch(() => {
-          this.hasMore = false;
-        })
+        .catch(() => { this.hasMore = false; })
         .finally(() => {
           this.loading = false;
           this.sentinel.classList.remove('loading');
@@ -456,9 +461,7 @@
   // 7. Tag Manager Filter Enhancement
   // ──────────────────────────────────────────
   const TagManagerEnhancer = {
-    init() {
-      this.addFilterInput();
-    },
+    init() { this.addFilterInput(); },
 
     addFilterInput() {
       const grid = document.getElementById('tagGrid');
@@ -516,10 +519,7 @@
   };
 
   // ──────────────────────────────────────────
-  // 9. Conversation List Live Polling
-  // ──────────────────────────────────────────
-  // ──────────────────────────────────────────
-  // LiveFeed — Notificações em tempo real
+  // 9. LiveFeed — Incremental list updates
   // ──────────────────────────────────────────
   const LiveFeed = {
     _known: {},
@@ -529,17 +529,26 @@
     _ready: false,
 
     init() {
-      document.querySelectorAll('.conversation-item').forEach(function(el) {
+      document.querySelectorAll('.conv-item').forEach(function(el) {
         var id = parseInt(el.dataset.convId, 10);
-        if (!isNaN(id)) this._known[id] = parseInt(el.dataset.unread || '0', 10);
+        if (!isNaN(id)) {
+          this._known[id] = {
+            unread: parseInt(el.dataset.unread || '0', 10),
+            msgCount: parseInt(el.dataset.msgCount || '0', 10),
+          };
+        }
       }, this);
 
-      var cv = document.getElementById('convView');
-      this._viewingId = cv ? cv.dataset.conv : null;
-
+      this._viewingId = (window.__viewingConvId || null);
       this._ready = true;
+
       this._poll();
-      this._pollTimer = setInterval(this._poll.bind(this), 8000);
+      this._pollTimer = setInterval(this._poll.bind(this), 10000);
+    },
+
+    setViewing(id) {
+      this._viewingId = id ? String(id) : null;
+      window.__viewingConvId = this._viewingId;
     },
 
     _baseUrl() {
@@ -551,14 +560,19 @@
       if (this._polling || !this._ready) return;
       this._polling = true;
 
-      var url = this._baseUrl() + '/api/conversations';
-      var p = new URLSearchParams(window.location.search);
-      var fv = p.get('fstatus');
-      if (!fv) { var h = document.querySelector('input[name="fstatus"]'); if (h) fv = h.value; }
-      if (fv) url += '?fstatus=' + encodeURIComponent(fv);
-      var iv = p.get('inbox');
-      if (!iv) { var ih = document.querySelector('input[name="inbox"]'); if (ih) iv = ih.value; }
-      if (iv) url += (fv ? '&' : '?') + 'inbox=' + encodeURIComponent(iv);
+      var baseUrl = this._baseUrl();
+      var isChatbot = window.location.pathname.indexOf('/inbox/chatbot') !== -1;
+      var url = isChatbot ? baseUrl + '/api/chatbot-conversations' : baseUrl + '/api/conversations';
+
+      if (!isChatbot) {
+        var p = new URLSearchParams(window.location.search);
+        var fv = p.get('fstatus');
+        if (!fv) { var h = document.querySelector('input[name="fstatus"]'); if (h) fv = h.value; }
+        if (fv) url += '?fstatus=' + encodeURIComponent(fv);
+        var iv = p.get('inbox');
+        if (!iv) { var ih = document.querySelector('input[name="inbox"]'); if (ih) iv = ih.value; }
+        if (iv) url += (fv ? '&' : '?') + 'inbox=' + encodeURIComponent(iv);
+      }
 
       var self = this;
       fetch(url, { headers: { 'X-Requested-With': 'XMLHttpRequest' } })
@@ -571,140 +585,237 @@
       if (!Array.isArray(data)) return;
       var self = this;
       var container = document.getElementById('conversationsList');
+      if (!container) return;
+
+      var activeConvId = new URLSearchParams(window.location.search).get('conv');
+      var knownIds = Object.keys(self._known);
+      var newIds = [];
+      var changes = [];
 
       data.forEach(function(c) {
         var id = parseInt(c.id, 10);
         if (!id) return;
-
-        var isKnown = (id in self._known);
-        var prevUnread = self._known[id] || 0;
         var newUnread = parseInt(c.unread_count || '0', 10);
+        var newMsgCount = parseInt(c.message_count || '0', 10);
 
-        if (!isKnown) {
-          SoundManager.play('new_conv');
-          self._notify('Novo atendimento: ' + (c.contact_name || 'Cliente'), c);
-        } else if (newUnread > prevUnread && String(id) !== self._viewingId) {
-          SoundManager.play('incoming');
-          if (document.visibilityState !== 'visible') {
-            self._notify((c.contact_name || 'Cliente') + ' enviou mensagem', c);
+        if (!self._known[id]) {
+          newIds.push(c);
+        } else {
+          var prevUnread = self._known[id].unread || 0;
+          if (newUnread > prevUnread && String(id) !== self._viewingId) {
+            changes.push({ type: 'incoming', conv: c, delta: newUnread - prevUnread });
+          } else if (newUnread < prevUnread || newMsgCount !== self._known[id].msgCount) {
+            changes.push({ type: 'update', conv: c });
           }
         }
-
-        self._known[id] = newUnread;
+        self._known[id] = { unread: newUnread, msgCount: newMsgCount };
       });
 
-      // Update the conversation list DOM
-      if (!container) return;
-      var currentMap = {};
-      container.querySelectorAll('.conversation-item').forEach(function(el) {
-        var eid = parseInt(el.dataset.convId, 10);
-        if (!isNaN(eid)) currentMap[eid] = el;
-      });
+      if (newIds.length === 0 && changes.length === 0) {
+        return;
+      }
 
-      data.forEach(function(c) {
-        var id = parseInt(c.id, 10);
-        var existing = currentMap[id];
-        if (existing) {
-          self._updateItem(existing, c);
-        } else if (container) {
-          var el = self._createItem(c);
-          container.insertBefore(el, container.firstChild);
+      newIds.forEach(function(c) {
+        if (c.status === 'closed' || c.status === 'resolved' || c.status === 'spam') {
+          if (!self._viewingId || String(c.id) !== self._viewingId) {
+            // remove from DOM if exists
+            var existing = container.querySelector('.conv-item[data-conv-id="' + c.id + '"]');
+            if (existing) existing.remove();
+          }
+          return;
+        }
+        SoundManager.play('new_conv');
+        var notif = newIds.length === 1
+          ? 'Nova conversa: ' + (c.contact_name || 'Cliente')
+          : (newIds.length + ' novas conversas');
+        self._flashToast(notif, c);
+        if (document.visibilityState !== 'visible') {
+          self._notifyBrowser(notif, 'AtendeFlow');
         }
       });
 
-      // Remove stale items
-      var apiIds = {};
-      data.forEach(function(c) { apiIds[parseInt(c.id, 10)] = true; });
-      Object.keys(currentMap).forEach(function(idStr) {
-        if (!apiIds[parseInt(idStr, 10)]) {
-          var el = currentMap[parseInt(idStr, 10)];
-          if (el && el.parentNode) el.parentNode.removeChild(el);
+      changes.forEach(function(ch) {
+        if (ch.type === 'incoming') {
+          if (document.visibilityState !== 'visible') {
+            self._notifyBrowser((ch.conv.contact_name || 'Cliente') + ' enviou mensagem', 'AtendeFlow');
+          }
         }
       });
+
+      newIds.forEach(function(c) { self._prependItem(container, c, activeConvId); });
+      changes.forEach(function(ch) { self._updateItem(container, ch.conv, activeConvId); });
+      knownIds.forEach(function(idStr) {
+        var id = parseInt(idStr, 10);
+        if (!data.find(function(c) { return parseInt(c.id, 10) === id; })) {
+          var existing = container.querySelector('.conv-item[data-conv-id="' + id + '"]');
+          if (existing && (!self._viewingId || String(id) !== self._viewingId)) {
+            existing.remove();
+          }
+        }
+      });
+
+      if (window.__enhancements && window.__enhancements.KeyboardNav) {
+        window.__enhancements.KeyboardNav.refreshItems();
+      }
     },
 
-    _createItem(c) {
+    _prependItem(container, c, activeConvId) {
       var id = parseInt(c.id, 10);
-      var el = document.createElement('a');
+      var existing = container.querySelector('.conv-item[data-conv-id="' + id + '"]');
+      if (existing) existing.remove();
+
+      var el = this._createItem(c, activeConvId);
+      el.classList.add('conv-new-flash');
+      var first = container.querySelector('.conv-item');
+      if (first) {
+        container.insertBefore(el, first);
+      } else {
+        var empty = container.querySelector('.empty-state-enhanced');
+        if (empty) empty.remove();
+        container.insertBefore(el, container.firstChild);
+      }
+      setTimeout(function() { el.classList.remove('conv-new-flash'); }, 4000);
+    },
+
+    _updateItem(container, c, activeConvId) {
+      var id = parseInt(c.id, 10);
+      var existing = container.querySelector('.conv-item[data-conv-id="' + id + '"]');
+      if (!existing) {
+        if (c.status !== 'closed' && c.status !== 'resolved' && c.status !== 'spam') {
+          this._prependItem(container, c, activeConvId);
+        }
+        return;
+      }
+      if (c.status === 'closed' || c.status === 'resolved' || c.status === 'spam') {
+        if (!this._viewingId || String(id) !== this._viewingId) {
+          existing.remove();
+          return;
+        }
+      }
+      var fresh = this._createItem(c, activeConvId);
+      existing.replaceWith(fresh);
+    },
+
+    _createItem(c, activeConvId) {
+      var id = parseInt(c.id, 10);
       var baseUrl = window.location.pathname + '?conv=';
+      var un = parseInt(c.unread_count || '0', 10);
+      var chIcon = { whatsapp:'fab fa-whatsapp', webchat:'fas fa-comment-dots', email:'fas fa-envelope', telegram:'fab fa-telegram', facebook:'fab fa-facebook', instagram:'fab fa-instagram', phone:'fas fa-phone' }[c.channel_type] || 'fas fa-comment-dots';
+
+      var priorityChip = '';
+      if (c.priority && c.priority !== 'normal') {
+        priorityChip = '<span class="chip ' + (c.priority === 'urgent' ? 'chip-danger' : 'chip-warning') + '">' + this._priorityLabel(c.priority) + '</span>';
+      }
+
+      var statusChipClass = 'chip-success';
+      if (c.status === 'resolved' || c.status === 'closed') statusChipClass = 'chip-neutral';
+      else if (c.status !== 'open' && c.status !== 'new') statusChipClass = 'chip-info';
+
+      var avatarHtml = '<div class="avatar">' + this._esc((c.contact_name || '?').charAt(0).toUpperCase()) + '</div>';
+      if (c.contact_avatar) {
+        var src = c.contact_avatar.indexOf('http') === 0 ? c.contact_avatar : this._baseUrl() + '/uploads/' + c.contact_avatar;
+        avatarHtml = '<div class="avatar"><img src="' + this._esc(src) + '" alt=""></div>';
+      }
+
+      var statusDot = (c.status === 'open' || c.status === 'new') ? '<div class="status-dot"></div>' : '';
+      var unreadBadge = un > 0 ? '<span class="nav-badge" style="position:absolute;top:-4px;right:-6px;font-size:10px;padding:1px 6px">' + (un > 99 ? '99+' : un) + '</span>' : '';
+      var previewText = this._previewText(c, 80);
+      var subjectHtml = c.subject ? '<strong>' + this._esc(c.subject) + '</strong> — ' : '';
+
+      var el = document.createElement('a');
       el.href = baseUrl + id;
-      el.className = 'conversation-item conv-card-hover';
+      el.className = 'conv-item' + (activeConvId === String(id) ? ' active' : '');
       el.dataset.convId = id;
       el.dataset.msgCount = String(c.message_count || 0);
-      el.dataset.unread = String(c.unread_count || 0);
-
-      var initial = (c.contact_name || '?').charAt(0).toUpperCase();
-      var src;
-      if (c.contact_avatar) {
-        src = c.contact_avatar.indexOf('http') === 0 ? c.contact_avatar : this._baseUrl() + '/uploads/' + c.contact_avatar;
-      }
-      var un = parseInt(c.unread_count || '0', 10);
-      var chColor = { whatsapp: '#25D366', webchat: '#4361ee', email: '#f59e0b', telegram: '#0088cc', facebook: '#1877f2', instagram: '#e1306c', phone: '#6c757d' }[c.channel_type] || '#6c757d';
+      el.dataset.unread = String(un);
 
       el.innerHTML =
-        '<div class="avatar-container">' +
-          (c.contact_avatar ? '<img class="avatar" src="' + this._esc(src) + '" alt="">'
-            : '<div class="avatar avatar-placeholder-sm">' + this._esc(initial) + '</div>') +
-          ((c.status === 'open' || c.status === 'new') ? '<div class="status-badge-dot"></div>' : '') +
-          (un > 0 ? '<span class="unread-badge">' + (un > 99 ? '99+' : un) + '</span>' : '') +
-        '</div>' +
-        '<div class="convo-info">' +
-          '<div class="convo-header"><span class="convo-name">' + this._esc(c.contact_name) + (c.contact_company ? '<span class="convo-company"> — ' + this._esc(c.contact_company) + '</span>' : '') + '</span><span class="convo-time">' + this._timeAgo(c.last_message_at || c.created_at) + '</span></div>' +
-          (c.subject ? '<div class="convo-subject">' + this._esc(c.subject) + '</div>' : '') +
-          '<p class="convo-preview">' + this._esc(this._previewText(c, 80)) + (c.unit ? ' <span class="convo-unit">| ' + this._esc(c.unit) + '</span>' : '') + '</p>' +
-          '<div class="convo-meta">' +
-            '<span class="convo-channel" style="background:' + chColor + '"><i class="' + (c.channel_type === 'whatsapp' ? 'fab fa-whatsapp' : c.channel_type === 'email' ? 'fas fa-envelope' : 'fas fa-comment-dots') + '"></i> ' + this._esc(c.channel_name || '') + '</span>' +
-            '<span class="priority-badge priority-' + c.priority + '">' + this._priorityLabel(c.priority) + '</span>' +
-            '<span class="status-badge status-' + c.status + '">' + this._statusLabel(c.status) + '</span>' +
+        '<div class="avatar-wrap">' + avatarHtml + statusDot + unreadBadge + '</div>' +
+        '<div class="conv-body">' +
+          '<div class="conv-top">' +
+            '<span class="conv-name">' + this._esc(c.contact_name) + (c.contact_company ? '<span style="font-weight:400;color:var(--text-muted);font-size:12px"> — ' + this._esc(c.contact_company) + '</span>' : '') + '</span>' +
+            '<span class="conv-time">' + this._timeAgo(c.last_message_at || c.created_at) + '</span>' +
           '</div>' +
-          '<div class="convo-footer">' +
-            '<span><i class="fas fa-user"></i> ' + this._esc(c.assigned_user_name || 'Não atribuído') + '</span>' +
-            '<span><i class="fas fa-comment-dots"></i> ' + (parseInt(c.message_count, 10) || 0) + '</span>' +
-            (c.department_name ? '<span><i class="fas fa-layer-group"></i> ' + this._esc(c.department_name) + '</span>' : '') +
-            (c.unit ? '<span style="color:var(--text-muted);font-size:11px"><i class="fas fa-map-marker-alt"></i> ' + this._esc(c.unit) + '</span>' : '') +
+          '<div class="conv-preview">' + subjectHtml + this._esc(previewText) + '</div>' +
+          '<div class="conv-tags">' +
+            '<span class="chip chip-neutral"><i class="' + chIcon + '" style="font-size:11px"></i> ' + this._esc(c.channel_name || '') + '</span>' +
+            priorityChip +
+            '<span class="chip ' + statusChipClass + '">' + this._statusLabel(c.status) + '</span>' +
+          '</div>' +
+          '<div class="conv-footer">' +
+            '<span class="conv-agent"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg> ' + this._esc(c.assigned_user_name || 'Não atribuído') + '</span>' +
+            '<span class="conv-count"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg> ' + (parseInt(c.message_count, 10) || 0) + '</span>' +
           '</div>' +
         '</div>';
 
       return el;
     },
 
-    _updateItem(el, c) {
-      if (!el) return;
-      var nu = parseInt(c.unread_count || '0', 10);
-      el.dataset.unread = String(nu);
-      var ac = el.querySelector('.avatar-container');
-      var eb = ac ? ac.querySelector('.unread-badge') : null;
-      if (nu > 0) {
-        var bt = nu > 99 ? '99+' : nu;
-        if (eb) eb.textContent = bt;
-        else if (ac) { var nb = document.createElement('span'); nb.className = 'unread-badge'; nb.textContent = bt; ac.appendChild(nb); }
-      } else if (eb) eb.remove();
-
-      var pe = el.querySelector('.convo-preview');
-      if (pe) { var np = this._previewText(c, 80); if (pe.textContent !== np) { pe.textContent = np; pe.classList.add('conv-preview-flash'); setTimeout(function() { pe.classList.remove('conv-preview-flash'); }, 600); } }
-
-      var ne = el.querySelector('.convo-name');
-      if (ne) {
-        var nameHtml = this._esc(c.contact_name);
-        if (c.contact_company) nameHtml += '<span class="convo-company"> — ' + this._esc(c.contact_company) + '</span>';
-        if (ne.innerHTML !== nameHtml) { ne.innerHTML = nameHtml; }
+    addConversationFromSSE(c) {
+      var self = this;
+      var id = parseInt(c.id, 10);
+      if (!id || this._known[id]) return;
+      this._known[id] = { unread: 0, msgCount: 0 };
+      this._poll();
+      var container = document.getElementById('conversationsList');
+      if (!container) return;
+      var activeConvId = new URLSearchParams(window.location.search).get('conv');
+      var initial = Object.assign({}, c, { unread_count: 0, message_count: 0, last_message_at: c.created_at });
+      this._prependItem(container, initial, activeConvId);
+      if (window.__enhancements && window.__enhancements.KeyboardNav) {
+        window.__enhancements.KeyboardNav.refreshItems();
       }
+    },
 
-      var te = el.querySelector('.convo-time');
-      if (te) te.textContent = this._timeAgo(c.last_message_at || c.created_at);
-
-      var ft = el.querySelector('.convo-footer');
-      if (ft) { var cs = ft.querySelectorAll('span'); if (cs.length >= 2) cs[1].innerHTML = '<i class="fas fa-comment-dots"></i> ' + (parseInt(c.message_count, 10) || 0); }
-
-      var sb = el.querySelector('.status-badge');
-      if (sb) { ['status-new','status-open','status-waiting_customer','status-waiting_internal','status-resolved','status-closed','status-spam'].forEach(function(cn) { sb.classList.remove(cn); }); sb.classList.add('status-' + c.status); sb.textContent = this._statusLabel(c.status); }
-
-      var pb = el.querySelector('.priority-badge');
-      if (pb) { ['priority-low','priority-normal','priority-high','priority-urgent'].forEach(function(cn) { pb.classList.remove(cn); }); pb.classList.add('priority-' + c.priority); pb.textContent = this._priorityLabel(c.priority); }
-
-      var dt = el.querySelector('.status-badge-dot');
-      if (dt) dt.style.display = (c.status === 'open' || c.status === 'new') ? '' : 'none';
-      else if ((c.status === 'open' || c.status === 'new') && ac) { var nd = document.createElement('div'); nd.className = 'status-badge-dot'; ac.appendChild(nd); }
+    incomingMessageFromSSE(payload) {
+      var id = parseInt(payload.conversation_id, 10);
+      if (!id) return;
+      var self = this;
+      if (this._known[id]) {
+        this._known[id].unread = (this._known[id].unread || 0) + 1;
+        this._known[id].msgCount = (this._known[id].msgCount || 0) + 1;
+      } else {
+        this._known[id] = { unread: 1, msgCount: 1 };
+        this._poll();
+        return;
+      }
+      var container = document.getElementById('conversationsList');
+      if (!container) return;
+      var existing = container.querySelector('.conv-item[data-conv-id="' + id + '"]');
+      if (existing) {
+        var badge = existing.querySelector('.nav-badge');
+        var newCount = this._known[id].unread;
+        if (newCount > 0) {
+          if (badge) {
+            badge.textContent = newCount > 99 ? '99+' : String(newCount);
+          } else {
+            var wrap = existing.querySelector('.avatar-wrap');
+            if (wrap) {
+              var b = document.createElement('span');
+              b.className = 'nav-badge';
+              b.style.cssText = 'position:absolute;top:-4px;right:-6px;font-size:10px;padding:1px 6px';
+              b.textContent = newCount > 99 ? '99+' : String(newCount);
+              wrap.appendChild(b);
+            }
+          }
+        }
+        var timeEl = existing.querySelector('.conv-time');
+        if (timeEl) timeEl.textContent = 'agora';
+        var previewEl = existing.querySelector('.conv-preview');
+        if (previewEl) {
+          var labels = { image: '🖼️ Imagem', video: '🎬 Vídeo', audio: '🎵 Áudio', file: '📎 Arquivo', sticker: '🖼️ Sticker' };
+          previewEl.textContent = labels[payload.type] || (payload.content || '').substring(0, 80);
+        }
+        if (String(id) !== this._viewingId) {
+          existing.classList.add('conv-new-flash');
+          setTimeout(function() { existing.classList.remove('conv-new-flash'); }, 4000);
+          if (container.firstChild !== existing) {
+            container.insertBefore(existing, container.firstChild);
+          }
+        }
+      } else {
+        this._poll();
+      }
     },
 
     _esc(s) { if (s == null) return ''; var d = document.createElement('div'); d.textContent = String(s); return d.innerHTML; },
@@ -730,36 +841,67 @@
     _statusLabel(s) { return ({ new:'Novo', open:'Aberto', waiting_customer:'Em atendimento', waiting_internal:'Aguardando Interno', resolved:'Resolvido', closed:'Fechado', spam:'Spam' })[s] || s; },
     _priorityLabel(p) { return ({ low:'Baixa', normal:'Normal', high:'Alta', urgent:'Urgente' })[p] || p; },
 
-    _notify(body, c) {
+    _flashToast(body, c) {
+      var existing = document.querySelector('.notif-toast');
+      if (existing) existing.remove();
+      var toast = document.createElement('div');
+      toast.className = 'notif-toast';
+      toast.innerHTML =
+        '<div class="notif-toast-icon"><i class="fa-solid fa-comment-dots"></i></div>' +
+        '<div class="notif-toast-content">' +
+          '<div class="notif-toast-title">' + this._esc(body) + '</div>' +
+          '<div class="notif-toast-body">Clique para abrir</div>' +
+        '</div>' +
+        '<button class="notif-toast-close">&times;</button>';
+      toast.querySelector('.notif-toast-close').addEventListener('click', function () { toast.remove(); });
+      if (c && c.id) {
+        toast.addEventListener('click', function () {
+          window.location.href = (window.__enhancements && window.__enhancements.LiveFeed && window.__enhancements.LiveFeed._baseUrl() || '') + '/inbox?conv=' + c.id;
+        });
+      }
+      document.body.appendChild(toast);
+      setTimeout(function () { if (toast.parentNode) toast.remove(); }, 6000);
+    },
+
+    _notifyBrowser(body, title) {
       if ('Notification' in window && Notification.permission === 'granted') {
-        try { new Notification('AtendeFlow', { body: body, icon: '/assets/img/favicon.png', tag: 'conv-' + (c ? c.id : ''), requireInteraction: true }); } catch(_) {}
-      } else if ('Notification' in window && Notification.permission === 'default') {
-        Notification.requestPermission();
+        try {
+          new Notification(title || 'AtendeFlow', {
+            body: body,
+            icon: '/assets/img/favicon.png',
+            requireInteraction: false,
+          });
+        } catch (_) {}
       }
     },
   };
 
   // ──────────────────────────────────────────
-  // 10. Global Notification Manager
+  // 10. Global Notification Manager (SSE)
   // ──────────────────────────────────────────
   const GlobalNotifier = {
     eventSource: null,
-    pollTimer: null,
-    useSSE: true,
-    lastUnreadMessages: -1,
+    sseBackoff: 5000,
+    sseMaxBackoff: 60000,
+    lastUnreadConversations: -1,
     lastUnreadNotifications: -1,
-    pollInterval: 20000,
-    _prefsLoaded: false,
     _browserNotifEnabled: true,
+    _viewingId: null,
+    _prefs: null,
 
     init() {
+      this._viewingId = (window.__viewingConvId || null);
       this._loadLastCounts();
       this._loadPreferences();
       this._bindGesturePermissions();
+      this._fetchSummary();
       this._trySSE();
-      if (!this.useSSE) {
-        this._startPolling();
-      }
+      this._fallbackTimer = setInterval(this._fetchSummary.bind(this), 30000);
+    },
+
+    setViewing(id) {
+      this._viewingId = id ? String(id) : null;
+      window.__viewingConvId = this._viewingId;
     },
 
     _bindGesturePermissions() {
@@ -782,22 +924,32 @@
       })
         .then(function (r) { return r.json(); })
         .then(function (data) {
-          self._prefsLoaded = true;
-          // Sound preferences
-          if (data.sound_enabled === false) {
-            SoundManager.disable();
-          } else {
-            SoundManager.enable();
-            SoundManager.setTypeProfile('message', data.sound_new_message || 'default');
-            SoundManager.setTypeProfile('new_conv', data.sound_new_conversation || 'default');
-            SoundManager.setTypeProfile('incoming', data.sound_new_message || 'default');
-            SoundManager.setProfile(data.sound_new_message || 'default');
-          }
+          self._prefs = data;
+          SoundManager.applyPreferences(data);
           self._browserNotifEnabled = data.browser_notif_enabled !== false;
         })
-        .catch(function () {
-          self._prefsLoaded = true;
-        });
+        .catch(function () {});
+    },
+
+    savePreferences(patch) {
+      var baseUrl = this._baseUrl();
+      if (!baseUrl) return Promise.resolve();
+      var self = this;
+      return fetch(baseUrl + '/api/user-preferences', {
+        method: 'POST',
+        headers: { 'X-Requested-With': 'XMLHttpRequest', 'Content-Type': 'application/json' },
+        body: JSON.stringify(patch || {}),
+      })
+        .then(function (r) { return r.json(); })
+        .then(function (resp) {
+          if (resp && resp.prefs) {
+            self._prefs = resp.prefs;
+            SoundManager.applyPreferences(resp.prefs);
+            self._browserNotifEnabled = resp.prefs.browser_notif_enabled !== false;
+          }
+          return resp;
+        })
+        .catch(function () { return null; });
     },
 
     _loadLastCounts() {
@@ -805,8 +957,11 @@
         var saved = localStorage.getItem('atendeflow-unread');
         if (saved) {
           var data = JSON.parse(saved);
-          this.lastUnreadMessages = data.messages || 0;
-          this.lastUnreadNotifications = data.notifications || 0;
+          this.lastUnreadConversations = typeof data.conversations === 'number' ? data.conversations : 0;
+          this.lastUnreadNotifications = typeof data.notifications === 'number' ? data.notifications : 0;
+          if (this.lastUnreadNotifications > 0) {
+            this._updateBadge(this.lastUnreadNotifications);
+          }
         }
       } catch (_) {}
     },
@@ -814,7 +969,7 @@
     _saveCounts() {
       try {
         localStorage.setItem('atendeflow-unread', JSON.stringify({
-          messages: this.lastUnreadMessages,
+          conversations: this.lastUnreadConversations,
           notifications: this.lastUnreadNotifications,
           time: Date.now(),
         }));
@@ -826,30 +981,95 @@
       return m ? m.getAttribute('content') : '';
     },
 
+    _fetchSummary() {
+      var baseUrl = this._baseUrl();
+      if (!baseUrl) return;
+      var self = this;
+      fetch(baseUrl + '/api/unread-summary', {
+        headers: { 'X-Requested-With': 'XMLHttpRequest' },
+      })
+        .then(function (r) { return r.json(); })
+        .then(function (data) { self._onFetch(data); })
+        .catch(function () {});
+    },
+
+    _onFetch(data) {
+      var convCount = data.unread_conversations || 0;
+      if (convCount > this.lastUnreadConversations && this.lastUnreadConversations >= 0) {
+        var delta = convCount - this.lastUnreadConversations;
+        SoundManager.play('incoming');
+        this._showToast(
+          delta > 1 ? (delta + ' conversas com novas mensagens') : 'Nova conversa com mensagens',
+          'Toque no sino para ver'
+        );
+      }
+      this.lastUnreadConversations = convCount;
+      this.lastUnreadNotifications = data.unread_notifications || 0;
+      this._updateBadge(this.lastUnreadNotifications);
+      this._saveCounts();
+    },
+
     _trySSE() {
+      var self = this;
       try {
         var baseUrl = this._baseUrl();
-        if (!baseUrl) { this.useSSE = false; return; }
-
+        if (!baseUrl || typeof EventSource === 'undefined') {
+          this._scheduleReconnect();
+          return;
+        }
         this.eventSource = new EventSource(baseUrl + '/realtime/events');
 
-        var self = this;
+        this.eventSource.addEventListener('connected', function (e) {
+          try {
+            var data = JSON.parse(e.data);
+            self._sseReady = true;
+            self.sseBackoff = 5000;
+            if (data && data.userId) {
+              self._userId = data.userId;
+            }
+          } catch (_) {}
+        });
 
         this.eventSource.addEventListener('notification', function (e) {
+          try { self._onNotification(JSON.parse(e.data)); } catch (_) {}
+        });
+
+        this.eventSource.addEventListener('conversation_new', function (e) {
           try {
-            self._onNotification(JSON.parse(e.data));
+            var data = JSON.parse(e.data);
+            self._onConversationNew(data);
+            if (window.__enhancements && window.__enhancements.LiveFeed) {
+              window.__enhancements.LiveFeed.addConversationFromSSE(data);
+            }
+          } catch (_) {}
+        });
+
+        this.eventSource.addEventListener('message_incoming', function (e) {
+          try {
+            var data = JSON.parse(e.data);
+            self._onMessageIncoming(data);
+            if (window.__enhancements && window.__enhancements.LiveFeed) {
+              window.__enhancements.LiveFeed.incomingMessageFromSSE(data);
+            }
+          } catch (_) {}
+        });
+
+        this.eventSource.addEventListener('typing', function (e) {
+          try {
+            var data = JSON.parse(e.data);
+            if (data && data.conversation_id) {
+              document.dispatchEvent(new CustomEvent('atendeflow:typing', { detail: data }));
+            }
           } catch (_) {}
         });
 
         this.eventSource.addEventListener('unread_count', function (e) {
           var count = parseInt(e.data, 10);
-          if (isNaN(count)) return;
-          if (count > self.lastUnreadNotifications && self.lastUnreadNotifications >= 0) {
-            SoundManager.play('incoming');
+          if (!isNaN(count)) {
+            self.lastUnreadNotifications = count;
+            self._updateBadge(count);
+            self._saveCounts();
           }
-          self.lastUnreadNotifications = count;
-          self._updateBadge();
-          self._saveCounts();
         });
 
         this.eventSource.onerror = function () {
@@ -857,86 +1077,110 @@
             self.eventSource.close();
             self.eventSource = null;
           }
-          self.useSSE = false;
-          self._startPolling();
+          self._scheduleReconnect();
         };
       } catch (_) {
-        this.useSSE = false;
+        this._scheduleReconnect();
       }
     },
 
-    _startPolling() {
-      if (this.pollTimer) return;
+    _scheduleReconnect() {
       var self = this;
-      this._poll();
-      this.pollTimer = setInterval(function () { self._poll(); }, this.pollInterval);
-    },
-
-    _stopPolling() {
-      if (this.pollTimer) {
-        clearInterval(this.pollTimer);
-        this.pollTimer = null;
-      }
-    },
-
-    _poll() {
-      var baseUrl = this._baseUrl();
-      if (!baseUrl) return;
-      var self = this;
-
-      fetch(baseUrl + '/api/unread-summary', {
-        headers: { 'X-Requested-With': 'XMLHttpRequest' },
-      })
-        .then(function (r) { return r.json(); })
-        .then(function (data) { self._onPollData(data); })
-        .catch(function () {});
-    },
-
-    _onPollData(data) {
-      var msgCount = data.unread_messages || 0;
-      var notifCount = data.unread_notifications || 0;
-      var isInboxPage = !!document.querySelector('.inbox-page');
-
-      // New messages detected
-      if (msgCount > this.lastUnreadMessages && this.lastUnreadMessages >= 0) {
-        if (!isInboxPage) {
-          SoundManager.play('incoming');
-          if (document.visibilityState !== 'visible' && this._browserNotifEnabled) {
-            this._notifyBrowser(
-              String(msgCount - this.lastUnreadMessages) + ' nova(s) mensagem(ns)',
-              'Você tem novas mensagens no AtendeFlow'
-            );
-          }
-        }
-      }
-
-      // New notifications detected
-      if (notifCount > this.lastUnreadNotifications && this.lastUnreadNotifications >= 0) {
-        SoundManager.play('incoming');
-      }
-
-      this.lastUnreadMessages = msgCount;
-      this.lastUnreadNotifications = notifCount;
-      this._updateBadge();
-      this._saveCounts();
+      if (this._reconnectTimer) return;
+      var delay = Math.min(this.sseBackoff, this.sseMaxBackoff);
+      this._reconnectTimer = setTimeout(function() {
+        self._reconnectTimer = null;
+        self.sseBackoff = Math.min(self.sseBackoff * 2, self.sseMaxBackoff);
+        self._trySSE();
+      }, delay);
     },
 
     _onNotification(data) {
-      SoundManager.play('incoming');
-      if (document.visibilityState !== 'visible' && this._browserNotifEnabled) {
-        this._notifyBrowser(
-          data.title || 'Nova notificação',
-          data.body || ''
-        );
+      var title = data.title || 'Nova notificação';
+      var body = data.body || '';
+      var convId = data.conversation_id;
+      if (convId && this._viewingId && String(convId) === this._viewingId) {
+        return;
       }
-      this._updateBadge();
+      var isNewConv = data.notification_type === 'new_conversation';
+      SoundManager.play(isNewConv ? 'new_conv' : 'incoming');
+      this._showToast(title, body, convId);
+      if (document.visibilityState !== 'visible' && this._browserNotifEnabled) {
+        this._notifyBrowser(title, body);
+      }
+      this._updateBadge(this.lastUnreadNotifications + 1);
+      this.lastUnreadNotifications++;
+      this._saveCounts();
     },
 
-    _updateBadge() {
+    _onConversationNew(data) {
+      var id = parseInt(data.id, 10);
+      if (!id) return;
+      if (this._viewingId && String(id) === this._viewingId) {
+        return;
+      }
+      var title = (data.contact_name || 'Cliente') + ' iniciou uma conversa';
+      var body = data.channel_name ? 'Via ' + data.channel_name : '';
+      SoundManager.play('new_conv');
+      this._showToast(title, body, id);
+      if (document.visibilityState !== 'visible' && this._browserNotifEnabled) {
+        this._notifyBrowser(title, body);
+      }
+    },
+
+    _onMessageIncoming(data) {
+      var convId = parseInt(data.conversation_id, 10);
+      if (!convId) return;
+      if (this._viewingId && String(convId) === this._viewingId) {
+        return;
+      }
+      var isViewingOther = this._viewingId && String(convId) !== this._viewingId;
+      if (isViewingOther) {
+        // subtle sound only
+        SoundManager.play('incoming');
+        return;
+      }
+      // Not viewing any conversation
+      var labels = { image: '📷 Imagem', audio: '🎵 Áudio', video: '🎬 Vídeo', file: '📎 Arquivo', sticker: '🖼️ Sticker' };
+      var preview = labels[data.type] || (data.content || '').substring(0, 80);
+      var title = (data.contact_name || 'Cliente') + ' enviou mensagem';
+      SoundManager.play('incoming');
+      this._showToast(title, preview, convId);
+      if (document.visibilityState !== 'visible' && this._browserNotifEnabled) {
+        this._notifyBrowser(title, preview);
+      }
+    },
+
+    _showToast(title, body, convId) {
+      var existing = document.querySelector('.notif-toast');
+      if (existing) existing.remove();
+
+      var toast = document.createElement('div');
+      toast.className = 'notif-toast';
+      toast.innerHTML =
+        '<div class="notif-toast-icon"><i class="fa-solid fa-bell"></i></div>' +
+        '<div class="notif-toast-content">' +
+          '<div class="notif-toast-title">' + this._esc(title) + '</div>' +
+          '<div class="notif-toast-body">' + this._esc(body || '') + '</div>' +
+        '</div>' +
+        '<button class="notif-toast-close">&times;</button>';
+      toast.querySelector('.notif-toast-close').addEventListener('click', function () { toast.remove(); });
+      if (convId) {
+        toast.addEventListener('click', function () {
+          var baseUrl = document.querySelector('meta[name="base-url"]')?.content || '';
+          window.location.href = baseUrl + '/inbox?conv=' + convId;
+        });
+      }
+      document.body.appendChild(toast);
+      setTimeout(function () { if (toast.parentNode) toast.remove(); }, 6000);
+    },
+
+    _esc(s) { if (s == null) return ''; var d = document.createElement('div'); d.textContent = String(s); return d.innerHTML; },
+
+    _updateBadge(count) {
       var badge = document.getElementById('notifBadge');
       if (!badge) return;
-      var total = (this.lastUnreadMessages > 0 ? this.lastUnreadMessages : 0)
-                + (this.lastUnreadNotifications > 0 ? this.lastUnreadNotifications : 0);
+      var total = typeof count === 'number' ? count : (this.lastUnreadNotifications || 0);
       if (total > 0) {
         badge.textContent = total > 99 ? '99+' : String(total);
         badge.style.display = '';
@@ -946,22 +1190,21 @@
     },
 
     _notifyBrowser(body, title) {
+      if (!this._browserNotifEnabled) return;
       if ('Notification' in window && Notification.permission === 'granted') {
         try {
           new Notification(title || 'AtendeFlow', {
             body: body,
             icon: '/assets/img/favicon.png',
-            requireInteraction: true,
+            requireInteraction: false,
           });
         } catch (_) {}
-      } else if ('Notification' in window && Notification.permission === 'default') {
-        Notification.requestPermission();
       }
     },
 
     _requestPermission() {
       if ('Notification' in window && Notification.permission === 'default') {
-        Notification.requestPermission();
+        try { Notification.requestPermission(); } catch (_) {}
       }
     },
 
@@ -970,7 +1213,14 @@
         this.eventSource.close();
         this.eventSource = null;
       }
-      this._stopPolling();
+      if (this._fallbackTimer) {
+        clearInterval(this._fallbackTimer);
+        this._fallbackTimer = null;
+      }
+      if (this._reconnectTimer) {
+        clearTimeout(this._reconnectTimer);
+        this._reconnectTimer = null;
+      }
     },
   };
 
@@ -979,10 +1229,9 @@
   // ──────────────────────────────────────────
   function init() {
     SoundManager._initAudioOnGesture();
-    // Global notification watcher (all pages)
     GlobalNotifier.init();
 
-    if (document.querySelector('.inbox-page')) {
+    if (document.querySelector('.app-inbox')) {
       DragManager.init();
       KeyboardNav.init();
       InfiniteScroll.init();

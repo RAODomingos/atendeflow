@@ -47,7 +47,7 @@ class ContactController
 
         $conversations = Database::getInstance()->fetchAll(
             "SELECT c.*, ch.type as channel_type, ch.name as channel_name,
-                    d.name as department_name,
+                    d.name as department_name, d.color as department_color,
                     u.name as assigned_user_name,
                     (SELECT content FROM messages WHERE conversation_id = c.id ORDER BY created_at DESC LIMIT 1) as last_message,
                     (SELECT COUNT(*) FROM messages WHERE conversation_id = c.id) as message_count
@@ -241,6 +241,50 @@ class ContactController
         }
 
         View::redirect('/contacts');
+    }
+
+    public function downloadPdf(Request $request, int $id): void
+    {
+        $contact = Contact::find($id);
+        if (!$contact) {
+            Session::setFlash('error', 'Contato não encontrado.');
+            View::redirect('/contacts');
+        }
+
+        $conversations = Database::getInstance()->fetchAll(
+            "SELECT c.*, ch.type as channel_type, ch.name as channel_name,
+                    d.name as department_name, d.color as department_color,
+                    u.name as assigned_user_name,
+                    (SELECT COUNT(*) FROM messages WHERE conversation_id = c.id) as message_count
+             FROM conversations c
+             LEFT JOIN channels ch ON ch.id = c.channel_id
+             LEFT JOIN departments d ON d.id = c.department_id
+             LEFT JOIN users u ON u.id = c.assigned_user_id
+             WHERE c.contact_id = ?
+             ORDER BY c.created_at DESC",
+            [$id]
+        );
+
+        $allTags = Database::getInstance()->fetchAll("SELECT * FROM tags ORDER BY name");
+
+        $html = View::renderBuffer('contacts/pdf', [
+            'contact' => $contact,
+            'conversations' => $conversations,
+            'allTags' => $allTags,
+        ]);
+
+        $dompdf = new \Dompdf\Dompdf();
+        $dompdf->setPaper('A4');
+        $dompdf->loadHtml($html);
+        $dompdf->render();
+
+        while (ob_get_level()) {
+            ob_end_clean();
+        }
+
+        $filename = 'contato-' . slugify($contact['name']) . '-' . $id . '.pdf';
+        $dompdf->stream($filename, ['Attachment' => true]);
+        exit;
     }
 
     public function merge(Request $request, int $id): void

@@ -34,13 +34,21 @@ class Request
         return $this->query[$key] ?? $default;
     }
 
-    public function post(string $key, mixed $default = null): mixed
+    public function post(?string $key = null, mixed $default = null): mixed
     {
+        if ($key === null) {
+            return $this->body;
+        }
+
         return $this->body[$key] ?? $default;
     }
 
-    public function input(string $key, mixed $default = null): mixed
+    public function input(?string $key = null, mixed $default = null): mixed
     {
+        if ($key === null) {
+            return array_merge($this->query, $this->body);
+        }
+
         return $this->body[$key] ?? $this->query[$key] ?? $default;
     }
 

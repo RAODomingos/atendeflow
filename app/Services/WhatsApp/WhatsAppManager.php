@@ -19,6 +19,7 @@ class WhatsAppManager
      */
     private static array $registry = [
         'waha' => WahaProvider::class,
+        'uazapi' => UazapiProvider::class,
     ];
 
     public static function register(string $name, string $class): void

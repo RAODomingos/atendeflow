@@ -78,10 +78,13 @@ class Inbox
     public static function getUsers(int $inboxId): array
     {
         return Database::getInstance()->fetchAll(
-            "SELECT u.* FROM users u
-             JOIN inbox_users iu ON iu.user_id = u.id
-             WHERE iu.inbox_id = ? ORDER BY u.name",
-            [$inboxId]
+            "SELECT DISTINCT u.* FROM users u
+             LEFT JOIN inbox_users iu ON iu.user_id = u.id AND iu.inbox_id = ?
+             LEFT JOIN department_users du ON du.user_id = u.id
+             LEFT JOIN inbox_departments idp ON idp.department_id = du.department_id AND idp.inbox_id = ?
+             WHERE iu.id IS NOT NULL OR idp.id IS NOT NULL OR u.role = 'admin'
+             ORDER BY u.name",
+            [$inboxId, $inboxId]
         );
     }
 

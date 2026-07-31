@@ -1,6 +1,6 @@
 <div class="list-panel" id="listPanel">
     <div class="list-header">
-        <h1 class="list-title">Caixa de Entrada</h1>
+        <h1 class="list-title">Caixa de Entrada <span class="list-title-count"><?= count($conversations) ?></span></h1>
         <button type="button" class="btn-new" onclick="openNewConvModal()">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg>
             Novo
@@ -27,12 +27,27 @@
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 12h-6l-2 3h-4l-2-3H2"/><path d="M5.45 5.11L2 12v6a2 2 0 002 2h16a2 2 0 002-2v-6l-3.45-6.89A2 2 0 0016.76 4H7.24a2 2 0 00-1.79 1.11z"/></svg>
             Em atendimento
         </a>
+        <a href="<?= url('inbox/chatbot') ?>" class="tab <?= ($activeTab ?? '') === 'chatbot' ? 'active' : '' ?>">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="7" width="16" height="13" rx="2"/><path d="M9 7V5a3 3 0 016 0v2"/></svg>
+            Chatbot
+            <?php
+            $chatbotTabConversations = \App\Models\Conversation::getChatbotConversations(\App\Core\Auth::id());
+            $chatbotTabBadge = count(array_filter($chatbotTabConversations, function ($c) { return ($c['unread_count'] ?? 0) > 0; }));
+            ?>
+            <?php if ($chatbotTabBadge > 0): ?><span class="nav-badge"><?= $chatbotTabBadge ?></span><?php endif; ?>
+        </a>
         <a href="<?= url('inbox') ?>?<?= $iq ?>fstatus=resolved_closed" class="tab <?= ($fstatus ?? '') === 'resolved_closed' ? 'active' : '' ?>">
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg>
             Concluído
         </a>
     </div>
 
+    <?php if (($activeTab ?? '') === 'chatbot'): ?>
+    <div class="chatbot-summary">
+        <span class="chatbot-stat"><span class="chatbot-stat-dot bot"></span> No bot: <strong><?= (int)($botCount ?? 0) ?></strong></span>
+        <span class="chatbot-stat"><span class="chatbot-stat-dot attending"></span> Em atendimento: <strong><?= (int)($attendingCount ?? 0) ?></strong></span>
+    </div>
+    <?php endif; ?>
     <div class="conv-list" id="conversationsList">
         <?php if (empty($conversations)): ?>
             <div class="empty-state-enhanced">
@@ -209,6 +224,13 @@ document.addEventListener('click', function(e) {
     var url = new URL(window.location);
     url.searchParams.set('conv', convId);
     window.history.pushState({}, '', url);
+
+    if (window.__enhancements && window.__enhancements.GlobalNotifier) {
+        window.__enhancements.GlobalNotifier.setViewing(convId);
+    }
+    if (window.__enhancements && window.__enhancements.LiveFeed) {
+        window.__enhancements.LiveFeed.setViewing(convId);
+    }
 
     if (window.innerWidth <= 992) {
         var panel = document.getElementById('conversationDetail');
