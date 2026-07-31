@@ -649,9 +649,9 @@
           (un > 0 ? '<span class="unread-badge">' + (un > 99 ? '99+' : un) + '</span>' : '') +
         '</div>' +
         '<div class="convo-info">' +
-          '<div class="convo-header"><span class="convo-name">' + this._esc(c.contact_name) + '</span><span class="convo-time">' + this._timeAgo(c.last_message_at || c.created_at) + '</span></div>' +
+          '<div class="convo-header"><span class="convo-name">' + this._esc(c.contact_name) + (c.contact_company ? '<span class="convo-company"> — ' + this._esc(c.contact_company) + '</span>' : '') + '</span><span class="convo-time">' + this._timeAgo(c.last_message_at || c.created_at) + '</span></div>' +
           (c.subject ? '<div class="convo-subject">' + this._esc(c.subject) + '</div>' : '') +
-          '<p class="convo-preview">' + this._esc(this._truncate(c.last_message, 80)) + '</p>' +
+          '<p class="convo-preview">' + this._esc(this._previewText(c, 80)) + (c.unit ? ' <span class="convo-unit">| ' + this._esc(c.unit) + '</span>' : '') + '</p>' +
           '<div class="convo-meta">' +
             '<span class="convo-channel" style="background:' + chColor + '"><i class="' + (c.channel_type === 'whatsapp' ? 'fab fa-whatsapp' : c.channel_type === 'email' ? 'fas fa-envelope' : 'fas fa-comment-dots') + '"></i> ' + this._esc(c.channel_name || '') + '</span>' +
             '<span class="priority-badge priority-' + c.priority + '">' + this._priorityLabel(c.priority) + '</span>' +
@@ -661,6 +661,7 @@
             '<span><i class="fas fa-user"></i> ' + this._esc(c.assigned_user_name || 'Não atribuído') + '</span>' +
             '<span><i class="fas fa-comment-dots"></i> ' + (parseInt(c.message_count, 10) || 0) + '</span>' +
             (c.department_name ? '<span><i class="fas fa-layer-group"></i> ' + this._esc(c.department_name) + '</span>' : '') +
+            (c.unit ? '<span style="color:var(--text-muted);font-size:11px"><i class="fas fa-map-marker-alt"></i> ' + this._esc(c.unit) + '</span>' : '') +
           '</div>' +
         '</div>';
 
@@ -680,7 +681,14 @@
       } else if (eb) eb.remove();
 
       var pe = el.querySelector('.convo-preview');
-      if (pe) { var np = this._truncate(c.last_message, 80); if (pe.textContent !== np) { pe.textContent = np; pe.classList.add('conv-preview-flash'); setTimeout(function() { pe.classList.remove('conv-preview-flash'); }, 600); } }
+      if (pe) { var np = this._previewText(c, 80); if (pe.textContent !== np) { pe.textContent = np; pe.classList.add('conv-preview-flash'); setTimeout(function() { pe.classList.remove('conv-preview-flash'); }, 600); } }
+
+      var ne = el.querySelector('.convo-name');
+      if (ne) {
+        var nameHtml = this._esc(c.contact_name);
+        if (c.contact_company) nameHtml += '<span class="convo-company"> — ' + this._esc(c.contact_company) + '</span>';
+        if (ne.innerHTML !== nameHtml) { ne.innerHTML = nameHtml; }
+      }
 
       var te = el.querySelector('.convo-time');
       if (te) te.textContent = this._timeAgo(c.last_message_at || c.created_at);
@@ -714,6 +722,11 @@
     },
 
     _truncate(t, l) { if (!t) return 'Sem mensagens'; return t.length <= l ? t : t.substring(0, l) + '...'; },
+    _previewText(m, l) {
+      var labels = { image: '🖼️ Imagem', video: '🎬 Vídeo', audio: '🎵 Áudio', file: '📎 Arquivo', sticker: '🖼️ Sticker' };
+      if (m.last_message_type && labels[m.last_message_type]) return labels[m.last_message_type];
+      return this._truncate(m.last_message, l);
+    },
     _statusLabel(s) { return ({ new:'Novo', open:'Aberto', waiting_customer:'Em atendimento', waiting_internal:'Aguardando Interno', resolved:'Resolvido', closed:'Fechado', spam:'Spam' })[s] || s; },
     _priorityLabel(p) { return ({ low:'Baixa', normal:'Normal', high:'Alta', urgent:'Urgente' })[p] || p; },
 

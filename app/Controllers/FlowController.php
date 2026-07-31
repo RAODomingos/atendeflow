@@ -141,6 +141,13 @@ class FlowController
         $nodes = json_decode($nodesJson, true);
         if (!is_array($nodes)) return;
 
+        // Validar nós antes de salvar
+        $validationErrors = $this->validateNodes($nodes);
+        if (!empty($validationErrors)) {
+            Session::setFlash('error', 'Erros de validação: ' . implode(', ', $validationErrors));
+            View::back();
+        }
+
         $frontToDb = [];
 
         foreach ($nodes as $nodeData) {
@@ -202,6 +209,107 @@ class FlowController
                 }
             }
         }
+    }
+
+    private function validateNodes(array $nodes): array
+    {
+        $errors = [];
+        $hasStartNode = false;
+        $nodeKeys = [];
+
+        foreach ($nodes as $index => $node) {
+            $type = $node['type'] ?? '';
+            $config = $node['config'] ?? [];
+
+            // Validar que existe pelo menos um nó start
+            if ($type === 'start') {
+                $hasStartNode = true;
+            }
+
+            // Validar chaves duplicadas
+            $nodeKey = $node['id'] ?? '';
+            if (in_array($nodeKey, $nodeKeys)) {
+                $errors[] = "Nó duplicado: {$nodeKey}";
+            }
+            $nodeKeys[] = $nodeKey;
+
+            // Validações específicas por tipo
+            switch ($type) {
+                case 'start':
+                    // Nó start pode ter opções para definir o próximo nó
+                    break;
+
+                case 'menu':
+                case 'button_list':
+                case 'list_menu':
+                    if (empty($node['options'])) {
+                        $errors[] = "Nó {$type} deve ter pelo menos uma opção";
+                    }
+                    foreach ($node['options'] ?? [] as $opt) {
+                        if (empty($opt['label'])) {
+                            $errors[] = "Opção sem label no nó {$type}";
+                        }
+                    }
+                    break;
+
+                case 'condition':
+                    if (empty($config['variable'])) {
+                        $errors[] = "Nó condition deve ter variável definida";
+                    }
+                    if (empty($config['operator'])) {
+                        $errors[] = "Nó condition deve ter operador definido";
+                    }
+                    if (count($node['options'] ?? []) < 2) {
+                        $errors[] = "Nó condition deve ter pelo menos 2 opções (true/false)";
+                    }
+                    break;
+
+                case 'delay':
+                    if (!isset($config['seconds']) || !is_numeric($config['seconds'])) {
+                        $errors[] = "Nó delay deve ter segundos definidos";
+                    }
+                    if (($config['seconds'] ?? 0) < 0 || ($config['seconds'] ?? 0) > 3600) {
+                        $errors[] = "Nó delay deve ter segundos entre 0 e 3600";
+                    }
+                    break;
+
+                case 'assign_department':
+                    if (empty($config['department_id'])) {
+                        $errors[] = "Nó assign_department deve ter department_id definido";
+                    }
+                    break;
+
+                case 'assign_user':
+                    if (empty($config['user_id'])) {
+                        $errors[] = "Nó assign_user deve ter user_id definido";
+                    }
+                    break;
+
+                case 'add_tag':
+                    if (empty($config['tag_id'])) {
+                        $errors[] = "Nó add_tag deve ter tag_id definido";
+                    }
+                    break;
+
+                case 'image':
+                case 'audio':
+                case 'video':
+                case 'send_file':
+                    if (empty($config['file_url'])) {
+                        $errors[] = "Nó {$type} deve ter file_url definido";
+                    }
+                    if (!filter_var($config['file_url'] ?? '', FILTER_VALIDATE_URL)) {
+                        $errors[] = "Nó {$type} deve ter URL válida";
+                    }
+                    break;
+            }
+        }
+
+        if (!$hasStartNode) {
+            $errors[] = "Fluxo deve ter um nó start";
+        }
+
+        return $errors;
     }
 
 }

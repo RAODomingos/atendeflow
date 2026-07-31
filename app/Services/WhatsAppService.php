@@ -294,6 +294,15 @@ class WhatsAppService
                 $this->logWebhook('PHONE_RESOLVED', ['lid' => $originalFrom, 'phone' => $realPhone]);
             }
         }
+
+        // Ignora mensagens do próprio número conectado
+        $connectedPhone = preg_replace('/\D/', '', (string) ($connection['phone_number'] ?? ''));
+        $senderPhone = preg_replace('/\D/', '', $phone);
+        if ($connectedPhone !== '' && $senderPhone === $connectedPhone) {
+            $this->logWebhook('SELF_MESSAGE_IGNORED', ['phone' => $phone, 'connected_phone' => $connection['phone_number']]);
+            return;
+        }
+
         $contact = Contact::findOrCreate($message->senderName ?? preg_replace('/\D/', '', $phone), null, $phone);
 
         // Atualiza nome e foto de perfil do WhatsApp (se disponíveis e ainda não definidos).
@@ -410,13 +419,24 @@ class WhatsAppService
         // Executa fluxo ativo, ou inicia o fluxo caso o canal possua um fluxo configurado.
         $flowState = \App\Models\Flow::getActiveFlowState($conversation['id']);
         if ($flowState) {
+            error_log("FLOW_ACTIVE: conversation_id={$conversation['id']}, flow_id={$flowState['flow_id']}");
             $flowEngine = new FlowEngineService();
             $flowEngine->handleCustomerMessage($conversation['id'], $type === 'text' ? $message->content : '');
         } else {
             $channel = Database::getInstance()->fetch("SELECT * FROM channels WHERE id = ?", [$connection['channel_id']]);
-            if ($channel && !empty($channel['flow_id']) && empty($conversation['assigned_user_id'])) {
-                $flowEngine = new FlowEngineService();
-                $flowEngine->start($conversation['id'], (int) $channel['flow_id']);
+            error_log("FLOW_CHECK: channel_id={$connection['channel_id']}, channel_exists=" . ($channel ? 'yes' : 'no') . ", assigned_user_id=" . ($conversation['assigned_user_id'] ?? 'null'));
+            if ($channel && empty($conversation['assigned_user_id'])) {
+                // Usar o novo método de seleção de fluxo com priorização
+                $flow = \App\Models\Flow::getBestFlowForChannel($channel['type'], [
+                    'department_id' => $conversation['department_id'],
+                    'tags' => [], // TODO: buscar tags do contato
+                ]);
+                error_log("FLOW_SELECTION: channel_type={$channel['type']}, flow_found=" . ($flow ? 'yes' : 'no') . ", flow_id=" . ($flow['id'] ?? 'null'));
+                if ($flow) {
+                    $flowEngine = new FlowEngineService();
+                    $flowEngine->start($conversation['id'], $flow['id']);
+                    error_log("FLOW_STARTED: conversation_id={$conversation['id']}, flow_id={$flow['id']}");
+                }
             }
         }
 

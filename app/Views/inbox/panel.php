@@ -1,5 +1,4 @@
 <?php
-// Fragmento: detalhe da conversa para a visão de 3 colunas (Menu | Mensagens | Conteúdo)
 $initial = mb_strtoupper(mb_substr($contact['name'] ?? '?', 0, 1));
 $conv = $conversation;
 $isOwn = function (array $msg) {
@@ -28,469 +27,538 @@ $online = !empty($contact['last_activity_at']) && (time() - strtotime($contact['
 $csat = $conversation['csat'] ?? null;
 ?>
 <div class="conversation-view" id="convView" data-conv="<?= $conv['id'] ?>">
-    <div class="conv-main">
-        <div class="conv-detail-header">
-            <div class="conv-detail-title">
-                <button type="button" class="conv-name-btn" onclick="toggleClientDrawer()" title="Ver dados do cliente e histórico">
-                    <span class="conv-avatar-circle" style="background:<?= e($contact['avatar'] ? '' : ($online ? '#2ecc71' : '#cbd2d9')) ?>">
-                        <?php if (!empty($contact['avatar'])): ?>
-                            <img src="<?= e(str_starts_with($contact['avatar'], 'http') ? $contact['avatar'] : upload_url($contact['avatar'])) ?>" alt="">
-                        <?php else: ?>
-                            <?= e($initial) ?>
+    <div class="chat-header">
+        <div class="chat-header-left">
+            <button type="button" class="conv-name-btn" onclick="toggleClientDrawer()" title="Ver dados do cliente e histórico" style="display:flex;align-items:center;gap:13px;background:none;border:none;cursor:pointer;padding:0;flex:1">
+                <div class="avatar avatar-sm" style="background:<?= e($contact['avatar'] ? '' : ($online ? '#2ecc71' : 'linear-gradient(135deg,#7c5cff,#a78bfa)')) ?>">
+                    <?php if (!empty($contact['avatar'])): ?>
+                        <img src="<?= e(str_starts_with($contact['avatar'], 'http') ? $contact['avatar'] : upload_url($contact['avatar'])) ?>" alt="">
+                    <?php else: ?>
+                        <?= e($initial) ?>
+                    <?php endif; ?>
+                </div>
+                <div class="chat-title-group" style="text-align:left">
+                    <div class="chat-title">
+                        <?= e($contact['name'] ?? 'Contato') ?>
+                        <?php if (!empty($contact['company'])): ?>
+                            <span style="font-weight:400;color:var(--text-muted)">— <?= e($contact['company']) ?></span>
                         <?php endif; ?>
-                    </span>
-                    <span class="conv-header-info">
-                        <span class="conv-header-name"><?= e($contact['name'] ?? 'Contato') ?></span>
-                        <span class="conv-header-meta">
-                            <i class="<?= channel_icon($conv['channel_type'] ?? 'webchat') ?>"></i>
+                    </div>
+                    <div class="chat-subtitle" style="display:flex;flex-wrap:wrap;align-items:center;gap:6px">
+                        <span style="display:inline-flex;align-items:center;gap:4px">
+                            <i class="<?= channel_icon($conv['channel_type'] ?? 'webchat') ?>" style="font-size:12px"></i>
                             <?= e($conv['channel_name'] ?? '') ?>
-                            <?php if ($conv['department_name']): ?>
-                                <span class="conv-dept-badge" style="color:<?= e($conv['department_color'] ?? '#666') ?>"><?= e($conv['department_name']) ?></span>
-                            <?php endif; ?>
                         </span>
-                    </span>
-                    <i class="fas fa-chevron-right drawer-hint"></i>
-                </button>
-            </div>
-            <div class="conv-actions">
-                <span class="clickable-badge" onclick="openStatusModal()" title="Clique para alterar status"><?= status_badge($conv['status']) ?></span>
-                <span class="clickable-badge clickable-badge-sm" onclick="openPriorityModal()" title="Clique para alterar prioridade"><?= priority_badge($conv['priority'] ?? 'normal') ?></span>
-                <div class="conv-actions-group" id="convMoreActions">
-                    <button class="btn btn-sm btn-icon" onclick="toggleMsgSearch()" title="Buscar na conversa"><i class="fas fa-search"></i></button>
-                    <button class="btn btn-sm btn-icon" id="convSnoozeBtn" onclick="openSnoozeModal()" title="Agendar"><i class="fas fa-clock"></i></button>
-                    <button class="btn btn-sm btn-icon" onclick="openCsatModal()" title="Avaliação"><i class="fas fa-smile"></i></button>
-                    <button class="btn btn-sm btn-icon" onclick="openMergeModal()" title="Mesclar"><i class="fas fa-code-merge"></i></button>
-                    <button class="btn btn-sm btn-icon" onclick="window.print()" title="Imprimir"><i class="fas fa-print"></i></button>
-                    <a href="<?= url('inbox/') ?><?= $conv['id'] ?>/pdf" class="btn btn-sm btn-icon" title="Baixar PDF"><i class="fas fa-file-pdf"></i></a>
-                    <button class="btn btn-sm btn-icon" onclick="openTransferModal()" title="Transferir"><i class="fas fa-exchange-alt"></i></button>
-                    <?php if (empty($conv['assigned_user_id'])): ?>
-                        <form action="<?= url('inbox/') ?><?= $conv['id'] ?>/assign" method="POST" class="conv-action-form" style="display:inline">
-                            <?= csrf_field() ?>
-                            <input type="hidden" name="user_id" value="<?= \App\Core\Auth::id() ?>">
-                            <button type="submit" class="btn btn-sm btn-icon" title="Atribuir a mim"><i class="fas fa-hand-paper"></i></button>
-                        </form>
-                    <?php endif; ?>
+                        <?php if ($conv['department_name']): ?>
+                            <span style="color:<?= e($conv['department_color'] ?? '#666') ?>;font-weight:700;font-size:12px"><?= e($conv['department_name']) ?></span>
+                        <?php endif; ?>
+                        <span id="convUnitDisplay" style="font-size:12px;color:var(--text-muted);cursor:pointer" title="Clique para editar unidade" onclick="editUnit(event)">
+                            <?php if (!empty($conv['unit'])): ?>| <?= e($conv['unit']) ?><?php else: ?><span style="opacity:.5;font-style:italic">+ unidade</span><?php endif; ?>
+                            <i class="fas fa-pen" style="font-size:9px;opacity:.4;margin-left:2px"></i>
+                        </span>
+                        <input type="text" id="convUnitInput" style="display:none;font-size:12px;padding:2px 8px;border:1px solid var(--brand);border-radius:6px;outline:none;width:160px" value="<?= e($conv['unit'] ?? '') ?>" placeholder="Unidade" onblur="saveUnit(this.value)" onkeydown="if(event.key==='Enter')saveUnit(this.value);if(event.key==='Escape')cancelUnitEdit()">
+                    </div>
+                    <div style="display:flex;flex-wrap:wrap;align-items:center;gap:4px;margin-top:4px">
+                        <?php if (!empty($conv['substatus'])): ?>
+                            <span style="font-size:11px;padding:1px 8px;border-radius:10px;background:var(--bg-panel-alt);color:var(--text-muted)"><?= e($conv['substatus']) ?></span>
+                        <?php endif; ?>
+                    </div>
                 </div>
-            </div>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="color:var(--text-muted);flex-shrink:0;margin-left:auto"><path d="M9 18l6-6-6-6"/></svg>
+            </button>
         </div>
-
-        <div class="conv-header-tags" id="convHeaderTags">
-            <?php if (!empty($conv['tags'])): ?>
-                <?php foreach ($conv['tags'] as $tag): ?>
-                    <span class="conv-tag" data-tag-id="<?= $tag['id'] ?>" style="background:<?= e($tag['color'] ?? '#e9ecef') ?>;color:<?= e(contrast_color($tag['color'] ?? '#e9ecef')) ?>">
-                        <?= e($tag['name']) ?>
-                    </span>
-                <?php endforeach; ?>
-            <?php endif; ?>
-        </div>
-
-        <div class="conv-msg-search" id="convMsgSearch" style="display:none">
-            <input type="text" id="msgSearchInput" class="form-control" placeholder="Buscar mensagens..." oninput="filterMessages()">
-            <span id="msgSearchCount" class="msg-search-count"></span>
-        </div>
-
-        <div class="conv-messages" id="convMessages">
-            <button type="button" class="conv-load-older" id="loadOlderBtn" style="display:<?= !empty($hasOlder) ? 'block' : 'none' ?>" onclick="loadOlder()">Carregar mensagens anteriores</button>
-            <div class="conv-msg-list" id="convMessagesList">
+        <div class="chat-header-right">
+            <span class="status-chip <?= $conv['status'] === 'open' || $conv['status'] === 'new' ? 'chip-success' : ($conv['status'] === 'waiting_customer' ? 'chip-info' : ($conv['status'] === 'resolved' || $conv['status'] === 'closed' ? 'chip-neutral' : 'chip-warning')) ?>" onclick="openStatusModal()" title="Clique para alterar status">
+                <span class="status-dot" style="width:8px;height:8px;position:static;border:none;flex-shrink:0;background:<?= $conv['status'] === 'open' || $conv['status'] === 'new' ? 'var(--success)' : ($conv['status'] === 'waiting_customer' ? 'var(--info)' : ($conv['status'] === 'resolved' || $conv['status'] === 'closed' ? 'var(--text-muted)' : 'var(--warning)')) ?>"></span>
+                <?php $slabels = ['new'=>'Novo','open'=>'Aberto','waiting_customer'=>'Em atendimento','waiting_internal'=>'Aguard. Interno','resolved'=>'Resolvido','closed'=>'Fechado','spam'=>'Spam']; echo $slabels[$conv['status']] ?? $conv['status']; ?>
+            </span>
             <?php
-            $lastDate = null;
-            $lastSender = null;
-            foreach ($messages as $msg):
-                $isFile = in_array($msg['type'], ['image', 'audio', 'video', 'file', 'sticker'], true);
-                $mediaType = $msg['type'];
-                if (!$isFile) {
-                    $inferred = media_type_from_content((string) ($msg['content'] ?? ''));
-                    if ($inferred !== null) {
-                        $isFile = true;
-                        $mediaType = $inferred;
-                    }
+                try {
+                    $convSubjects = \App\Core\Database::getInstance()->fetchAll(
+                        "SELECT * FROM conversation_subjects WHERE is_active = 1 ORDER BY sort_order ASC, name ASC"
+                    );
+                } catch (\Throwable $e) {
+                    $convSubjects = [];
                 }
-                $meta = $isFile ? message_file_meta($msg['content']) : null;
-                $own = $isOwn($msg);
-                $av = $avatarHtml($msg);
-                $isDeleted = !empty($msg['deleted_at']);
-                $msgDate = date('Y-m-d', strtotime($msg['created_at']));
-                $sender = ($msg['direction'] ?? '') === 'outbound' ? 'agent' : 'contact';
-                $showDate = $msgDate !== $lastDate;
-                $grouped = $sender === $lastSender && !$showDate;
-                $lastDate = $msgDate;
-                $lastSender = $sender;
             ?>
-                <?php if ($showDate): ?>
-                <div class="msg-date-sep"><span><?= format_date_sep($msg['created_at']) ?></span></div>
-                <?php endif; ?>
-                <div class="message <?= $msg['direction'] === 'outbound' ? 'message-out' : 'message-in' ?> <?= $msg['type'] === 'internal_note' ? 'message-note' : '' ?> <?= $msg['type'] === 'system' ? 'message-system' : '' ?> <?= $msg['type'] === 'sticker' ? 'message-sticker' : '' ?> <?= $grouped ? 'message-grouped' : '' ?>" data-mid="<?= $msg['id'] ?>" data-text="<?= e(strip_tags($msg['content'])) ?>">
-                    <?php if (!$grouped): ?>
-                    <div class="msg-avatar msg-avatar-<?= $sender ?>"><?= $av ?></div>
-                    <?php endif; ?>
-                    <div class="message-body <?= $isDeleted ? 'is-deleted' : '' ?>">
-                        <?php if ($isDeleted): ?>
-                        <div class="message-deleted"><i class="fas fa-ban"></i> Mensagem excluída</div>
-                        <?php endif; ?>
-                        <?php if (!empty($msg['reply_to_data'])): ?>
-                        <div class="msg-quote" onclick="scrollToMessage(<?= (int) $msg['reply_to_data']['id'] ?>)">
-                            <div class="msg-quote-content">
-                                <div class="msg-quote-name"><?= ($msg['reply_to_data']['direction'] ?? '') === 'outbound' ? 'Você' : e($contact['name'] ?? 'Contato') ?></div>
-                                <div class="msg-quote-text"><?= e(mb_substr(strip_tags(str_replace(['[',']'], '', $msg['reply_to_data']['content'] ?? '')), 0, 100)) ?></div>
-                            </div>
-                        </div>
-                        <?php endif; ?>
-                        <?php if ($msg['type'] === 'internal_note'): ?>
-                            <div class="message-note-header">
-                                <i class="fas fa-lock"></i> Nota interna
-                                <?php if ($msg['user_name']): ?> - <?= e($msg['user_name']) ?><?php endif; ?>
-                            </div>
-                            <div class="message-content"><?= e($msg['content']) ?></div>
-                        <?php elseif ($msg['type'] === 'csat_request'):
-                            $csatData = json_decode($msg['content'], true) ?: [];
-                            $csatPrompt = $csatData['prompt'] ?? 'Solicitação de avaliação enviada ao cliente.';
-                            $csatUrl = $csatData['url'] ?? '';
-                        ?>
-                            <div class="message-content csat-request-note">
-                                <i class="fas fa-smile"></i> <?= e($csatPrompt) ?>
-                                <?php if ($csatUrl): ?>
-                                    <a href="<?= e($csatUrl) ?>" target="_blank" rel="noopener">Avaliar</a>
-                                <?php endif; ?>
-                            </div>
-                        <?php elseif ($msg['type'] === 'reaction'): ?>
-                            <?php
-                                $rData = json_decode($msg['content'], true) ?: [];
-                                $rEmoji = $rData['reaction'] ?? '';
-                                $rParentId = $rData['parent_message_id'] ?? '';
-                            ?>
-                            <div class="message-content message-reaction">
-                                <span class="reaction-emoji"><?= e($rEmoji) ?></span>
-                                <span class="reaction-label">reagiu a uma mensagem</span>
-                            </div>
-                        <?php elseif ($msg['type'] === 'system'): ?>
-                            <div class="message-content"><?= e($msg['content']) ?></div>
-                        <?php elseif ($isFile && $meta): ?>
-                            <div class="message-content">
-                                <?php if ($mediaType === 'image' || $mediaType === 'sticker'): ?>
-                                    <a href="<?= e($meta['url']) ?>" target="_blank" rel="noopener">
-                                        <img class="msg-img" src="<?= e($meta['url']) ?>" alt="<?= e($meta['name']) ?>">
-                                    </a>
-                                <?php elseif ($mediaType === 'audio'): ?>
-                                    <audio controls preload="metadata" src="<?= e($meta['url']) ?>"></audio>
-                                <?php elseif ($mediaType === 'video'): ?>
-                                    <video controls preload="metadata" src="<?= e($meta['url']) ?>"></video>
-                                <?php else: ?>
-                                    <a class="msg-file" href="<?= e($meta['url']) ?>" target="_blank" rel="noopener" download>
-                                        <i class="fas fa-file-download"></i>
-                                        <span class="msg-file-name"><?= e($meta['name']) ?></span>
-                                        <?php if ($meta['size']): ?><span class="msg-file-size">(<?= format_bytes($meta['size']) ?>)</span><?php endif; ?>
-                                    </a>
-                                <?php endif; ?>
-                            </div>
-                        <?php else: ?>
-                            <div class="message-content"><?= e($msg['content']) ?></div>
-                        <?php endif; ?>
-                        <div class="message-time">
-                            <?= format_time($msg['created_at']) ?>
-                            <?php if ($msg['user_name'] && $msg['direction'] === 'outbound'): ?>
-                                - <?= e($msg['user_name']) ?>
-                            <?php endif; ?>
-                            <?php if (!empty($msg['updated_at']) && $msg['updated_at'] !== $msg['created_at']): ?>
-                                <span class="msg-edited" title="Editada"> (editada)</span>
-                            <?php endif; ?>
-                        </div>
-                        <?php if (!$isDeleted && !empty($msg['reactions'])): ?>
-                        <?php
-                            $rxs = json_decode($msg['reactions'], true) ?: [];
-                            $rGroups = [];
-                            foreach ($rxs as $rx) {
-                                $e = $rx['emoji'] ?? '';
-                                if (!$e) continue;
-                                if (!isset($rGroups[$e])) $rGroups[$e] = ['emoji' => $e, 'count' => 0, 'senders' => []];
-                                $rGroups[$e]['count']++;
-                                $rGroups[$e]['senders'][] = $rx['sender_name'] ?? $rx['from'] ?? '';
-                            }
-                        ?>
-                        <div class="msg-reactions">
-                            <?php foreach ($rGroups as $rg): ?>
-                            <span class="reaction-badge" title="<?= e(implode(', ', $rg['senders'])) ?>"><?= e($rg['emoji']) ?><?= $rg['count'] > 1 ? '<span class="reaction-count">' . $rg['count'] . '</span>' : '' ?></span>
-                            <?php endforeach; ?>
-                        </div>
-                        <?php endif; ?>
-                        <?php if (!$isDeleted): ?>
-                        <div class="msg-actions">
-                            <button type="button" class="msg-act" title="Copiar" onclick="copyMessage(<?= $msg['id'] ?>)"><i class="fas fa-copy"></i></button>
-                            <button type="button" class="msg-act" title="Citar" onclick="quoteMessage(<?= $msg['id'] ?>)"><i class="fas fa-quote-right"></i></button>
-                            <?php if ($own && in_array($msg['type'], ['text', 'internal_note'], true)): ?>
-                                <button type="button" class="msg-act" title="Editar" onclick="editMessage(<?= $msg['id'] ?>)"><i class="fas fa-edit"></i></button>
-                                <button type="button" class="msg-act msg-act-danger" title="Excluir" onclick="deleteMessage(<?= $msg['id'] ?>)"><i class="fas fa-trash"></i></button>
-                            <?php endif; ?>
-                        </div>
-                        <button type="button" class="msg-reaction-btn" data-mid="<?= $msg['id'] ?>" title="Reagir" onclick="toggleReactionPicker(<?= $msg['id'] ?>, event)"><i class="far fa-smile"></i></button>
-                        <div class="reaction-picker" id="rp-<?= $msg['id'] ?>" data-mid="<?= $msg['id'] ?>"><?php foreach (['👍','❤️','😂','😮','😢','🙏'] as $re): ?><span class="rp-emoji" onclick="sendReaction(<?= $msg['id'] ?>, '<?= $re ?>')"><?= $re ?></span><?php endforeach; ?></div>
-                        <?php endif; ?>
-                    </div>
-                </div>
-            <?php endforeach; ?>
-            </div>
-        </div>
-
-        <button type="button" class="conv-new-pill" id="convNewPill" style="display:none" onclick="scrollConvBottom()">Novas mensagens ↓</button>
-
-        <div class="conv-composer">
-            <form action="<?= url('inbox/') ?><?= $conv['id'] ?>/messages" method="POST" enctype="multipart/form-data" class="composer-form" id="composerForm">
-                <?= csrf_field() ?>
-                <input type="hidden" name="type" id="msgType" value="text">
-                <div class="quote-bar" id="quoteBar" style="display:none">
-                    <i class="fas fa-quote-right" style="color:var(--primary)"></i>
-                    <span class="quote-text" id="quotePreview"></span>
-                    <button type="button" class="quote-close" onclick="clearQuote()">&times;</button>
-                </div>
-                <div class="composer-main">
-                    <div class="composer-input">
-                        <textarea name="content" id="messageInput" rows="1"
-                                  placeholder="Digite sua mensagem... (Enter para enviar, '/' resposta, ':' macro)"></textarea>
-                        <input type="hidden" name="reply_to" id="replyToInput" value="">
-                    </div>
-                    <div class="composer-tools">
-                        <label class="composer-btn composer-attach" title="Anexar arquivo">
-                            <i class="fas fa-paperclip"></i>
-                            <input type="file" name="file" id="attachInput"
-                                   accept="image/*,audio/*,video/*,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.zip" hidden>
-                        </label>
-                        <button type="button" class="composer-btn" title="Resposta pronta" onclick="openCannedModal()"><i class="fas fa-bookmark"></i></button>
-                        <button type="button" class="composer-btn" title="Macro" onclick="openMacroModal()"><i class="fas fa-bolt"></i></button>
-                        <button type="button" class="composer-btn composer-emoji" id="emojiToggle" title="Emoji"><i class="fas fa-smile"></i></button>
-                        <button type="button" class="composer-btn composer-internal" id="internalToggle"
-                                onclick="toggleInternal()" title="Mensagem interna (não enviada ao cliente)">
-                            <i class="fas fa-lock"></i> <span id="internalLabel">Interna</span>
-                        </button>
-                        <?php if (($conv['channel_type'] ?? '') === 'whatsapp'): ?>
-                        <button type="button" class="composer-btn composer-signature <?= empty($conv['signature_enabled']) ? '' : 'active' ?>" id="signatureToggle"
-                                onclick="toggleSignature(<?= (int) $conv['id'] ?>)" title="Assinatura automática no WhatsApp">
-                            <i class="fas fa-signature"></i> <span id="signatureLabel">Assinatura</span>
-                        </button>
-                        <?php endif; ?>
-                    </div>
-                    <button type="submit" class="composer-send" id="sendBtn" title="Enviar (Enter)">
-                        <i class="fas fa-paper-plane"></i>
-                    </button>
-                </div>
-                <div class="composer-file" id="composerFile" style="display:none">
-                    <i class="fas fa-file"></i> <span id="composerFileName"></span>
-                    <button type="button" class="composer-file-x" id="composerFileX" title="Remover">&times;</button>
-                </div>
-                <div class="emoji-popover" id="emojiPopover" style="display:none"></div>
-            </form>
+            <?php if (!empty($convSubjects)): ?>
+                <select id="convSubjectSelect" onchange="saveSubjectSelect(this.value)" style="font-size:11px;padding:2px 6px;border:1px solid var(--border-soft);border-radius:6px;background:var(--bg-panel);color:var(--text-secondary);outline:none;cursor:pointer;max-width:150px">
+                    <option value="">Assunto</option>
+                    <?php foreach ($convSubjects as $s): ?>
+                        <option value="<?= e($s['name']) ?>" <?= ($conv['subject'] ?? '') === $s['name'] ? 'selected' : '' ?>><?= e($s['name']) ?></option>
+                    <?php endforeach; ?>
+                </select>
+            <?php else: ?>
+                <span style="font-size:11px;color:var(--text-muted);padding:0 4px"><?= e($conv['subject'] ?? '') ?></span>
+            <?php endif; ?>
+            <span class="clickable-badge" onclick="openPriorityModal()" title="Clique para alterar prioridade"><?= priority_badge($conv['priority'] ?? 'normal') ?></span>
+            <?php
+                try {
+                    $substatuses = \App\Core\Database::getInstance()->fetchAll(
+                        "SELECT * FROM conversation_substatuses WHERE is_active = 1 ORDER BY sort_order ASC, name ASC"
+                    );
+                } catch (\Throwable $e) {
+                    $substatuses = [];
+                }
+            ?>
+            <?php if (!empty($substatuses)): ?>
+                <select id="convSubstatusSelect" onchange="saveSubstatus(this.value)" style="font-size:11px;padding:2px 6px;border:1px solid var(--border-soft);border-radius:6px;background:var(--bg-panel);color:var(--text-secondary);outline:none;cursor:pointer;max-width:140px">
+                    <option value="">Sub-status</option>
+                    <?php foreach ($substatuses as $ss): ?>
+                        <option value="<?= e($ss['name']) ?>" <?= ($conv['substatus'] ?? '') === $ss['name'] ? 'selected' : '' ?> style="color:<?= e($ss['color'] ?? '#6c757d') ?>">
+                            <?= e($ss['name']) ?>
+                        </option>
+                    <?php endforeach; ?>
+                </select>
+            <?php endif; ?>
+            <div class="icon-divider"></div>
+            <button class="icon-btn" onclick="toggleMsgSearch()" title="Buscar na conversa"><i class="fas fa-search"></i></button>
+            <button class="icon-btn" id="convSnoozeBtn" onclick="openSnoozeModal()" title="Agendar"><i class="fas fa-clock"></i></button>
+            <button class="icon-btn" onclick="openCsatModal()" title="Avaliação"><i class="fas fa-smile"></i></button>
+            <button class="icon-btn" onclick="openMergeModal()" title="Mesclar"><i class="fas fa-code-merge"></i></button>
+            <button class="icon-btn" onclick="window.print()" title="Imprimir"><i class="fas fa-print"></i></button>
+            <a href="<?= url('inbox/') ?><?= $conv['id'] ?>/pdf" class="icon-btn" title="Baixar PDF"><i class="fas fa-file-pdf"></i></a>
+            <button class="icon-btn" onclick="openTransferModal()" title="Transferir"><i class="fas fa-exchange-alt"></i></button>
+            <?php if (empty($conv['assigned_user_id'])): ?>
+                <form action="<?= url('inbox/') ?><?= $conv['id'] ?>/assign" method="POST" class="conv-action-form" style="display:inline">
+                    <?= csrf_field() ?>
+                    <input type="hidden" name="user_id" value="<?= \App\Core\Auth::id() ?>">
+                    <button type="submit" class="icon-btn" title="Atribuir a mim"><i class="fas fa-hand-paper"></i></button>
+                </form>
+            <?php endif; ?>
         </div>
     </div>
 
-        <div class="conv-drawer" id="clientDrawer">
-            <div class="conv-drawer-header">
-                <h4><i class="fas fa-user"></i> Cliente</h4>
-                <div style="display:flex;align-items:center;gap:4px">
-                    <button type="button" class="drawer-close" onclick="openContactEditModal()" title="Editar contato" style="font-size:14px;width:28px;height:28px">
-                        <i class="fas fa-pen"></i>
-                    </button>
-                    <button type="button" class="drawer-close" onclick="toggleClientDrawer()" title="Fechar">&times;</button>
+    <div class="conv-header-tags" id="convHeaderTags">
+        <?php if (!empty($conv['tags'])): ?>
+            <?php foreach ($conv['tags'] as $tag): ?>
+                <span class="conv-tag" data-tag-id="<?= $tag['id'] ?>" style="background:<?= e($tag['color'] ?? '#e9ecef') ?>;color:<?= e(contrast_color($tag['color'] ?? '#e9ecef')) ?>">
+                    <?= e($tag['name']) ?>
+                </span>
+            <?php endforeach; ?>
+        <?php endif; ?>
+    </div>
+
+    <div class="conv-msg-search" id="convMsgSearch" style="display:none">
+        <input type="text" id="msgSearchInput" class="form-control" placeholder="Buscar mensagens..." oninput="filterMessages()">
+        <span id="msgSearchCount" class="msg-search-count"></span>
+    </div>
+
+    <div class="chat-body" id="convMessages">
+        <button type="button" class="conv-load-older" id="loadOlderBtn" style="display:<?= !empty($hasOlder) ? 'block' : 'none' ?>" onclick="loadOlder()">Carregar mensagens anteriores</button>
+        <div id="convMessagesList">
+        <?php
+        $lastDate = null;
+        $lastSender = null;
+        foreach ($messages as $msg):
+            $isFile = in_array($msg['type'], ['image', 'audio', 'video', 'file', 'sticker'], true);
+            $mediaType = $msg['type'];
+            if (!$isFile) {
+                $inferred = media_type_from_content((string) ($msg['content'] ?? ''));
+                if ($inferred !== null) {
+                    $isFile = true;
+                    $mediaType = $inferred;
+                }
+            }
+            $meta = $isFile ? message_file_meta($msg['content']) : null;
+            $own = $isOwn($msg);
+            $av = $avatarHtml($msg);
+            $isDeleted = !empty($msg['deleted_at']);
+            $msgDate = date('Y-m-d', strtotime($msg['created_at']));
+            $sender = ($msg['direction'] ?? '') === 'outbound' ? 'agent' : 'contact';
+            $showDate = $msgDate !== $lastDate;
+            $grouped = $sender === $lastSender && !$showDate;
+            $lastDate = $msgDate;
+            $lastSender = $sender;
+        ?>
+            <?php if ($showDate): ?>
+            <div class="date-sep"><span><?= format_date_sep($msg['created_at']) ?></span></div>
+            <?php endif; ?>
+            <div class="message <?= $msg['direction'] === 'outbound' ? 'message-out' : 'message-in' ?> <?= $msg['type'] === 'internal_note' ? 'message-note' : '' ?> <?= $msg['type'] === 'system' ? 'message-system' : '' ?> <?= $msg['type'] === 'sticker' ? 'message-sticker' : '' ?> <?= $grouped ? 'message-grouped' : '' ?>" data-mid="<?= $msg['id'] ?>" data-text="<?= e(strip_tags($msg['content'])) ?>">
+                <?php if (!$grouped): ?>
+                <div class="msg-avatar msg-avatar-<?= $sender ?>"><?= $av ?></div>
+                <?php endif; ?>
+                <div class="message-body <?= $isDeleted ? 'is-deleted' : '' ?>">
+                    <?php if ($isDeleted): ?>
+                    <div class="message-deleted"><i class="fas fa-ban"></i> Mensagem excluída</div>
+                    <?php endif; ?>
+                    <?php if (!empty($msg['reply_to_data'])): ?>
+                    <div class="msg-quote" onclick="scrollToMessage(<?= (int) $msg['reply_to_data']['id'] ?>)">
+                        <div class="msg-quote-content">
+                            <div class="msg-quote-name"><?= ($msg['reply_to_data']['direction'] ?? '') === 'outbound' ? 'Você' : e($contact['name'] ?? 'Contato') ?></div>
+                            <div class="msg-quote-text"><?= e(mb_substr(strip_tags(str_replace(['[',']'], '', $msg['reply_to_data']['content'] ?? '')), 0, 100)) ?></div>
+                        </div>
+                    </div>
+                    <?php endif; ?>
+                    <?php if ($msg['type'] === 'internal_note'): ?>
+                        <div class="message-note-header">
+                            <i class="fas fa-lock"></i> Nota interna
+                            <?php if ($msg['user_name']): ?> - <?= e($msg['user_name']) ?><?php endif; ?>
+                        </div>
+                        <div class="message-content"><?= e($msg['content']) ?></div>
+                    <?php elseif ($msg['type'] === 'csat_request'):
+                        $csatData = json_decode($msg['content'], true) ?: [];
+                        $csatPrompt = $csatData['prompt'] ?? 'Solicitação de avaliação enviada ao cliente.';
+                        $csatUrl = $csatData['url'] ?? '';
+                    ?>
+                        <div class="message-content csat-request-note">
+                            <i class="fas fa-smile"></i> <?= e($csatPrompt) ?>
+                            <?php if ($csatUrl): ?>
+                                <a href="<?= e($csatUrl) ?>" target="_blank" rel="noopener">Avaliar</a>
+                            <?php endif; ?>
+                        </div>
+                    <?php elseif ($msg['type'] === 'reaction'): ?>
+                        <?php
+                            $rData = json_decode($msg['content'], true) ?: [];
+                            $rEmoji = $rData['reaction'] ?? '';
+                            $rParentId = $rData['parent_message_id'] ?? '';
+                        ?>
+                        <div class="message-content">
+                            <span class="reaction-emoji"><?= e($rEmoji) ?></span>
+                            <span class="reaction-label">reagiu a uma mensagem</span>
+                        </div>
+                    <?php elseif ($msg['type'] === 'system'): ?>
+                        <div class="message-content"><?= e($msg['content']) ?></div>
+                    <?php elseif ($isFile && $meta): ?>
+                        <div class="message-content">
+                            <?php if ($mediaType === 'image' || $mediaType === 'sticker'): ?>
+                                <a href="<?= e($meta['url']) ?>" target="_blank" rel="noopener">
+                                    <img class="msg-img" src="<?= e($meta['url']) ?>" alt="<?= e($meta['name']) ?>">
+                                </a>
+                            <?php elseif ($mediaType === 'audio'): ?>
+                                <audio controls preload="metadata" src="<?= e($meta['url']) ?>"></audio>
+                            <?php elseif ($mediaType === 'video'): ?>
+                                <video controls preload="metadata" src="<?= e($meta['url']) ?>"></video>
+                            <?php else: ?>
+                                <a class="msg-file" href="<?= e($meta['url']) ?>" target="_blank" rel="noopener" download>
+                                    <i class="fas fa-file-download"></i>
+                                    <span class="msg-file-name"><?= e($meta['name']) ?></span>
+                                    <?php if ($meta['size']): ?><span class="msg-file-size">(<?= format_bytes($meta['size']) ?>)</span><?php endif; ?>
+                                </a>
+                            <?php endif; ?>
+                        </div>
+                    <?php else: ?>
+                        <div class="message-content"><?= e($msg['content']) ?></div>
+                    <?php endif; ?>
+                    <div class="message-time">
+                        <?= format_time($msg['created_at']) ?>
+                        <?php if ($msg['user_name'] && $msg['direction'] === 'outbound'): ?>
+                            - <?= e($msg['user_name']) ?>
+                        <?php endif; ?>
+                        <?php if (!empty($msg['updated_at']) && $msg['updated_at'] !== $msg['created_at']): ?>
+                            <span class="msg-edited" title="Editada"> (editada)</span>
+                        <?php endif; ?>
+                    </div>
+                    <?php if (!$isDeleted && !empty($msg['reactions'])): ?>
+                    <?php
+                        $rxs = json_decode($msg['reactions'], true) ?: [];
+                        $rGroups = [];
+                        foreach ($rxs as $rx) {
+                            $e = $rx['emoji'] ?? '';
+                            if (!$e) continue;
+                            if (!isset($rGroups[$e])) $rGroups[$e] = ['emoji' => $e, 'count' => 0, 'senders' => []];
+                            $rGroups[$e]['count']++;
+                            $rGroups[$e]['senders'][] = $rx['sender_name'] ?? $rx['from'] ?? '';
+                        }
+                    ?>
+                    <div class="reactions-row">
+                        <?php foreach ($rGroups as $rg): ?>
+                        <span class="reaction-pill <?= in_array($conv['assigned_user_name'] ?? '', $rg['senders']) ? 'me' : '' ?>" title="<?= e(implode(', ', $rg['senders'])) ?>"><?= e($rg['emoji']) ?><?= $rg['count'] > 1 ? '<span class="count">' . $rg['count'] . '</span>' : '' ?></span>
+                        <?php endforeach; ?>
+                    </div>
+                    <?php endif; ?>
+                    <?php if (!$isDeleted): ?>
+                    <div class="msg-actions">
+                        <button type="button" class="msg-act" title="Copiar" onclick="copyMessage(<?= $msg['id'] ?>)"><i class="fas fa-copy"></i></button>
+                        <button type="button" class="msg-act" title="Citar" onclick="quoteMessage(<?= $msg['id'] ?>)"><i class="fas fa-quote-right"></i></button>
+                        <?php if ($own && in_array($msg['type'], ['text', 'internal_note'], true)): ?>
+                            <button type="button" class="msg-act" title="Editar" onclick="editMessage(<?= $msg['id'] ?>)"><i class="fas fa-edit"></i></button>
+                            <button type="button" class="msg-act msg-act-danger" title="Excluir" onclick="deleteMessage(<?= $msg['id'] ?>)"><i class="fas fa-trash"></i></button>
+                        <?php endif; ?>
+                    </div>
+                    <button type="button" class="msg-reaction-btn" data-mid="<?= $msg['id'] ?>" title="Reagir" onclick="toggleReactionPicker(<?= $msg['id'] ?>, event)"><i class="far fa-smile"></i></button>
+                    <div class="reaction-picker" id="rp-<?= $msg['id'] ?>" data-mid="<?= $msg['id'] ?>"><?php foreach (['👍','❤️','😂','😮','😢','🙏'] as $re): ?><span class="rp-emoji" onclick="sendReaction(<?= $msg['id'] ?>, '<?= $re ?>')"><?= $re ?></span><?php endforeach; ?></div>
+                    <?php endif; ?>
                 </div>
             </div>
-            <div class="conv-drawer-body">
-                <div class="client-profile-card">
-                    <div class="client-cover">
-                        <div class="client-cover-photo">
-                            <?php if (!empty($contact['avatar'])): ?>
-                                <img src="<?= e(str_starts_with($contact['avatar'], 'http') ? $contact['avatar'] : upload_url($contact['avatar'])) ?>" alt="<?= e($contact['name'] ?? '') ?>">
-                            <?php else: ?>
-                                <?= e($initial) ?>
-                            <?php endif; ?>
-                        </div>
-                    </div>
-                    <div class="client-info-body">
-                        <div class="client-name">
-                            <?= e($contact['name'] ?? 'Contato') ?>
-                            <span class="conv-online-dot <?= $online ? 'online' : '' ?>"></span>
-                        </div>
-                        <div class="client-status"><?= $online ? 'Online agora' : 'Offline' ?></div>
-                        <div class="client-fields-modern">
-                            <?php if (!empty($contact['email'])): ?>
-                                <div class="client-field-item">
-                                    <span class="field-icon icon-email"><i class="fas fa-envelope"></i></span>
-                                    <span><?= e($contact['email']) ?></span>
-                                </div>
-                            <?php endif; ?>
-                            <?php if (!empty($contact['phone'])): ?>
-                                <div class="client-field-item">
-                                    <span class="field-icon icon-phone"><i class="fas fa-phone"></i></span>
-                                    <span><?= e($contact['phone']) ?></span>
-                                </div>
-                            <?php endif; ?>
-                            <?php if (!empty($contact['document'])): ?>
-                                <div class="client-field-item">
-                                    <span class="field-icon icon-document"><i class="fas fa-id-card"></i></span>
-                                    <span><?= e($contact['document']) ?></span>
-                                </div>
-                            <?php endif; ?>
-                            <?php foreach (($contact['phones'] ?? []) as $ph): ?>
-                                <?php if (($ph['phone'] ?? null) === ($contact['phone'] ?? null)) continue; ?>
-                                <div class="client-field-item">
-                                    <span class="field-icon icon-phone"><i class="fas fa-phone"></i></span>
-                                    <span><?= e($ph['phone']) ?><?= !empty($ph['label']) ? ' <small>(' . e($ph['label']) . ')</small>' : '' ?></span>
-                                </div>
-                            <?php endforeach; ?>
-                            <?php foreach (($contact['emails'] ?? []) as $em): ?>
-                                <?php if (($em['email'] ?? null) === ($contact['email'] ?? null)) continue; ?>
-                                <div class="client-field-item">
-                                    <span class="field-icon icon-email"><i class="fas fa-envelope"></i></span>
-                                    <span><?= e($em['email']) ?><?= !empty($em['label']) ? ' <small>(' . e($em['label']) . ')</small>' : '' ?></span>
-                                </div>
-                            <?php endforeach; ?>
-                        </div>
-                        <?php if (!empty($contact['tags'])): ?>
-                            <div class="conv-tags" style="margin-top: 12px;">
-                                <?php foreach ($contact['tags'] as $tag): ?>
-                                    <span class="conv-tag" style="background:<?= e($tag['color'] ?? '#e9ecef') ?>;color:<?= e(contrast_color($tag['color'] ?? '#e9ecef')) ?>">
-                                        <?= e($tag['name']) ?>
-                                    </span>
-                                <?php endforeach; ?>
-                            </div>
-                        <?php endif; ?>
-                    </div>
-                </div>
+        <?php endforeach; ?>
+        </div>
+    </div>
 
-                <div class="card">
-                    <div class="card-header"><h4><i class="fas fa-ticket-alt"></i> Outros Tickets</h4></div>
-                    <div class="card-body p-0">
-                        <?php if (empty($otherConversations)): ?>
-                            <div class="empty-state" style="padding: 20px;"><p>Nenhum outro ticket deste cliente.</p></div>
-                        <?php else: ?>
-                            <div class="other-tickets-list">
-                                <?php foreach ($otherConversations as $oc): ?>
-                                    <a href="<?= url('inbox') ?>?conv=<?= $oc['id'] ?>" class="other-ticket-item">
-                                        <div class="other-ticket-head">
-                                            <span class="other-ticket-title"><?= e($oc['subject'] ?: $oc['contact_name']) ?></span>
-                                            <?= status_badge($oc['status']) ?>
-                                        </div>
-                                        <div class="other-ticket-meta">
-                                            <i class="<?= channel_icon($oc['channel_type'] ?? 'webchat') ?>"></i>
-                                            <?= e($oc['channel_name'] ?? '') ?>
-                                            <span class="dot-sep">&middot;</span>
-                                            <?= format_datetime($oc['last_message_at'] ?? $oc['created_at']) ?>
-                                        </div>
-                                    </a>
-                                <?php endforeach; ?>
-                            </div>
-                        <?php endif; ?>
-                    </div>
-                </div>
+    <button type="button" class="new-msg-pill" id="convNewPill" style="display:none" onclick="scrollConvBottom()">Novas mensagens ↓</button>
 
-                <div class="card">
-                    <div class="card-header"><h4><i class="fas fa-tags"></i> Etiquetas <span class="badge badge-tag-count" id="convTagCount"><?= count($conv['tags'] ?? []) ?></span></h4></div>
-                    <div class="card-body p-0">
-                        <div class="tag-list" id="convTagList">
-                            <?php if (empty($conv['tags'])): ?>
-                                <p class="text-muted tag-empty-msg">Nenhuma etiqueta.</p>
-                            <?php else: ?>
-                                <?php foreach ($conv['tags'] as $tag): ?>
-                                    <span class="conv-tag-modern applied" data-tag-id="<?= $tag['id'] ?>" style="background:<?= e($tag['color'] ?? '#6c757d') ?>;color:<?= e(contrast_color($tag['color'] ?? '#6c757d')) ?>">
-                                        <?= e($tag['name']) ?>
-                                        <button type="button" class="tag-remove-btn" data-tag-id="<?= $tag['id'] ?>" title="Remover">&times;</button>
-                                    </span>
-                                <?php endforeach; ?>
-                            <?php endif; ?>
-                        </div>
-                        <div class="tag-picker-section">
-                            <div class="tag-picker-header">Todas as etiquetas</div>
-                            <div class="tag-grid" id="tagGrid">
-                                <?php
-                                $convTagIds = array_column($conv['tags'] ?? [], 'id');
-                                foreach ($allTags as $t):
-                                    $applied = in_array($t['id'], $convTagIds);
-                                ?>
-                                    <button type="button"
-                                        class="tag-grid-item <?= $applied ? 'applied' : '' ?>"
-                                        data-tag-id="<?= $t['id'] ?>"
-                                        data-color="<?= e($t['color'] ?? '#6c757d') ?>"
-                                        style="--tag-color:<?= e($t['color'] ?? '#6c757d') ?>">
-                                        <?= e($t['name']) ?>
-                                    </button>
-                                <?php endforeach; ?>
-                            </div>
-                            <div class="tag-create-row">
-                                <input type="text" class="tag-create-input" id="tagCreateInput" placeholder="Nova etiqueta..." maxlength="40">
-                                <button type="button" class="btn btn-sm btn-primary tag-create-btn" id="tagCreateBtn" disabled>Criar</button>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                <?php if ($csat): ?>
-                <div class="card">
-                    <div class="card-header"><h4><i class="fas fa-smile"></i> Avaliação</h4></div>
-                    <div class="card-body" style="text-align:center">
-                        <div class="csat-stars">
-                            <?php for ($i = 1; $i <= 5; $i++): ?>
-                                <i class="fas fa-star <?= $i <= $csat['rating'] ? 'on' : '' ?>"></i>
-                            <?php endfor; ?>
-                        </div>
-                        <?php if (!empty($csat['comment'])): ?>
-                            <p class="text-muted" style="margin-top:8px;font-size:13px"><?= e($csat['comment']) ?></p>
-                        <?php endif; ?>
-                    </div>
-                </div>
+    <div class="chat-input">
+        <form action="<?= url('inbox/') ?><?= $conv['id'] ?>/messages" method="POST" enctype="multipart/form-data" class="composer-form" id="composerForm">
+            <?= csrf_field() ?>
+            <input type="hidden" name="type" id="msgType" value="text">
+            <div class="quote-bar" id="quoteBar" style="display:none">
+                <i class="fas fa-quote-right" style="color:var(--brand)"></i>
+                <span class="quote-text" id="quotePreview"></span>
+                <button type="button" class="quote-close" onclick="clearQuote()">&times;</button>
+            </div>
+            <div class="input-toolbar">
+                <label class="icon-btn" title="Anexar arquivo" style="cursor:pointer">
+                    <i class="fas fa-paperclip"></i>
+                    <input type="file" name="file" id="attachInput"
+                           accept="image/*,audio/*,video/*,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.zip" hidden>
+                </label>
+                <button type="button" class="icon-btn" title="Resposta pronta" onclick="openCannedModal()"><i class="fas fa-bookmark"></i></button>
+                <button type="button" class="icon-btn" title="Macro" onclick="openMacroModal()"><i class="fas fa-bolt"></i></button>
+                <div style="flex:1"></div>
+                <button type="button" class="icon-btn" id="emojiToggle" title="Emoji"><i class="fas fa-smile"></i></button>
+                <button type="button" class="icon-btn" id="internalToggle"
+                        onclick="toggleInternal()" title="Mensagem interna (não enviada ao cliente)">
+                    <i class="fas fa-lock"></i>
+                </button>
+                <?php if (($conv['channel_type'] ?? '') === 'whatsapp'): ?>
+                <button type="button" class="icon-btn <?= empty($conv['signature_enabled']) ? '' : 'active' ?>" id="signatureToggle"
+                        onclick="toggleSignature(<?= (int) $conv['id'] ?>)" title="Assinatura automática no WhatsApp">
+                    <i class="fas fa-signature"></i>
+                </button>
                 <?php endif; ?>
+            </div>
+            <div class="input-row">
+                <textarea name="content" id="messageInput" class="input-box" rows="1"
+                          placeholder="Digite sua mensagem... (Enter para enviar, '/' resposta, ':' macro)"></textarea>
+                <input type="hidden" name="reply_to" id="replyToInput" value="">
+                <button type="submit" class="send-btn" id="sendBtn" title="Enviar (Enter)">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/></svg>
+                </button>
+            </div>
+            <div class="composer-file" id="composerFile" style="display:none">
+                <i class="fas fa-file"></i> <span id="composerFileName"></span>
+                <button type="button" class="composer-file-x" id="composerFileX" title="Remover">&times;</button>
+            </div>
+            <div class="emoji-popover" id="emojiPopover" style="display:none"></div>
+        </form>
+    </div>
 
-                <div class="card">
-                    <div class="card-header"><h4><i class="fas fa-history"></i> Histórico <span class="badge badge-tag-count"><?= count($events) ?></span></h4></div>
-                    <div class="card-body p-0">
-                        <div class="history-list-modern" id="convHistory">
-                            <?php if (empty($events)): ?>
-                                <p class="tag-empty-msg">Nenhum evento registrado.</p>
-                            <?php else: ?>
-                                <?php foreach ($events as $event): ?>
-                                    <div class="history-item-modern">
-                                        <div class="history-icon-modern" style="color:<?= event_color($event['event_type']) ?>">
-                                            <i class="fas <?= event_icon($event['event_type']) ?>"></i>
-                                        </div>
-                                        <div class="history-content">
-                                            <p style="font-size:13px;margin:0"><?= e($event['description']) ?></p>
-                                            <span class="history-time" style="font-size:11px">
-                                                <?= format_datetime($event['created_at']) ?>
-                                                <?php if ($event['user_name']): ?> &middot; <?= e($event['user_name']) ?><?php endif; ?>
-                                            </span>
-                                        </div>
-                                    </div>
-                                <?php endforeach; ?>
-                            <?php endif; ?>
+    <div class="conv-drawer" id="clientDrawer">
+        <div class="conv-drawer-header">
+            <h4><i class="fas fa-user"></i> Cliente</h4>
+            <div style="display:flex;align-items:center;gap:4px">
+                <button type="button" class="drawer-close" onclick="openContactEditModal()" title="Editar contato" style="font-size:14px;width:28px;height:28px">
+                    <i class="fas fa-pen"></i>
+                </button>
+                <button type="button" class="drawer-close" onclick="toggleClientDrawer()" title="Fechar">&times;</button>
+            </div>
+        </div>
+        <div class="conv-drawer-body">
+            <div class="client-profile-card">
+                <div class="client-cover">
+                    <div class="client-cover-photo">
+                        <?php if (!empty($contact['avatar'])): ?>
+                            <img src="<?= e(str_starts_with($contact['avatar'], 'http') ? $contact['avatar'] : upload_url($contact['avatar'])) ?>" alt="<?= e($contact['name'] ?? '') ?>">
+                        <?php else: ?>
+                            <?= e($initial) ?>
+                        <?php endif; ?>
+                    </div>
+                </div>
+                <div class="client-info-body">
+                    <div class="client-name">
+                        <?= e($contact['name'] ?? 'Contato') ?>
+                        <span class="conv-online-dot <?= $online ? 'online' : '' ?>"></span>
+                    </div>
+                    <div class="client-status"><?= $online ? 'Online agora' : 'Offline' ?></div>
+                    <div class="client-fields-modern">
+                        <?php if (!empty($contact['email'])): ?>
+                            <div class="client-field-item">
+                                <span class="field-icon icon-email"><i class="fas fa-envelope"></i></span>
+                                <span><?= e($contact['email']) ?></span>
+                            </div>
+                        <?php endif; ?>
+                        <?php if (!empty($contact['phone'])): ?>
+                            <div class="client-field-item">
+                                <span class="field-icon icon-phone"><i class="fas fa-phone"></i></span>
+                                <span><?= e($contact['phone']) ?></span>
+                            </div>
+                        <?php endif; ?>
+                        <?php if (!empty($contact['company'])): ?>
+                            <div class="client-field-item">
+                                <span class="field-icon icon-building"><i class="fas fa-building"></i></span>
+                                <span><?= e($contact['company']) ?></span>
+                            </div>
+                        <?php endif; ?>
+                        <?php if (!empty($contact['document'])): ?>
+                            <div class="client-field-item">
+                                <span class="field-icon icon-document"><i class="fas fa-id-card"></i></span>
+                                <span><?= e($contact['document']) ?></span>
+                            </div>
+                        <?php endif; ?>
+                        <?php if (!empty($conv['unit'])): ?>
+                            <div class="client-field-item">
+                                <span class="field-icon icon-location"><i class="fas fa-map-marker-alt"></i></span>
+                                <span><?= e($conv['unit']) ?></span>
+                            </div>
+                        <?php endif; ?>
+                        <?php foreach (($contact['phones'] ?? []) as $ph): ?>
+                            <?php if (($ph['phone'] ?? null) === ($contact['phone'] ?? null)) continue; ?>
+                            <div class="client-field-item">
+                                <span class="field-icon icon-phone"><i class="fas fa-phone"></i></span>
+                                <span><?= e($ph['phone']) ?><?= !empty($ph['label']) ? ' <small>(' . e($ph['label']) . ')</small>' : '' ?></span>
+                            </div>
+                        <?php endforeach; ?>
+                        <?php foreach (($contact['emails'] ?? []) as $em): ?>
+                            <?php if (($em['email'] ?? null) === ($contact['email'] ?? null)) continue; ?>
+                            <div class="client-field-item">
+                                <span class="field-icon icon-email"><i class="fas fa-envelope"></i></span>
+                                <span><?= e($em['email']) ?><?= !empty($em['label']) ? ' <small>(' . e($em['label']) . ')</small>' : '' ?></span>
+                            </div>
+                        <?php endforeach; ?>
+                    </div>
+                    <?php if (!empty($contact['tags'])): ?>
+                        <div class="conv-tags" style="margin-top: 12px;">
+                            <?php foreach ($contact['tags'] as $tag): ?>
+                                <span class="conv-tag" style="background:<?= e($tag['color'] ?? '#e9ecef') ?>;color:<?= e(contrast_color($tag['color'] ?? '#e9ecef')) ?>">
+                                    <?= e($tag['name']) ?>
+                                </span>
+                            <?php endforeach; ?>
                         </div>
+                    <?php endif; ?>
+                </div>
+            </div>
+
+            <div class="card">
+                <div class="card-header"><h4><i class="fas fa-ticket-alt"></i> Outros Tickets</h4></div>
+                <div class="card-body p-0">
+                    <?php if (empty($otherConversations)): ?>
+                        <div class="empty-state" style="padding: 20px;"><p>Nenhum outro ticket deste cliente.</p></div>
+                    <?php else: ?>
+                        <div class="other-tickets-list">
+                            <?php foreach ($otherConversations as $oc): ?>
+                                <a href="<?= url('inbox') ?>?conv=<?= $oc['id'] ?>" class="other-ticket-item">
+                                    <div class="other-ticket-head">
+                                        <span class="other-ticket-title"><?= e($oc['subject'] ?: $oc['contact_name']) ?></span>
+                                        <?= status_badge($oc['status']) ?>
+                                    </div>
+                                    <div class="other-ticket-meta">
+                                        <i class="<?= channel_icon($oc['channel_type'] ?? 'webchat') ?>"></i>
+                                        <?= e($oc['channel_name'] ?? '') ?>
+                                        <span class="dot-sep">&middot;</span>
+                                        <?= format_datetime($oc['last_message_at'] ?? $oc['created_at']) ?>
+                                    </div>
+                                </a>
+                            <?php endforeach; ?>
+                        </div>
+                    <?php endif; ?>
+                </div>
+            </div>
+
+            <div class="card">
+                <div class="card-header"><h4><i class="fas fa-tags"></i> Etiquetas <span class="badge badge-tag-count" id="convTagCount"><?= count($conv['tags'] ?? []) ?></span></h4></div>
+                <div class="card-body p-0">
+                    <div class="tag-list" id="convTagList">
+                        <?php if (empty($conv['tags'])): ?>
+                            <p class="text-muted tag-empty-msg">Nenhuma etiqueta.</p>
+                        <?php else: ?>
+                            <?php foreach ($conv['tags'] as $tag): ?>
+                                <span class="conv-tag-modern applied" data-tag-id="<?= $tag['id'] ?>" style="background:<?= e($tag['color'] ?? '#6c757d') ?>;color:<?= e(contrast_color($tag['color'] ?? '#6c757d')) ?>">
+                                    <?= e($tag['name']) ?>
+                                    <button type="button" class="tag-remove-btn" data-tag-id="<?= $tag['id'] ?>" title="Remover">&times;</button>
+                                </span>
+                            <?php endforeach; ?>
+                        <?php endif; ?>
+                    </div>
+                    <div class="tag-picker-section">
+                        <div class="tag-picker-header">Todas as etiquetas</div>
+                        <div class="tag-grid" id="tagGrid">
+                            <?php
+                            $convTagIds = array_column($conv['tags'] ?? [], 'id');
+                            foreach ($allTags as $t):
+                                $applied = in_array($t['id'], $convTagIds);
+                            ?>
+                                <button type="button"
+                                    class="tag-grid-item <?= $applied ? 'applied' : '' ?>"
+                                    data-tag-id="<?= $t['id'] ?>"
+                                    data-color="<?= e($t['color'] ?? '#6c757d') ?>"
+                                    style="--tag-color:<?= e($t['color'] ?? '#6c757d') ?>">
+                                    <?= e($t['name']) ?>
+                                </button>
+                            <?php endforeach; ?>
+                        </div>
+                        <div class="tag-create-row">
+                            <input type="text" class="tag-create-input" id="tagCreateInput" placeholder="Nova etiqueta..." maxlength="40">
+                            <button type="button" class="btn btn-sm btn-primary tag-create-btn" id="tagCreateBtn" disabled>Criar</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <?php if ($csat): ?>
+            <div class="card">
+                <div class="card-header"><h4><i class="fas fa-smile"></i> Avaliação</h4></div>
+                <div class="card-body" style="text-align:center">
+                    <div class="csat-stars">
+                        <?php for ($i = 1; $i <= 5; $i++): ?>
+                            <i class="fas fa-star <?= $i <= $csat['rating'] ? 'on' : '' ?>"></i>
+                        <?php endfor; ?>
+                    </div>
+                    <?php if (!empty($csat['comment'])): ?>
+                        <p class="text-muted" style="margin-top:8px;font-size:13px"><?= e($csat['comment']) ?></p>
+                    <?php endif; ?>
+                </div>
+            </div>
+            <?php endif; ?>
+
+            <div class="card">
+                <div class="card-header"><h4><i class="fas fa-history"></i> Histórico <span class="badge badge-tag-count"><?= count($events) ?></span></h4></div>
+                <div class="card-body p-0">
+                    <div class="history-list-modern" id="convHistory">
+                        <?php if (empty($events)): ?>
+                            <p class="tag-empty-msg">Nenhum evento registrado.</p>
+                        <?php else: ?>
+                            <?php foreach ($events as $event): ?>
+                                <div class="history-item-modern">
+                                    <div class="history-icon-modern" style="color:<?= event_color($event['event_type']) ?>">
+                                        <i class="fas <?= event_icon($event['event_type']) ?>"></i>
+                                    </div>
+                                    <div class="history-content">
+                                        <p style="font-size:13px;margin:0"><?= e($event['description']) ?></p>
+                                        <span class="history-time" style="font-size:11px">
+                                            <?= format_datetime($event['created_at']) ?>
+                                            <?php if ($event['user_name']): ?> &middot; <?= e($event['user_name']) ?><?php endif; ?>
+                                        </span>
+                                    </div>
+                                </div>
+                            <?php endforeach; ?>
+                        <?php endif; ?>
                     </div>
                 </div>
             </div>
         </div>
+    </div>
 </div>
 
-<!-- Transfer Modal -->
-<div class="modal" id="transferModal">
-    <div class="modal-content">
+<div class="modal-overlay" id="transferModal" style="display:none" onclick="if(event.target===this)closeTransferModal()">
+    <div class="modal-container" style="max-width:460px">
         <div class="modal-header"><h3>Transferir Atendimento</h3><button class="modal-close" onclick="closeTransferModal()">&times;</button></div>
         <form action="<?= url('inbox/') ?><?= $conv['id'] ?>/transfer" method="POST">
             <?= csrf_field() ?>
-            <div class="form-group">
-                <label>Departamento</label>
-                <select name="department_id" id="transferDeptSelect" class="form-control" onchange="loadTransferUsers()">
-                    <option value="">Manter atual</option>
-                    <?php foreach ($departments as $dept): ?>
-                        <option value="<?= $dept['id'] ?>" <?= $dept['id'] == $conv['department_id'] ? 'selected' : '' ?>><?= e($dept['name']) ?></option>
-                    <?php endforeach; ?>
-                </select>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label>Departamento</label>
+                    <select name="department_id" id="transferDeptSelect" class="form-control" onchange="loadTransferUsers()">
+                        <option value="">Manter atual</option>
+                        <?php foreach ($departments as $dept): ?>
+                            <option value="<?= $dept['id'] ?>" <?= $dept['id'] == $conv['department_id'] ? 'selected' : '' ?>><?= e($dept['name']) ?></option>
+                        <?php endforeach; ?>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Atendente</label>
+                    <select name="user_id" id="transferUserSelect" class="form-control"><option value="">Fila do departamento</option></select>
+                </div>
             </div>
-            <div class="form-group">
-                <label>Atendente</label>
-                <select name="user_id" id="transferUserSelect" class="form-control"><option value="">Fila do departamento</option></select>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline" onclick="closeTransferModal()">Cancelar</button>
+                <button type="submit" class="btn btn-primary">Transferir</button>
             </div>
-            <button type="submit" class="btn btn-primary">Transferir</button>
         </form>
     </div>
 </div>
 
-<!-- Priority Modal -->
-<div class="modal" id="priorityModal">
-    <div class="modal-content">
+<div class="modal-overlay" id="priorityModal" style="display:none" onclick="if(event.target===this)closePriorityModal()">
+    <div class="modal-container" style="max-width:460px">
         <div class="modal-header"><h3><i class="fas fa-flag"></i> Alterar Prioridade</h3><button class="modal-close" onclick="closePriorityModal()">&times;</button></div>
         <form action="<?= url('inbox/') ?><?= $conv['id'] ?>/priority" method="POST">
             <?= csrf_field() ?>
@@ -505,39 +573,41 @@ $csat = $conversation['csat'] ?? null;
                     </select>
                 </div>
             </div>
-            <div class="modal-footer" style="justify-content: center;">
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline" onclick="closePriorityModal()">Cancelar</button>
                 <button type="submit" class="btn btn-primary">Salvar</button>
             </div>
         </form>
     </div>
 </div>
 
-<!-- Canned Modal -->
-<div class="modal" id="cannedModal">
-    <div class="modal-content">
+<div class="modal-overlay" id="cannedModal" style="display:none" onclick="if(event.target===this)closeCannedModal()">
+    <div class="modal-container" style="max-width:480px">
         <div class="modal-header"><h3>Respostas Prontas</h3><button class="modal-close" onclick="closeCannedModal()">&times;</button></div>
         <div class="modal-body">
-            <input type="text" id="cannedSearch" class="form-control" placeholder="Buscar resposta..." onkeyup="filterCanned()">
+            <div class="form-group">
+                <input type="text" id="cannedSearch" class="form-control" placeholder="Buscar resposta..." onkeyup="filterCanned()">
+            </div>
             <div id="cannedList" class="canned-list"></div>
         </div>
     </div>
 </div>
 
-<!-- Macros Modal -->
-<div class="modal" id="macroModal">
-    <div class="modal-content">
+<div class="modal-overlay" id="macroModal" style="display:none" onclick="if(event.target===this)closeMacroModal()">
+    <div class="modal-container" style="max-width:480px">
         <div class="modal-header"><h3>Macros</h3><button class="modal-close" onclick="closeMacroModal()">&times;</button></div>
         <div class="modal-body">
-            <input type="text" id="macroSearch" class="form-control" placeholder="Buscar macro..." onkeyup="filterMacros()">
+            <div class="form-group">
+                <input type="text" id="macroSearch" class="form-control" placeholder="Buscar macro..." onkeyup="filterMacros()">
+            </div>
             <div id="macroList" class="canned-list"></div>
-            <p class="text-muted"><a href="<?= url('macros') ?>" target="_blank">Gerenciar macros</a></p>
+            <p class="text-muted" style="margin-top:12px"><a href="<?= url('macros') ?>" target="_blank">Gerenciar macros</a></p>
         </div>
     </div>
 </div>
 
-<!-- Status Modal -->
-<div class="modal" id="statusModal">
-    <div class="modal-content">
+<div class="modal-overlay" id="statusModal" style="display:none" onclick="if(event.target===this)closeStatusModal()">
+    <div class="modal-container" style="max-width:460px">
         <div class="modal-header"><h3>Alterar Status</h3><button class="modal-close" onclick="closeStatusModal()">&times;</button></div>
         <form action="<?= url('inbox/') ?><?= $conv['id'] ?>/status" method="POST">
             <?= csrf_field() ?>
@@ -571,93 +641,108 @@ $csat = $conversation['csat'] ?? null;
                     </div>
                 </div>
             </div>
-            <div class="modal-footer" style="justify-content: center;">
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline" onclick="closeStatusModal()">Cancelar</button>
                 <button type="submit" class="btn btn-primary">Alterar</button>
             </div>
         </form>
     </div>
 </div>
 
-<!-- Snooze Modal -->
-<div class="modal" id="snoozeModal">
-    <div class="modal-content">
+<div class="modal-overlay" id="snoozeModal" style="display:none" onclick="if(event.target===this)closeSnoozeModal()">
+    <div class="modal-container" style="max-width:460px">
         <div class="modal-header"><h3>Agendar Atendimento</h3><button class="modal-close" onclick="closeSnoozeModal()">&times;</button></div>
         <form action="<?= url('inbox/') ?><?= $conv['id'] ?>/snooze" method="POST">
             <?= csrf_field() ?>
-            <div class="form-group">
-                <label>Retomar em</label>
-                <select name="until" class="form-control">
-                    <option value="">Cancelar agendamento</option>
-                    <option value="<?= date('Y-m-d\TH:i', strtotime('+1 hour')) ?>">Em 1 hora</option>
-                    <option value="<?= date('Y-m-d\TH:i', strtotime('+4 hour')) ?>">Em 4 horas</option>
-                    <option value="<?= date('Y-m-d\TH:i', strtotime('+1 day')) ?>">Amanhã</option>
-                    <option value="<?= date('Y-m-d\TH:i', strtotime('+3 day')) ?>">Em 3 dias</option>
-                </select>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label>Retomar em</label>
+                    <select name="until" class="form-control">
+                        <option value="">Cancelar agendamento</option>
+                        <option value="<?= date('Y-m-d\TH:i', strtotime('+1 hour')) ?>">Em 1 hora</option>
+                        <option value="<?= date('Y-m-d\TH:i', strtotime('+4 hour')) ?>">Em 4 horas</option>
+                        <option value="<?= date('Y-m-d\TH:i', strtotime('+1 day')) ?>">Amanhã</option>
+                        <option value="<?= date('Y-m-d\TH:i', strtotime('+3 day')) ?>">Em 3 dias</option>
+                    </select>
+                </div>
             </div>
-            <button type="submit" class="btn btn-primary">Agendar</button>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline" onclick="closeSnoozeModal()">Cancelar</button>
+                <button type="submit" class="btn btn-primary">Agendar</button>
+            </div>
         </form>
     </div>
 </div>
 
-<!-- CSAT Modal -->
-<div class="modal" id="csatModal">
-    <div class="modal-content">
+<div class="modal-overlay" id="csatModal" style="display:none" onclick="if(event.target===this)closeCsatModal()">
+    <div class="modal-container" style="max-width:460px">
         <div class="modal-header"><h3>Avaliação de Satisfação</h3><button class="modal-close" onclick="closeCsatModal()">&times;</button></div>
         <?php if ($csat): ?>
             <div class="modal-body"><p>Esta conversa já foi avaliada.</p></div>
         <?php else: ?>
             <form action="<?= url('inbox/') ?><?= $conv['id'] ?>/csat" method="POST">
                 <?= csrf_field() ?>
-                <div class="form-group csat-pick" id="csatPick">
-                    <?php for ($i = 1; $i <= 5; $i++): ?>
-                        <i class="far fa-star csat-star" data-v="<?= $i ?>"></i>
-                    <?php endfor; ?>
-                    <input type="hidden" name="rating" id="csatRating" value="0">
+                <div class="modal-body">
+                    <div class="form-group csat-pick" id="csatPick">
+                        <?php for ($i = 1; $i <= 5; $i++): ?>
+                            <i class="far fa-star csat-star" data-v="<?= $i ?>"></i>
+                        <?php endfor; ?>
+                        <input type="hidden" name="rating" id="csatRating" value="0">
+                    </div>
+                    <div class="form-group">
+                        <textarea name="comment" class="form-control" rows="3" placeholder="Comentário (opcional)"></textarea>
+                    </div>
                 </div>
-                <div class="form-group">
-                    <textarea name="comment" class="form-control" rows="3" placeholder="Comentário (opcional)"></textarea>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-outline" onclick="closeCsatModal()">Cancelar</button>
+                    <button type="submit" class="btn btn-primary">Registrar</button>
                 </div>
-                <button type="submit" class="btn btn-primary">Registrar</button>
             </form>
         <?php endif; ?>
     </div>
 </div>
 
-<!-- Merge Modal -->
-<div class="modal" id="mergeModal">
-    <div class="modal-content">
+<div class="modal-overlay" id="mergeModal" style="display:none" onclick="if(event.target===this)closeMergeModal()">
+    <div class="modal-container" style="max-width:460px">
         <div class="modal-header"><h3>Mesclar Conversa</h3><button class="modal-close" onclick="closeMergeModal()">&times;</button></div>
         <form action="<?= url('inbox/') ?><?= $conv['id'] ?>/merge" method="POST">
             <?= csrf_field() ?>
-            <p class="text-muted">Mover mensagens e etiquetas desta conversa para outra do mesmo cliente.</p>
-            <div class="form-group">
-                <label>Conversa de destino</label>
-                <select name="target_id" class="form-control">
-                    <option value="">Selecione...</option>
-                    <?php foreach ($otherConversations as $oc): ?>
-                        <option value="<?= $oc['id'] ?>">#<?= $oc['id'] ?> - <?= e($oc['subject'] ?: $oc['contact_name']) ?> (<?= e($oc['status']) ?>)</option>
-                    <?php endforeach; ?>
-                </select>
+            <div class="modal-body">
+                <p class="text-muted" style="margin-bottom:14px">Mover mensagens e etiquetas desta conversa para outra do mesmo cliente.</p>
+                <div class="form-group">
+                    <label>Conversa de destino</label>
+                    <select name="target_id" class="form-control">
+                        <option value="">Selecione...</option>
+                        <?php foreach ($otherConversations as $oc): ?>
+                            <option value="<?= $oc['id'] ?>">#<?= $oc['id'] ?> - <?= e($oc['subject'] ?: $oc['contact_name']) ?> (<?= e($oc['status']) ?>)</option>
+                        <?php endforeach; ?>
+                    </select>
+                </div>
             </div>
-            <button type="submit" class="btn btn-primary">Mesclar</button>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline" onclick="closeMergeModal()">Cancelar</button>
+                <button type="submit" class="btn btn-primary">Mesclar</button>
+            </div>
         </form>
     </div>
 </div>
 
-<!-- Edit Message Modal -->
-<div class="modal" id="editModal">
-    <div class="modal-content">
+<div class="modal-overlay" id="editModal" style="display:none" onclick="if(event.target===this)closeEditModal()">
+    <div class="modal-container" style="max-width:460px">
         <div class="modal-header"><h3>Editar Mensagem</h3><button class="modal-close" onclick="closeEditModal()">&times;</button></div>
         <div class="modal-body">
-            <textarea id="editContent" class="form-control" rows="4"></textarea>
-            <button class="btn btn-primary" onclick="saveEdit()">Salvar</button>
+            <div class="form-group">
+                <textarea id="editContent" class="form-control" rows="4"></textarea>
+            </div>
+            <div class="form-group" style="margin-bottom:0">
+                <button class="btn btn-primary" onclick="saveEdit()">Salvar</button>
+            </div>
         </div>
     </div>
 </div>
 
-<!-- Contact Edit Modal -->
-<div class="modal" id="contactEditModal">
-    <div class="modal-content" style="max-width:480px">
+<div class="modal-overlay" id="contactEditModal" style="display:none" onclick="if(event.target===this)closeContactEditModal()">
+    <div class="modal-container" style="max-width:480px">
         <div class="modal-header">
             <h3><i class="fas fa-user-edit"></i> Editar Contato</h3>
             <button class="modal-close" onclick="closeContactEditModal()">&times;</button>
@@ -686,7 +771,7 @@ $csat = $conversation['csat'] ?? null;
                     <input type="text" name="company" class="form-control" value="<?= e($contact['company'] ?? '') ?>">
                 </div>
             </div>
-            <div class="modal-footer" style="justify-content:center;gap:8px;padding:12px 20px">
+            <div class="modal-footer">
                 <button type="button" class="btn btn-outline" onclick="closeContactEditModal()">Cancelar</button>
                 <button type="submit" class="btn btn-primary" id="contactEditBtn"><i class="fas fa-save"></i> Salvar</button>
             </div>
@@ -816,8 +901,7 @@ function initTagManager(convId) {
 
     if (createInput) {
         createInput.addEventListener('input', function() {
-            var v = createInput.value.trim();
-            createBtn.disabled = v.length < 2;
+            createBtn.disabled = createInput.value.trim().length < 2;
         });
         createInput.addEventListener('keydown', function(e) {
             if (e.key === 'Enter' && !createBtn.disabled) createBtn.click();
@@ -838,10 +922,7 @@ function initTagManager(convId) {
                     updateAll(cur);
                     createInput.value = '';
                 }
-            }).finally(function() {
-                createBtn.disabled = true;
-                createBtn.textContent = 'Criar';
-            });
+            }).finally(function() { createBtn.disabled = true; createBtn.textContent = 'Criar'; });
         });
     }
 
@@ -852,17 +933,13 @@ function initTagManager(convId) {
 initTagManager(CONV_ID);
 function openTransferModal() { document.getElementById('transferModal').style.display = 'flex'; }
 function closeTransferModal() { document.getElementById('transferModal').style.display = 'none'; }
-function openStatusModal() {
-    document.getElementById('statusModal').style.display = 'flex';
-    toggleCloseFields();
-}
+function openStatusModal() { document.getElementById('statusModal').style.display = 'flex'; toggleCloseFields(); }
 function closeStatusModal() { document.getElementById('statusModal').style.display = 'none'; }
 function toggleCloseFields() {
     var sel = document.getElementById('statusSelect');
     var box = document.getElementById('closeFields');
     if (!sel || !box) return;
-    var show = sel.value === 'resolved' || sel.value === 'closed';
-    box.style.display = show ? 'block' : 'none';
+    box.style.display = (sel.value === 'resolved' || sel.value === 'closed') ? 'block' : 'none';
 }
 function openPriorityModal() { document.getElementById('priorityModal').style.display = 'flex'; }
 function closePriorityModal() { document.getElementById('priorityModal').style.display = 'none'; }
@@ -879,6 +956,63 @@ function closeMacroModal() { document.getElementById('macroModal').style.display
 function closeEditModal() { document.getElementById('editModal').style.display = 'none'; }
 function openContactEditModal() { document.getElementById('contactEditModal').style.display = 'flex'; }
 function closeContactEditModal() { document.getElementById('contactEditModal').style.display = 'none'; }
+function saveSubjectSelect(val) {
+    var cv = document.getElementById('convView');
+    var id = cv ? cv.dataset.conv : 0;
+    if (id) {
+        var fd = csrfForm();
+        fd.append('subject', val);
+        fetch('/inbox/' + id + '/subject', { method: 'POST', headers: { 'X-Requested-With': 'XMLHttpRequest' }, body: fd }).then(function(r){
+            if (!r.ok) console.error('Subject save failed:', r.status);
+        }).catch(function(e){ console.error('Subject save error:', e); });
+    }
+}
+function editUnit(e) {
+    if (e) e.stopPropagation();
+    var d = document.getElementById('convUnitDisplay');
+    var i = document.getElementById('convUnitInput');
+    if (!d || !i) return;
+    d.style.display = 'none';
+    i.style.display = 'inline-block';
+    i.focus();
+    i.select();
+}
+function saveUnit(val) {
+    var d = document.getElementById('convUnitDisplay');
+    var i = document.getElementById('convUnitInput');
+    if (!d || !i) return;
+    i.style.display = 'none';
+    d.style.display = 'inline-block';
+    var cv = document.getElementById('convView');
+    var id = cv ? cv.dataset.conv : 0;
+    var txt = val ? '| ' + val : '<span style="opacity:.5;font-style:italic">+ unidade</span>';
+    d.innerHTML = txt + ' <i class="fas fa-pen" style="font-size:9px;opacity:.4;margin-left:2px"></i>';
+    if (id) {
+        var fd = csrfForm();
+        fd.append('unit', val);
+        fetch('/inbox/' + id + '/unit', { method: 'POST', headers: { 'X-Requested-With': 'XMLHttpRequest' }, body: fd }).then(function(r){
+            if (!r.ok) console.error('Unit save failed:', r.status);
+        }).catch(function(e){ console.error('Unit save error:', e); });
+    }
+}
+function cancelUnitEdit() {
+    var d = document.getElementById('convUnitDisplay');
+    var i = document.getElementById('convUnitInput');
+    if (!d || !i) return;
+    i.style.display = 'none';
+    d.style.display = 'inline-block';
+}
+function saveSubstatus(val) {
+    var cv = document.getElementById('convView');
+    var id = cv ? cv.dataset.conv : 0;
+    if (id) {
+        var fd = csrfForm();
+        fd.append('substatus', val);
+        fetch('/inbox/' + id + '/substatus', { method: 'POST', headers: { 'X-Requested-With': 'XMLHttpRequest' }, body: fd }).then(function(r){
+            if (!r.ok) console.error('Substatus save failed:', r.status);
+        }).catch(function(e){ console.error('Substatus save error:', e); });
+    }
+}
 function submitContactEdit(e) {
     e.preventDefault();
     var form = document.getElementById('contactEditForm');
@@ -904,17 +1038,27 @@ function submitContactEdit(e) {
     });
     return false;
 }
-document.querySelectorAll('.modal').forEach(m => m.addEventListener('click', e => { if (e.target === m) m.style.display = 'none'; }));
-document.addEventListener('keydown', e => { if (e.key === 'Escape') document.querySelectorAll('.modal').forEach(m => m.style.display = 'none'); });
+document.querySelectorAll('.modal-overlay').forEach(function(m) {
+    m.addEventListener('click', function(e) { if (e.target === this) this.style.display = 'none'; });
+});
+document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape') {
+        document.querySelectorAll('.modal-overlay').forEach(function(m) { m.style.display = 'none'; });
+    }
+});
 
 /* CSAT star picker */
 var csatPick = document.getElementById('csatPick');
 if (csatPick) {
-    csatPick.querySelectorAll('.csat-star').forEach(st => st.addEventListener('click', () => {
-        const v = parseInt(st.dataset.v, 10);
-        document.getElementById('csatRating').value = v;
-        csatPick.querySelectorAll('.csat-star').forEach(s => s.classList.toggle('fas', parseInt(s.dataset.v, 10) <= v));
-    }));
+    csatPick.querySelectorAll('.csat-star').forEach(function(st) {
+        st.addEventListener('click', function() {
+            var v = parseInt(st.dataset.v, 10);
+            document.getElementById('csatRating').value = v;
+            csatPick.querySelectorAll('.csat-star').forEach(function(s) {
+                s.classList.toggle('fas', parseInt(s.dataset.v, 10) <= v);
+            });
+        });
+    });
 }
 
 /* ---------- Transfer / Canned / Macros ---------- */
@@ -922,7 +1066,7 @@ function loadTransferUsers() {
     var dept = document.getElementById('transferDeptSelect').value;
     var sel = document.getElementById('transferUserSelect');
     if (!dept) { sel.innerHTML = '<option value="">Fila do departamento</option>'; return; }
-    fetch(API + '/departments/' + dept + '/users').then(r => r.json()).then(function(users) {
+    fetch(API + '/departments/' + dept + '/users').then(function(r) { return r.json(); }).then(function(users) {
         var html = '<option value="">Fila do departamento</option>';
         (users || []).forEach(function(u) { html += '<option value="' + u.id + '">' + (u.name || '').replace(/</g, '') + '</option>'; });
         sel.innerHTML = html;
@@ -931,7 +1075,7 @@ function loadTransferUsers() {
 
 var cannedResponses = [];
 function loadCanned() {
-    fetch(API + '/canned-responses?department_id=' + DEPT_ID).then(r => r.json()).then(function(list) {
+    fetch(API + '/canned-responses?department_id=' + DEPT_ID).then(function(r) { return r.json(); }).then(function(list) {
         cannedResponses = list || []; renderCanned('');
     }).catch(function() { cannedResponses = []; renderCanned(''); });
 }
@@ -954,7 +1098,7 @@ function insertCanned(id) {
 
 var macros = [];
 function loadMacros() {
-    fetch(API + '/macros?department_id=' + DEPT_ID).then(r => r.json()).then(function(list) {
+    fetch(API + '/macros?department_id=' + DEPT_ID).then(function(r) { return r.json(); }).then(function(list) {
         macros = list || []; renderMacros('');
     }).catch(function() { macros = []; renderMacros(''); });
 }
@@ -982,10 +1126,10 @@ function toggleInternal() {
     var sendBtn = document.getElementById('sendBtn');
     if (internalOn) {
         btn.classList.add('active'); ta.placeholder = 'Mensagem interna (visível apenas à equipe)...'; typeInput.value = 'internal';
-        if (sendBtn) { sendBtn.innerHTML = '<i class="fas fa-lock"></i>'; sendBtn.title = 'Enviar nota interna'; }
+        if (sendBtn) { sendBtn.innerHTML = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0110 0v4"/></svg>'; sendBtn.title = 'Enviar nota interna'; }
     } else {
-        btn.classList.remove('active'); ta.placeholder = 'Digite sua mensagem... (Enter para enviar)'; typeInput.value = 'text';
-        if (sendBtn) { sendBtn.innerHTML = '<i class="fas fa-paper-plane"></i>'; sendBtn.title = 'Enviar'; }
+        btn.classList.remove('active'); ta.placeholder = 'Digite sua mensagem... (Enter para enviar, \'/\' resposta, \':\' macro)'; typeInput.value = 'text';
+        if (sendBtn) { sendBtn.innerHTML = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/></svg>'; sendBtn.title = 'Enviar'; }
     }
 }
 function toggleSignature(id) {
@@ -997,7 +1141,7 @@ function toggleSignature(id) {
 var EMOJIS = ['😀','😁','😂','🤣','😊','😍','😎','🤔','🙄','😅','👍','👎','👏','🙏','💪','🔥','✅','❌','⚠️','💡','📌','📎','☎️','✉️','⏰','💬'];
 (function() {
     var pop = document.getElementById('emojiPopover');
-    pop.innerHTML = EMOJIS.map(e => '<span class="emoji-opt" onclick="insertEmoji(\'' + e + '\')">' + e + '</span>').join('');
+    pop.innerHTML = EMOJIS.map(function(e) { return '<span class="emoji-opt" onclick="insertEmoji(\'' + e + '\')">' + e + '</span>'; }).join('');
     document.getElementById('emojiToggle').addEventListener('click', function(e) {
         e.stopPropagation(); pop.style.display = pop.style.display === 'none' ? 'grid' : 'none';
     });
@@ -1140,13 +1284,13 @@ function nl2br(s) { return esc(s); }
 function fmtBytes(b) { var u = ['B','KB','MB','GB'], i = 0; b = b || 0; while (b >= 1024 && i < u.length - 1) { b /= 1024; i++; } return Math.round(b * 10) / 10 + ' ' + u[i]; }
 function fmtDt(s) { if (!s) return ''; var d = new Date(String(s).replace(' ', 'T')); if (isNaN(d)) return s; var p = function(n) { return (n < 10 ? '0' : '') + n; }; return p(d.getDate()) + '/' + p(d.getMonth() + 1) + '/' + p(d.getFullYear()) + ' ' + p(d.getHours()) + ':' + p(d.getMinutes()); }
 function fileMeta(content) { try { var m = JSON.parse(content); if (m && m.url) return m; } catch (e) {} return { url: content }; }
+
 function mediaTypeOf(m) {
     var mt = m.type;
     if (['image','audio','video','file','sticker'].indexOf(mt) >= 0) return mt;
     try {
         var c = JSON.parse(m.content);
         if (c && c.url) {
-            // CSAT payloads have title/prompt — not a file
             if (c.title || c.prompt) return null;
             var mime = c.mime || '';
             if (mime.indexOf('image/') === 0) return (mime === 'image/webp') ? 'sticker' : 'image';
@@ -1167,7 +1311,6 @@ function renderReactions(reactionsJson) {
     var rxs;
     try { rxs = JSON.parse(reactionsJson); } catch (e) { return ''; }
     if (!rxs || !rxs.length) return '';
-    // Group by emoji, show count
     var groups = {};
     rxs.forEach(function(r) {
         if (!r.emoji) return;
@@ -1175,10 +1318,10 @@ function renderReactions(reactionsJson) {
         groups[r.emoji].count++;
         groups[r.emoji].senders.push(r.sender_name || r.from || '');
     });
-    var html = '<div class="msg-reactions">';
+    var html = '<div class="reactions-row">';
     for (var emo in groups) {
         var g = groups[emo];
-        html += '<span class="reaction-badge" title="' + esc(g.senders.join(', ')) + '">' + esc(emo) + (g.count > 1 ? '<span class="reaction-count">' + g.count + '</span>' : '') + '</span>';
+        html += '<span class="reaction-pill" title="' + esc(g.senders.join(', ')) + '">' + esc(emo) + (g.count > 1 ? '<span class="count">' + g.count + '</span>' : '') + '</span>';
     }
     html += '</div>';
     return html;
@@ -1211,7 +1354,6 @@ function renderMessageHtml(m, uploadsBase) {
     if (deleted) {
         body += '<div class="message-deleted"><i class="fas fa-ban"></i> Mensagem excluída</div>';
     }
-    // Quote preview
     if (m.reply_to_data) {
         var qname = m.reply_to_data.direction === 'outbound' ? 'Você' : (CONTACT_NAME || 'Contato');
         var qtext = (m.reply_to_data.content || '').replace(/<[^>]+>/g, '').substring(0, 100);
@@ -1269,7 +1411,7 @@ function nearBottom() { return msgContainer.scrollHeight - msgContainer.scrollTo
 
 function dayKey(s) { var d = new Date(String(s).replace(' ', 'T')); if (isNaN(d)) return ''; var p = function(n){return (n<10?'0':'')+n;}; return d.getFullYear()+'-'+(p(d.getMonth()+1))+'-'+p(d.getDate()); }
 function decorateDates() {
-    msgContainer.querySelectorAll('.msg-date-sep').forEach(function(el) { el.remove(); });
+    document.querySelectorAll('#convMessages .date-sep').forEach(function(el) { el.remove(); });
     var cur = '';
     msgContainer.querySelectorAll('.message[data-mid]').forEach(function(el) {
         var t = el.querySelector('.message-time')?.textContent || '';
@@ -1277,7 +1419,7 @@ function decorateDates() {
         var dk = dayKey(m[0].split('/').reverse().join('-'));
         if (dk && dk !== cur) {
             cur = dk;
-            var sep = document.createElement('div'); sep.className = 'msg-date-sep';
+            var sep = document.createElement('div'); sep.className = 'date-sep';
             var label = m[0]; if (dk === dayKey(new Date().toISOString())) label = 'Hoje';
             sep.innerHTML = '<span>' + label + '</span>';
             el.parentNode.insertBefore(sep, el);
@@ -1294,6 +1436,7 @@ msgContainer.querySelectorAll('.message[data-mid]').forEach(function(el) { var i
     fi.addEventListener('change', function() { if (fi.files && fi.files[0]) { nameEl.textContent = fi.files[0].name; box.style.display = 'flex'; } else { box.style.display = 'none'; } });
     x.addEventListener('click', function() { fi.value = ''; box.style.display = 'none'; });
 })();
+
 /* ---------- Autocomplete inline de respostas prontas (/) ---------- */
 if (!document.getElementById('composerSuggestStyle')) {
     var __cs = document.createElement('style');
@@ -1326,7 +1469,7 @@ function renderSuggest(token) {
         suggestBox = document.createElement('div');
         suggestBox.id = 'composerSuggest';
         suggestBox.className = 'composer-suggest';
-        var composer = document.querySelector('.conv-composer');
+        var composer = document.querySelector('.chat-input');
         if (composer) { composer.style.position = 'relative'; composer.appendChild(suggestBox); }
     }
     if (!suggestItems.length) { suggestBox.style.display = 'none'; return; }
@@ -1463,7 +1606,7 @@ function notifyInbound() {
 }
 
 function pollMessages() {
-    fetch(API + '/conversations/' + CONV_ID + '/messages').then(r => r.json()).then(function(msgs) {
+    fetch(API + '/conversations/' + CONV_ID + '/messages').then(function(r) { return r.json(); }).then(function(msgs) {
         var added = 0, inboundNew = false;
         (msgs || []).forEach(function(m) {
             var id = parseInt(m.id, 10);
@@ -1478,20 +1621,24 @@ function pollMessages() {
 }
 if ('Notification' in window && Notification.permission === 'default') { Notification.requestPermission(); }
 
-/* Live refresh do cabeçalho/drawer (outro atendente agiu) */
 function pollMeta() {
-    fetch(API + '/conversations/' + CONV_ID).then(r => r.json()).then(function(c) {
+    fetch(API + '/conversations/' + CONV_ID).then(function(r) { return r.json(); }).then(function(c) {
         if (!c || !c.id) return;
-        var badge = document.querySelector('.conv-actions .status-badge');
+        var badge = document.querySelector('.chat-header .status-chip');
         if (badge && c.status) badge.outerHTML = statusBadgeHtml(c.status);
-        var pb = document.querySelector('.conv-actions .priority-badge');
+        var pb = document.querySelector('.chat-header .priority-badge');
         if (pb && c.priority) pb.outerHTML = priorityBadgeHtml(c.priority);
         var asg = document.getElementById('convAssigned');
         if (asg) asg.textContent = c.assigned_user_name || 'Sem responsável';
     }).catch(function() {});
 }
-function statusBadgeHtml(s) { var map = {new:'Novo',open:'Aberto',waiting_customer:'Em atendimento',waiting_internal:'Aguardando Interno',resolved:'Resolvido',closed:'Fechado',spam:'Spam'}; var cls = 'status-' + s; return '<span class="status-badge ' + cls + '">' + (map[s] || s) + '</span>'; }
-function priorityBadgeHtml(p) { var map = {low:'Baixa',normal:'Normal',high:'Alta',urgent:'Urgente'}; var cls = 'priority-' + p; return '<span class="priority-badge ' + cls + '">' + (map[p] || p) + '</span>'; }
+function statusBadgeHtml(s) {
+    var map = {new:'Novo',open:'Aberto',waiting_customer:'Em atendimento',waiting_internal:'Aguardando Interno',resolved:'Resolvido',closed:'Fechado',spam:'Spam'};
+    var cls = s === 'open' || s === 'new' ? 'chip-success' : s === 'waiting_customer' ? 'chip-info' : s === 'resolved' || s === 'closed' ? 'chip-neutral' : 'chip-warning';
+    var dot = {'new':'var(--success)','open':'var(--success)','waiting_customer':'var(--info)','waiting_internal':'var(--warning)','resolved':'var(--text-muted)','closed':'var(--text-muted)','spam':'var(--danger)'}[s] || 'var(--success)';
+    return '<span class="status-chip ' + cls + '" onclick="openStatusModal()" title="Clique para alterar status"><span class="status-dot" style="width:8px;height:8px;position:static;border:none;flex-shrink:0;background:' + dot + '"></span>' + (map[s] || s) + '</span>';
+}
+function priorityBadgeHtml(p) { var map = {low:'Baixa',normal:'Normal',high:'Alta',urgent:'Urgente'}; var cls = 'priority-' + p; return '<span class="priority-badge ' + cls + '" onclick="openPriorityModal()" title="Clique para alterar prioridade">' + (map[p] || p) + '</span>'; }
 
 if (window.__convPollInterval) clearInterval(window.__convPollInterval);
 window.__convPollInterval = setInterval(pollMessages, 3000);

@@ -43,6 +43,7 @@ $router->group('', function (Router $router) {
     $router->get('/inbox', [InboxController::class, 'index']);
     $router->get('/inbox/mine', [InboxController::class, 'mine']);
     $router->get('/inbox/unassigned', [InboxController::class, 'unassigned']);
+    $router->get('/inbox/chatbot', [InboxController::class, 'chatbot']);
     $router->get('/inbox/new', [InboxController::class, 'newConversation']);
     $router->post('/inbox/new', [InboxController::class, 'createConversation']);
     $router->get('/inbox/{id}/panel', [InboxController::class, 'conversationPanel']);
@@ -50,6 +51,9 @@ $router->group('', function (Router $router) {
     $router->get('/inbox/{id}', [InboxController::class, 'show']);
     $router->post('/inbox/{id}/messages', [InboxController::class, 'sendMessage']);
     $router->post('/inbox/{id}/settings', [InboxController::class, 'updateSettings']);
+    $router->post('/inbox/{id}/subject', [InboxController::class, 'updateSubject']);
+    $router->post('/inbox/{id}/unit', [InboxController::class, 'updateUnit']);
+    $router->post('/inbox/{id}/substatus', [InboxController::class, 'updateSubstatus']);
     $router->post('/inbox/{id}/assign', [InboxController::class, 'assign']);
     $router->post('/inbox/{id}/transfer', [InboxController::class, 'transfer']);
     $router->post('/inbox/{id}/status', [InboxController::class, 'changeStatus']);
@@ -159,6 +163,18 @@ $router->group('', function (Router $router) {
     $router->get('/library/canned/{id}/edit', [LibraryController::class, 'editCanned']);
     $router->post('/library/canned/{id}', [LibraryController::class, 'updateCanned']);
     $router->post('/library/canned/{id}/delete', [LibraryController::class, 'deleteCanned']);
+
+    // Sub-statuses
+    $router->get('/settings/substatuses', [SettingsController::class, 'substatuses']);
+    $router->post('/settings/substatuses/create', [SettingsController::class, 'createSubstatus']);
+    $router->post('/settings/substatuses/{id}/update', [SettingsController::class, 'updateSubstatus']);
+    $router->post('/settings/substatuses/{id}/delete', [SettingsController::class, 'deleteSubstatus']);
+
+    // Assuntos predefinidos
+    $router->get('/settings/subjects', [SettingsController::class, 'subjects']);
+    $router->post('/settings/subjects/create', [SettingsController::class, 'createSubject']);
+    $router->post('/settings/subjects/{id}/update', [SettingsController::class, 'updateSubject']);
+    $router->post('/settings/subjects/{id}/delete', [SettingsController::class, 'deleteSubject']);
 
     // Reports
     $router->get('/reports', [ReportsController::class, 'index']);

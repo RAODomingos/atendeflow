@@ -9,7 +9,7 @@ class Environment
     public static function load(string $path = ''): array
     {
         if (empty($path)) {
-            $path = __DIR__ . '/../../.env';
+            $path = __DIR__ . '/../../env/.env';
         }
 
         if (!file_exists($path)) {

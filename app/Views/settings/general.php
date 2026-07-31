@@ -1,4 +1,9 @@
 <div class="settings-page">
+    <div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap">
+        <a href="<?= url('settings') ?>" class="btn btn-sm <?= strpos($_SERVER['REQUEST_URI'] ?? '', '/settings/substatuses') === false && strpos($_SERVER['REQUEST_URI'] ?? '', '/settings/subjects') === false ? 'btn-primary' : 'btn-outline' ?>">Geral</a>
+        <a href="<?= url('settings/substatuses') ?>" class="btn btn-sm <?= strpos($_SERVER['REQUEST_URI'] ?? '', '/settings/substatuses') !== false ? 'btn-primary' : 'btn-outline' ?>">Sub-status</a>
+        <a href="<?= url('settings/subjects') ?>" class="btn btn-sm <?= strpos($_SERVER['REQUEST_URI'] ?? '', '/settings/subjects') !== false ? 'btn-primary' : 'btn-outline' ?>">Assuntos</a>
+    </div>
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;flex-wrap:wrap;gap:12px">
         <div>
             <h1 style="font-size:24px;font-weight:700;margin:0;display:flex;align-items:center;gap:10px">
