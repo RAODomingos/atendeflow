@@ -39,15 +39,15 @@
                     </div>
                 </div>
                 <div class="profile-info">
-                    <div class="profile-info-item">
+                    <div class="profile-info-item ci-mail">
                         <i class="fas fa-envelope"></i>
                         <span><?= e($user['email']) ?></span>
                     </div>
-                    <div class="profile-info-item">
+                    <div class="profile-info-item ci-cal">
                         <i class="fas fa-calendar"></i>
                         <span>Membro desde <?= format_datetime($user['created_at']) ?></span>
                     </div>
-                    <div class="profile-info-item">
+                    <div class="profile-info-item ci-clock">
                         <i class="fas fa-clock"></i>
                         <span><?= $user['last_login_at'] ? 'Último acesso: ' . time_elapsed($user['last_login_at']) : 'Nunca acessou' ?></span>
                     </div>
@@ -123,6 +123,42 @@
         </div>
     </div>
 </div>
+
+<style>
+.page-form{max-width:1000px;margin:0 auto}
+.page-subtitle{margin:5px 0 0;font-size:13px;color:var(--text-muted)}
+.profile-layout{display:grid;grid-template-columns:340px 1fr;gap:20px;margin-top:18px}
+@media(max-width:900px){.profile-layout{grid-template-columns:1fr}}
+.profile-card{background:var(--bg-panel);border:1px solid var(--border-soft);border-radius:var(--radius-xl);overflow:hidden;box-shadow:var(--shadow-sm);height:100%}
+.profile-cover{height:96px;background:linear-gradient(135deg,var(--brand) 0%,#a78bfa 50%,#60a5fa 100%);position:relative}
+.profile-cover::after{content:'';position:absolute;top:-60%;right:-10%;width:220px;height:220px;border-radius:50%;background:rgba(255,255,255,.08)}
+.profile-avatar-section{text-align:center;margin-top:-42px;position:relative;z-index:1;padding:0 20px}
+.profile-avatar{width:84px;height:84px;border-radius:22px;margin:0 auto 10px;overflow:hidden;background:linear-gradient(135deg,var(--brand),#a78bfa);display:flex;align-items:center;justify-content:center;box-shadow:0 8px 24px rgba(124,92,255,.35);border:4px solid var(--bg-panel)}
+.profile-avatar img{width:100%;height:100%;object-fit:cover;display:block}
+.avatar-ph-lg{width:100%;height:100%;display:flex;align-items:center;justify-content:center;font-size:30px;font-weight:800;color:#fff}
+.profile-name{font-size:19px;font-weight:800;margin:0;letter-spacing:-.3px;color:var(--text-primary)}
+.profile-role{margin-top:6px;display:inline-flex}
+.profile-stats{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;padding:16px;border-top:1px solid var(--border-soft);border-bottom:1px solid var(--border-soft);margin-top:16px;text-align:center}
+.profile-stat{background:var(--bg-panel-alt);border-radius:12px;padding:10px 6px;min-height:62px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px}
+.profile-stat .stat-value{font-size:16px;font-weight:800;display:block;font-variant-numeric:tabular-nums;color:var(--text-primary)}
+.profile-stat .stat-label{font-size:10.5px;color:var(--text-muted);display:block;margin-top:2px;text-transform:uppercase;letter-spacing:.04em;line-height:1.3}
+.profile-info{padding:14px 20px;display:flex;flex-direction:column;gap:10px}
+.profile-info-item{display:flex;align-items:center;gap:10px;font-size:13px;color:var(--text-secondary)}
+.profile-info-item i{width:32px;height:32px;border-radius:9px;background:var(--brand-soft);color:var(--brand-2);display:flex;align-items:center;justify-content:center;font-size:12px;flex-shrink:0}
+.profile-info-item.ci-mail i{background:var(--info-soft);color:var(--info)}
+.profile-info-item.ci-cal i{background:var(--success-soft);color:var(--success)}
+.profile-info-item.ci-clock i{background:var(--warning-soft);color:#b45309}
+.profile-depts{padding:0 20px 20px}
+.profile-depts-title{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--text-muted);display:flex;align-items:center;gap:6px;margin-bottom:8px}
+.profile-depts-list{display:flex;flex-wrap:wrap;gap:6px}
+.profile-main{min-width:0}
+.profile-main .card{background:var(--bg-panel);box-shadow:var(--shadow-sm)}
+.form-hint{display:block;font-size:11.5px;color:var(--text-muted);margin-top:5px;line-height:1.5}
+.form-actions{display:flex;justify-content:flex-end;gap:10px;padding-top:6px}
+.avatar-upload-row{display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+.avatar-upload-row input[type=file]{font-size:12.5px;color:var(--text-secondary)}
+.remove-avatar-label{font-size:12.5px;color:var(--danger);display:inline-flex;align-items:center;gap:5px;cursor:pointer}
+</style>
 
 <script>
 function previewAvatar(e) {

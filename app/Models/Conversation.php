@@ -759,11 +759,12 @@ class Conversation
         }
         $inboxWhere = '(' . implode(' OR ', $inboxConditions) . ')';
 
-        return Database::getInstance()->update(
-            'messages m JOIN conversations c ON c.id = m.conversation_id',
-            ['m.is_read' => 1],
-            "m.direction = 'inbound' AND m.is_read = 0 AND (m.user_id != ? OR m.user_id IS NULL) AND {$inboxWhere}",
-            $params
-        );
+        $sql = "UPDATE messages m JOIN conversations c ON c.id = m.conversation_id "
+             . "SET m.is_read = 1 "
+             . "WHERE m.direction = 'inbound' AND m.is_read = 0 "
+             . "AND (m.user_id != ? OR m.user_id IS NULL) AND {$inboxWhere}";
+
+        $stmt = Database::getInstance()->query($sql, $params);
+        return $stmt->rowCount();
     }
 }
