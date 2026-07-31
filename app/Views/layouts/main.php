@@ -30,10 +30,10 @@ $userInitial = mb_strtoupper(mb_substr($userName, 0, 1));
             <button class="topbar-toggle" id="sidebarToggle" title="Menu">
                 <i class="fa-solid fa-bars"></i>
             </button>
-            <div class="topbar-brand">
-                <i class="fas fa-headset" style="color:var(--brand);font-size:18px"></i>
+            <a href="<?= route('dashboard') ?>" class="topbar-brand">
+                <i class="fas fa-headset"></i>
                 AtendeFlow
-            </div>
+            </a>
         </div>
         <div class="topbar-right">
             <div class="notif-wrapper">
@@ -49,7 +49,7 @@ $userInitial = mb_strtoupper(mb_substr($userName, 0, 1));
                     <div class="notif-list" id="notifList"></div>
                 </div>
             </div>
-            <button class="notif-btn" id="soundToggle" title="Som de notificações" style="margin-left:4px">
+            <button class="notif-btn" id="soundToggle" title="Som de notificações">
                 <i class="fa-solid fa-volume-high"></i>
             </button>
             <div class="topbar-user" id="topbarUser">

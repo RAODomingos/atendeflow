@@ -116,7 +116,9 @@ $renderMessageContent = function (array $msg) use ($contact, &$renderMessageCont
             return '<div class="message-content"><audio controls preload="metadata" src="' . e($url) . '"></audio></div>';
         }
         if ($mediaType === 'video') {
-            return '<div class="message-content"><video controls preload="metadata" src="' . e($url) . '" class="msg-video"></video></div>';
+            return '<div class="message-content"><a href="' . e($url) . '" target="_blank" rel="noopener" class="msg-lightbox">'
+                 . '<video controls preload="metadata" src="' . e($url) . '" class="msg-video" data-alt="' . e($name) . '"></video>'
+                 . '</a></div>';
         }
         return '<div class="message-content">'
              . '<a class="msg-file" href="' . e($url) . '" target="_blank" rel="noopener" download>'
@@ -366,9 +368,7 @@ $renderReceipts = function (array $msg) {
             <div class="date-sep"><span><?= format_date_sep($msg['created_at']) ?></span></div>
             <?php endif; ?>
             <div class="<?= $msgClasses ?>" data-mid="<?= $msg['id'] ?>" data-text="<?= e($textForSearch) ?>">
-                <?php if (!$grouped): ?>
                 <div class="msg-avatar msg-avatar-<?= $sender ?>"><?= $av ?></div>
-                <?php endif; ?>
                 <div class="message-body <?= $isDeleted ? 'is-deleted' : '' ?>">
                     <?php if (!empty($msg['reply_to_data'])): ?>
                     <div class="msg-quote" onclick="scrollToMessage(<?= (int) $msg['reply_to_data']['id'] ?>)">
@@ -667,16 +667,8 @@ $renderReceipts = function (array $msg) {
                                             <?= format_datetime($event['created_at']) ?>
                                             <?php if ($event['user_name']): ?> &middot; <?= e($event['user_name']) ?><?php endif; ?>
                                         </span>
-    </div>
-</div>
-
-<div class="lightbox" id="msgLightbox" onclick="closeLightbox(event)">
-    <button type="button" class="lightbox-close" onclick="closeLightbox(event, true)">&times;</button>
-    <button type="button" class="lightbox-nav lightbox-prev" id="lightboxPrev" onclick="lightboxNav(event, -1)"><i class="fas fa-chevron-left"></i></button>
-    <button type="button" class="lightbox-nav lightbox-next" id="lightboxNext" onclick="lightboxNav(event, 1)"><i class="fas fa-chevron-right"></i></button>
-    <div id="lightboxContent"></div>
-    <div class="lightbox-info" id="lightboxInfo"></div>
-</div>
+                                    </div>
+                                </div>
                             <?php endforeach; ?>
                         <?php endif; ?>
                     </div>
@@ -1722,7 +1714,7 @@ function fileContentHtml(type, content, uploadsBase) {
     var m = fileMeta(content); var url = isAbsoluteUrl(m.url) ? m.url : (uploadsBase + '/' + m.url);
     if (type === 'image' || type === 'sticker') return '<a href="' + esc(url) + '" target="_blank" rel="noopener" class="msg-lightbox"><img class="msg-img" src="' + esc(url) + '" alt="' + esc(m.name || 'imagem') + '" loading="lazy"></a>';
     if (type === 'audio') return '<audio controls preload="metadata" src="' + esc(url) + '"></audio>';
-    if (type === 'video') return '<video controls preload="metadata" src="' + esc(url) + '" class="msg-video"></video>';
+    if (type === 'video') return '<a href="' + esc(url) + '" target="_blank" rel="noopener" class="msg-lightbox"><video controls preload="metadata" src="' + esc(url) + '" class="msg-video" data-alt="' + esc(m.name || 'vídeo') + '"></video></a>';
     var name = m.name || 'arquivo'; var size = m.size ? ' (' + fmtBytes(m.size) + ')' : '';
     return '<a class="msg-file" href="' + esc(url) + '" target="_blank" rel="noopener" download><i class="fas fa-file-download"></i><span class="msg-file-name">' + esc(name) + '</span><span class="msg-file-size">' + esc(size) + '</span></a>';
 }
@@ -1844,23 +1836,36 @@ function decorateDates() {
 var lastMid = 0;
 msgContainer.querySelectorAll('.message[data-mid]').forEach(function(el) { var id = parseInt(el.getAttribute('data-mid'), 10); if (id > lastMid) lastMid = id; });
 
-/* ---------- Lightbox de imagens ---------- */
+/* ---------- Lightbox de imagens e vídeos ---------- */
 var lightboxItems = [];
 var lightboxIndex = -1;
 function openLightbox(src, caption) {
-    var all = Array.from(document.querySelectorAll('.msg-lightbox img')).map(function(img){ return { src: img.src, alt: img.alt || '' }; });
-    lightboxItems = all.length ? all : [{ src: src, alt: caption || '' }];
-    lightboxIndex = Math.max(0, lightboxItems.findIndex(function(x){ return x.src === src; }));
+    var all = [];
+    document.querySelectorAll('.msg-lightbox img').forEach(function(img) {
+        all.push({ src: img.src, alt: img.alt || '', type: 'image' });
+    });
+    document.querySelectorAll('.msg-lightbox video').forEach(function(vid) {
+        all.push({ src: vid.currentSrc || vid.src, alt: vid.getAttribute('data-alt') || '', type: 'video' });
+    });
+    lightboxItems = all.length ? all : [{ src: src, alt: caption || '', type: 'image' }];
+    lightboxIndex = Math.max(0, lightboxItems.findIndex(function(x) { return x.src === src; }));
     renderLightbox();
     var lb = document.getElementById('msgLightbox');
     if (lb) lb.classList.add('open');
+    document.body.style.overflow = 'hidden';
 }
 function renderLightbox() {
     if (lightboxIndex < 0 || !lightboxItems[lightboxIndex]) return;
     var item = lightboxItems[lightboxIndex];
     var content = document.getElementById('lightboxContent');
     var info = document.getElementById('lightboxInfo');
-    if (content) content.innerHTML = '<img src="' + esc(item.src) + '" alt="' + esc(item.alt) + '">';
+    if (content) {
+        if (item.type === 'video') {
+            content.innerHTML = '<video controls autoplay preload="auto" src="' + esc(item.src) + '"></video>';
+        } else {
+            content.innerHTML = '<img src="' + esc(item.src) + '" alt="' + esc(item.alt) + '">';
+        }
+    }
     if (info) info.innerHTML = '<span>' + esc(item.alt || '') + '</span><span style="opacity:.6">' + (lightboxIndex + 1) + ' / ' + lightboxItems.length + '</span>';
     var prev = document.getElementById('lightboxPrev');
     var next = document.getElementById('lightboxNext');
@@ -1879,6 +1884,7 @@ function closeLightbox(e, force) {
     if (e && e.target && e.target.id !== 'msgLightbox' && !force) return;
     var lb = document.getElementById('msgLightbox');
     if (lb) lb.classList.remove('open');
+    document.body.style.overflow = '';
 }
 document.addEventListener('keydown', function(e) {
     var lb = document.getElementById('msgLightbox');
@@ -1892,7 +1898,9 @@ document.addEventListener('click', function(e) {
     if (a) {
         e.preventDefault();
         var img = a.querySelector('img');
+        var vid = a.querySelector('video');
         if (img) openLightbox(img.src, img.alt);
+        else if (vid) openLightbox(vid.currentSrc || vid.src, vid.getAttribute('data-alt') || '');
     }
 });
 
@@ -2268,3 +2276,11 @@ requestAnimationFrame(function() {
     requestAnimationFrame(scrollConvBottom);
 });
 </script>
+
+<div class="lightbox" id="msgLightbox" onclick="closeLightbox(event)">
+    <button type="button" class="lightbox-close" onclick="closeLightbox(event, true)">&times;</button>
+    <button type="button" class="lightbox-nav lightbox-prev" id="lightboxPrev" onclick="lightboxNav(event, -1)"><i class="fas fa-chevron-left"></i></button>
+    <button type="button" class="lightbox-nav lightbox-next" id="lightboxNext" onclick="lightboxNav(event, 1)"><i class="fas fa-chevron-right"></i></button>
+    <div id="lightboxContent"></div>
+    <div class="lightbox-info" id="lightboxInfo"></div>
+</div>
