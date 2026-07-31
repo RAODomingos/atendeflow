@@ -29,15 +29,10 @@ class ReportsController
             "SELECT COUNT(*) as c FROM conversations c {$whereDate}", $params
         )['c'] ?? 0);
 
+        $whereResolved = $days !== null ? "{$whereDate} AND c.status = 'resolved'" : "WHERE c.status = 'resolved'";
         $resolvedCount = (int) ($db->fetch(
-            "SELECT COUNT(*) as c FROM conversations c {$whereDate} AND c.status = 'resolved'" . ($days ? '' : ' WHERE c.status = \'resolved\''),
-            $days ? $params : []
+            "SELECT COUNT(*) as c FROM conversations c {$whereResolved}", $params
         )['c'] ?? 0);
-        if ($days === null) {
-            $resolvedCount = (int) ($db->fetch(
-                "SELECT COUNT(*) as c FROM conversations WHERE status = 'resolved'"
-            )['c'] ?? 0);
-        }
 
         $totalMessages = (int) ($db->fetch(
             "SELECT COUNT(*) as c FROM messages m JOIN conversations c ON c.id = m.conversation_id {$whereDate}",

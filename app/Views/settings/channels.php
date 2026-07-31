@@ -122,10 +122,11 @@
             <button type="button" class="af-type-tab" data-type="whatsapp" onclick="setType('whatsapp')">WhatsApp</button>
         </div>
 
-        <form id="channelForm" method="POST" autocomplete="off">
+        <form id="channelForm" method="POST" enctype="multipart/form-data" autocomplete="off">
             <?= csrf_field() ?>
             <input type="hidden" name="type" id="fType" value="webchat">
             <input type="hidden" name="channel_id" id="fChannelId" value="">
+            <input type="hidden" name="remove_avatar" id="wRemoveAvatar" value="">
 
             <!-- ============ ChatWeb ============ -->
             <div id="form-webchat" class="af-subform">
@@ -155,6 +156,13 @@
                         <?php endforeach; ?>
                     </select>
                     <small class="form-hint">Opcional. Se definido, o fluxo automatizado inicia o atendimento.</small>
+                </div>
+
+                <div class="form-group">
+                    <label>Avatar do atendente (imagem padrão do chat)</label>
+                    <input type="file" name="avatar" id="wAvatar" class="form-control" accept="image/png,image/jpeg,image/gif,image/webp">
+                    <div id="wAvatarPreview" style="margin-top:8px"></div>
+                    <small class="form-hint">Recomendado: 80x80px. Formatos: PNG, JPG, GIF, WebP.</small>
                 </div>
 
                 <div class="af-section-title">Informações solicitadas do cliente</div>
@@ -242,8 +250,8 @@
 </aside>
 
 <!-- Modal: Código do Widget -->
-<div class="modal" id="codeModal">
-    <div class="modal-content" style="max-width:600px">
+<div class="modal-overlay" id="codeModal" style="display:none">
+    <div class="modal-container" style="max-width:600px">
         <div class="modal-header">
             <h3><i class="fas fa-code"></i> Código do Widget</h3>
             <button class="modal-close" onclick="closeModal('codeModal')">&times;</button>
@@ -280,8 +288,8 @@
 
 <!-- Modal: Categorias de E-mail -->
 <!-- Modal: QR Code de conexão WhatsApp -->
-<div class="modal" id="qrModal">
-    <div class="modal-content" style="max-width:420px">
+<div class="modal-overlay" id="qrModal" style="display:none">
+    <div class="modal-container" style="max-width:420px">
         <div class="modal-header">
             <h3><i class="fab fa-whatsapp"></i> Conectar WhatsApp</h3>
             <button class="modal-close" onclick="closeQrModal()">&times;</button>
@@ -309,6 +317,7 @@ const WIDGETS = <?= json_encode(
         array_column($webchatWidgets, 'channel_id'),
         array_map(function ($w) {
             return [
+                'widget_key' => $w['widget_key'],
                 'name' => $w['channel_name'],
                 'title' => $w['title'],
                 'department_id' => $w['department_id'],
@@ -322,6 +331,7 @@ const WIDGETS = <?= json_encode(
                 'require_phone' => $w['require_phone'],
                 'ask_cnpj' => $w['ask_cnpj'],
                 'require_cnpj' => $w['require_cnpj'],
+                'avatar_url' => $w['avatar_url'],
             ];
         }, $webchatWidgets)
     ),
@@ -374,6 +384,13 @@ function editChannel(channelId) {
     document.getElementById('wFlow').value = w.flow_id || '';
     document.getElementById('wActive').checked = !!w.is_active;
 
+    var avatarPreview = document.getElementById('wAvatarPreview');
+    if (w.avatar_url) {
+        avatarPreview.innerHTML = '<img src="' + w.avatar_url + '" style="max-width:80px;max-height:80px;border-radius:50%;object-fit:cover"><button type="button" class="btn btn-sm btn-outline" onclick="this.parentElement.innerHTML=\'\';document.getElementById(\'wRemoveAvatar\').value=\'1\'" style="margin-left:8px"><i class="fas fa-trash"></i></button>';
+    } else {
+        avatarPreview.innerHTML = '';
+    }
+
     ['name','email','phone','cnpj'].forEach(k => {
         document.getElementById('ask_' + k).checked = !!w['ask_' + k];
         document.getElementById('req_' + k).checked = !!w['require_' + k];
@@ -414,6 +431,9 @@ function resetForm() {
         document.getElementById('req_' + k).disabled = !def;
     });
     document.getElementById('wActive').checked = true;
+    document.getElementById('wAvatar').value = '';
+    document.getElementById('wAvatarPreview').innerHTML = '';
+    document.getElementById('wRemoveAvatar').value = '';
 }
 
 function setType(type) {
@@ -460,12 +480,15 @@ function updateCodePreview() {
     const title = document.getElementById('codeTitle').value || 'Atendimento';
     const baseUrl = '<?= base_url('widget/chat.js') ?>';
 
+    const widget = WIDGETS[Object.keys(WIDGETS).find(k => WIDGETS[k] && WIDGETS[k].widget_key === key)];
+    const avatarUrl = widget && widget.avatar_url ? widget.avatar_url : '';
     const code = `<script>
  window.ATENDIMENTO_CONFIG = {
      widgetId: "${key}",
      title: "${title}",
      color: "${color}",
-     position: "${pos}"
+     position: "${pos}",
+     avatarUrl: "${avatarUrl}"
  };
  <\/script>
  <script async src="${baseUrl}"><\/script>`;
@@ -491,7 +514,7 @@ function copyText(text, btn) {
 }
 
 document.addEventListener('keydown', e => { if (e.key === 'Escape') closeDrawer(); });
-document.querySelectorAll('.modal').forEach(m => {
+document.querySelectorAll('.modal-overlay').forEach(m => {
     m.addEventListener('click', function(e) { if (e.target === this) this.style.display = 'none'; });
 });
 

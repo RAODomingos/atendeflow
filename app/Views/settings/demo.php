@@ -363,7 +363,8 @@ window.ATENDIMENTO_CONFIG = {
     title: "<?= e($widget['title']) ?>",
     color: "<?= e($widget['color_primary']) ?>",
     position: "<?= e($widget['position']) ?>",
-    apiUrl: "<?= rtrim(base_url(), '/') ?>"
+    apiUrl: "<?= rtrim(base_url(), '/') ?>"<?php if ($widget['avatar_url']): ?>,
+    avatarUrl: "<?= e($widget['avatar_url']) ?>"<?php endif; ?>
 };
 &lt;/script&gt;
 &lt;script async src="<?= base_url('widget/chat.js') ?>"&gt;&lt;/script&gt;<button class="copy-btn" onclick="copyInstallCode()">Copiar</button></pre>
@@ -385,7 +386,7 @@ window.ATENDIMENTO_CONFIG = {
         agentBubbleColor: "#f0f2f7",
         clientBubbleColor: "<?= e($widget['color_primary']) ?>",
         welcomeMessage: "Olá! Bem-vindo à demonstração. Teste o atendimento aqui mesmo.",
-        avatarUrl: "https://i.pravatar.cc/80?u=atendeflow",
+        avatarUrl: "<?= e($widget['avatar_url'] ?? '') ?>",
         quickReplies: ["Olá 👋", "Falar com atendente", "Ver planos"],
         fields: {
             name:  { ask: <?= $widget['ask_name'] ? 'true' : 'false' ?>, required: <?= $widget['require_name'] ? 'true' : 'false' ?> },

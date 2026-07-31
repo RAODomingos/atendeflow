@@ -164,20 +164,30 @@ class WahaProvider implements WhatsAppProviderInterface
         $session = $connection['instance_name'] ?? '';
         $phone = $this->normalizePhone($to);
         $headers = $this->authHeaders();
+        $engine = strtoupper($connection['engine'] ?? 'WEBJS');
 
-        $sendWithSuffix = function (string $suffix) use ($session, $phone, $text, $buttons, $headers) {
+        $sendWithSuffix = function (string $suffix) use ($engine, $session, $phone, $text, $buttons, $headers) {
             $chatId = $phone . $suffix;
             $waButtons = [];
             foreach ($buttons as $b) {
-                $waButtons[] = ['buttonText' => ['displayText' => $b['label']]];
+                $waButtons[] = ['type' => 'reply', 'text' => $b['label']];
             }
 
-            $resp = $this->client->post('/api/sendButton', [
-                'session' => $session,
-                'chatId' => $chatId,
-                'text' => $text,
-                'buttons' => $waButtons,
-            ], $headers);
+            if ($engine === 'NOWEB') {
+                $resp = $this->client->post('/api/sendButtons', [
+                    'session' => $session,
+                    'chatId' => $chatId,
+                    'title' => $text,
+                    'buttons' => $waButtons,
+                ], $headers);
+            } else {
+                $resp = $this->client->post('/api/send/buttons/reply', [
+                    'session' => $session,
+                    'chatId' => $chatId,
+                    'body' => $text,
+                    'buttons' => $waButtons,
+                ], $headers);
+            }
             return $resp;
         };
 
@@ -190,6 +200,10 @@ class WahaProvider implements WhatsAppProviderInterface
             }
         }
 
+        if (($resp['status'] ?? 0) >= 400) {
+            error_log("WAHA sendButton error (status={$resp['status']}): " . json_encode($resp['body'], JSON_UNESCAPED_UNICODE));
+        }
+
         return [
             'provider_message_id' => $this->extractMessageId($resp['body'] ?? []),
             'raw' => $resp['body'],
@@ -198,6 +212,12 @@ class WahaProvider implements WhatsAppProviderInterface
 
     public function sendList(array $connection, string $to, string $text, string $title, array $items): array
     {
+        $engine = $connection['engine'] ?? 'WEBJS';
+        if (strtoupper($engine) === 'NOWEB') {
+            error_log("WAHA sendList not supported on NOWEB engine (use WEBJS/GOWS). Falling back to text.");
+            return ['provider_message_id' => null, 'raw' => [], 'status' => 400];
+        }
+
         $session = $connection['instance_name'] ?? '';
         $phone = $this->normalizePhone($to);
         $headers = $this->authHeaders();
@@ -217,11 +237,13 @@ class WahaProvider implements WhatsAppProviderInterface
             $resp = $this->client->post('/api/sendList', [
                 'session' => $session,
                 'chatId' => $chatId,
-                'text' => $text,
-                'title' => $title,
-                'buttonText' => 'Ver opções',
-                'sections' => [
-                    ['title' => 'Opções', 'rows' => $rows],
+                'message' => [
+                    'title' => $title,
+                    'description' => $text,
+                    'button' => 'Ver opções',
+                    'sections' => [
+                        ['title' => 'Opções', 'rows' => $rows],
+                    ],
                 ],
             ], $headers);
             return $resp;
@@ -236,6 +258,10 @@ class WahaProvider implements WhatsAppProviderInterface
             }
         }
 
+        if (($resp['status'] ?? 0) >= 400) {
+            error_log("WAHA sendList error (status={$resp['status']}): " . json_encode($resp['body'], JSON_UNESCAPED_UNICODE));
+        }
+
         return [
             'provider_message_id' => $this->extractMessageId($resp['body'] ?? []),
             'raw' => $resp['body'],
@@ -247,6 +273,16 @@ class WahaProvider implements WhatsAppProviderInterface
         $session = $connection['instance_name'] ?? '';
         $phone = $this->normalizePhone($to);
         $headers = $this->authHeaders();
+
+        $antiBan = $options['anti_ban'] ?? true;
+        if ($antiBan && $phone) {
+            $chatId = $phone . '@c.us';
+            $this->sendSeen($connection, $chatId);
+            $this->startTyping($connection, $chatId);
+            $delay = $this->calculateTypingDelay($type === 'text' ? $content : ($options['caption'] ?? ''));
+            usleep($delay * 1000);
+            $this->stopTyping($connection, $chatId);
+        }
 
         $sendWithSuffix = function (string $suffix) use ($session, $phone, $type, $content, $options, $headers) {
             $chatId = $phone . $suffix;
@@ -274,7 +310,6 @@ class WahaProvider implements WhatsAppProviderInterface
                 $absPath = upload_dir() . '/' . ltrim((string) $mediaRef, '/');
                 $mime = $mime ?: $this->guessMime((string) $mediaRef);
 
-                // For video (large files), always use URL — base64 would exceed WAHA payload limits
                 if ($type === 'video' || (is_file($absPath) && filesize($absPath) > 2 * 1024 * 1024)) {
                     $filePayload = [
                         'url' => $this->absoluteUrl((string) $mediaRef),
@@ -283,7 +318,7 @@ class WahaProvider implements WhatsAppProviderInterface
                     ];
                 } elseif (is_file($absPath)) {
                     $filePayload = [
-                        'data' => base64_encode((string) file_get_contents($absPath)),
+                        'url' => $this->absoluteUrl((string) $mediaRef),
                         'mimetype' => $mime,
                         'filename' => basename((string) $mediaRef),
                     ];
@@ -297,7 +332,6 @@ class WahaProvider implements WhatsAppProviderInterface
                 ];
             }
 
-            // WAHA CORE runs on Docker; replace localhost with host.docker.internal
             $base = rtrim($this->config['base_url'] ?? 'http://localhost:3000', '/');
             if (str_contains($base, '//localhost') && !empty($filePayload['url'])) {
                 $filePayload['url'] = str_replace('//localhost/', '//host.docker.internal/', $filePayload['url']);
@@ -312,12 +346,9 @@ class WahaProvider implements WhatsAppProviderInterface
                 $body['caption'] = $caption;
             }
 
-            // Try the native endpoint first
             $endpoint = $this->wahaSendEndpoint($type);
             $resp = $this->client->post($endpoint, $body, $headers);
 
-            // Video fallback: WAHA CORE (Chromium) lacks H.264/AAC codecs, so
-            // sendVideo returns 422. Retry with convert=true, then sendFile.
             if ($type === 'video' && ($resp['status'] ?? 0) !== 200) {
                 $errMsg = '';
                 $errBody = $resp['body'] ?? [];
@@ -328,14 +359,12 @@ class WahaProvider implements WhatsAppProviderInterface
                 }
                 error_log("WAHA sendVideo failed (status={$resp['status']}): {$errMsg}");
 
-                // Try with convert=true (requires Chrome image but worth a shot)
                 $body['convert'] = true;
                 $resp = $this->client->post($endpoint, $body, $headers);
                 if (($resp['status'] ?? 0) === 200) {
                     return $resp;
                 }
 
-                // Final fallback: send as file
                 error_log('WAHA sendVideo failed, falling back to sendFile');
                 unset($body['convert']);
                 $resp = $this->client->post('/api/sendFile', $body, $headers);
@@ -343,7 +372,6 @@ class WahaProvider implements WhatsAppProviderInterface
             return $resp;
         };
 
-        // Try @c.us first; fall back to @lid if WAHA returns "No LID for user"
         $resp = $sendWithSuffix('@c.us');
         if (($resp['status'] ?? 0) === 500) {
             $body = $resp['body'] ?? [];
@@ -351,6 +379,10 @@ class WahaProvider implements WhatsAppProviderInterface
             if (str_contains($errMsg, 'No LID for user')) {
                 $resp = $sendWithSuffix('@lid');
             }
+        }
+
+        if (($resp['status'] ?? 0) >= 400) {
+            error_log("WAHA send error (session={$session}, type={$type}, status={$resp['status']}): " . json_encode($resp['body'], JSON_UNESCAPED_UNICODE));
         }
 
         return [
@@ -494,6 +526,12 @@ class WahaProvider implements WhatsAppProviderInterface
 
         // Detect type from _data.type (WAHA 2026+ includes msg type in _data)
         $dataType = $msg['_data']['type'] ?? '';
+
+        // Ignora notificações do sistema (notification_template, notification, etc.)
+        // que não são mensagens de usuário e criariam conversas indevidamente.
+        if (in_array($dataType, ['notification_template', 'notification', 'e2e_notification', 'call_log', 'protocol'], true)) {
+            return null;
+        }
 
         $hasMedia = !empty($msg['hasMedia']);
         $media = $msg['media'] ?? [];
@@ -649,6 +687,75 @@ class WahaProvider implements WhatsAppProviderInterface
             error_log('WAHA sendReaction error: ' . $e->getMessage());
             return false;
         }
+    }
+
+    public function sendSeen(array $connection, string $chatId): void
+    {
+        $session = $connection['instance_name'] ?? '';
+        if (!$session || !$chatId) {
+            return;
+        }
+        $this->presenceRequest('/api/sendSeen', [
+            'session' => $session,
+            'chatId' => $chatId,
+        ]);
+    }
+
+    public function startTyping(array $connection, string $chatId): void
+    {
+        $session = $connection['instance_name'] ?? '';
+        if (!$session || !$chatId) {
+            return;
+        }
+        $this->presenceRequest('/api/startTyping', [
+            'session' => $session,
+            'chatId' => $chatId,
+        ]);
+    }
+
+    public function stopTyping(array $connection, string $chatId): void
+    {
+        $session = $connection['instance_name'] ?? '';
+        if (!$session || !$chatId) {
+            return;
+        }
+        $this->presenceRequest('/api/stopTyping', [
+            'session' => $session,
+            'chatId' => $chatId,
+        ]);
+    }
+
+    private function presenceRequest(string $path, array $body): void
+    {
+        $url = rtrim($this->config['base_url'] ?? 'http://localhost:3000', '/') . $path;
+        $json = json_encode($body, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+        $headers = $this->authHeaders();
+        $formatted = [];
+        foreach ($headers as $k => $v) {
+            $formatted[] = is_int($k) ? $v : "{$k}: {$v}";
+        }
+        $formatted[] = 'Content-Type: application/json';
+
+        $ch = @curl_init($url);
+        if ($ch === false) {
+            return;
+        }
+        @curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+        @curl_setopt($ch, CURLOPT_POST, true);
+        @curl_setopt($ch, CURLOPT_POSTFIELDS, $json);
+        @curl_setopt($ch, CURLOPT_HTTPHEADER, $formatted);
+        @curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 2);
+        @curl_setopt($ch, CURLOPT_TIMEOUT_MS, 3000);
+        @curl_exec($ch);
+        @curl_close($ch);
+    }
+
+    private function calculateTypingDelay(string $text): int
+    {
+        $len = mb_strlen($text);
+        $base = random_int(400, 800);
+        $perChar = min($len * 30, 1200);
+        return min($base + $perChar, 2000);
     }
 
     public function getProfilePicture(array $connection, string $contactId): ?string

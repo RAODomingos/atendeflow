@@ -1,8 +1,9 @@
 <?php
 $initial = mb_strtoupper(mb_substr($contact['name'] ?? '?', 0, 1));
 $conv = $conversation;
-$isOwn = function (array $msg) {
-    return !empty($msg['user_id']) && (int) $msg['user_id'] === (int) \App\Core\Auth::id();
+$currentUserId = (int) \App\Core\Auth::id();
+$isOwn = function (array $msg) use ($currentUserId) {
+    return !empty($msg['user_id']) && (int) $msg['user_id'] === $currentUserId;
 };
 $avatarFor = function (array $msg) use ($contact, $initial) {
     if (($msg['direction'] ?? '') === 'outbound') {
@@ -14,116 +15,247 @@ $avatarFor = function (array $msg) use ($contact, $initial) {
 $avatarHtml = function (array $msg) use ($contact, $initial) {
     if (($msg['direction'] ?? '') === 'outbound' && !empty($msg['user_avatar'])) {
         $src = str_starts_with($msg['user_avatar'], 'http') ? $msg['user_avatar'] : upload_url($msg['user_avatar']);
-        return '<img src="' . e($src) . '" class="msg-avatar-img" alt="">';
+        return '<img src="' . e($src) . '" alt="">';
     }
     if (($msg['direction'] ?? '') === 'inbound' && !empty($contact['avatar'])) {
         $src = str_starts_with($contact['avatar'], 'http') ? $contact['avatar'] : upload_url($contact['avatar']);
-        return '<img src="' . e($src) . '" class="msg-avatar-img" alt="">';
+        return '<img src="' . e($src) . '" alt="">';
     }
     $n = ($msg['direction'] ?? '') === 'outbound' ? ($msg['user_name'] ?? 'A') : $initial;
     return e(mb_strtoupper(mb_substr($n, 0, 1)));
 };
 $online = !empty($contact['last_activity_at']) && (time() - strtotime($contact['last_activity_at']) < 600);
 $csat = $conversation['csat'] ?? null;
+
+$convSubjects = [];
+$substatuses = [];
+$closeReasons = [];
+try {
+    $convSubjects = \App\Core\Database::getInstance()->fetchAll(
+        "SELECT * FROM conversation_subjects WHERE is_active = 1 ORDER BY sort_order ASC, name ASC"
+    );
+} catch (\Throwable $e) {}
+try {
+    $substatuses = \App\Core\Database::getInstance()->fetchAll(
+        "SELECT * FROM conversation_substatuses WHERE is_active = 1 ORDER BY sort_order ASC, name ASC"
+    );
+} catch (\Throwable $e) {}
+try {
+    $closeReasons = \App\Models\CloseReason::all();
+} catch (\Throwable $e) {}
+$currentCloseReason = \App\Models\CloseReason::resolve($conversation['close_reason'] ?? null);
+$isClosed = in_array($conv['status'] ?? '', ['resolved', 'closed', 'spam'], true);
+
+/**
+ * Renderiza o corpo de uma mensagem (texto, mídia, nota, sistema, etc.).
+ * Faz a detecção de JSON, links, line-breaks e mídia embarcada.
+ */
+$renderMessageContent = function (array $msg) use ($contact, &$renderMessageContent) {
+    $type = $msg['type'] ?? 'text';
+    $raw = (string) ($msg['content'] ?? '');
+    $deleted = !empty($msg['deleted_at']);
+    if ($deleted) {
+        return '<div class="message-deleted"><i class="fas fa-ban"></i> Mensagem excluída</div>';
+    }
+
+    $isFile = in_array($type, ['image', 'audio', 'video', 'file', 'sticker'], true);
+    $mediaType = $type;
+    if (!$isFile) {
+        $inferred = media_type_from_content($raw);
+        if ($inferred !== null) {
+            $isFile = true;
+            $mediaType = $inferred;
+        }
+    }
+
+    if ($type === 'internal_note') {
+        $user = $msg['user_name'] ?? 'Equipe';
+        $body = nl2br(e($raw));
+        return '<div class="message-note-header"><i class="fas fa-lock"></i> Nota interna &middot; ' . e($user) . '</div>'
+             . '<div class="message-content">' . $body . '</div>';
+    }
+
+    if ($type === 'csat_request') {
+        $data = json_decode($raw, true) ?: [];
+        $prompt = $data['prompt'] ?? 'Solicitação de avaliação enviada ao cliente.';
+        $url = $data['url'] ?? '';
+        $html = '<i class="fas fa-smile"></i> ' . e($prompt);
+        if ($url) {
+            $html .= ' &middot; <a href="' . e($url) . '" target="_blank" rel="noopener">Abrir avaliação</a>';
+        }
+        return '<div class="message-content csat-request-note">' . $html . '</div>';
+    }
+
+    if ($type === 'reaction') {
+        $data = json_decode($raw, true) ?: [];
+        $emoji = $data['reaction'] ?? '';
+        return '<div class="message-content">'
+             . '<span class="reaction-emoji">' . e($emoji) . '</span> '
+             . '<span class="reaction-label">reagiu a uma mensagem</span>'
+             . '</div>';
+    }
+
+    if ($type === 'system') {
+        return '<div class="message-content">' . nl2br(e($raw)) . '</div>';
+    }
+
+    if ($isFile) {
+        $meta = message_file_meta($raw);
+        if (!$meta) {
+            return '<div class="message-content">' . nl2br(e($raw)) . '</div>';
+        }
+        $url = $meta['url'] ?? '';
+        $name = $meta['name'] ?? 'arquivo';
+        $size = !empty($meta['size']) ? format_bytes((int) $meta['size']) : '';
+        if ($mediaType === 'image' || $mediaType === 'sticker') {
+            return '<div class="message-content"><a href="' . e($url) . '" target="_blank" rel="noopener" class="msg-lightbox">'
+                 . '<img class="msg-img" src="' . e($url) . '" alt="' . e($name) . '" loading="lazy">'
+                 . '</a></div>';
+        }
+        if ($mediaType === 'audio') {
+            return '<div class="message-content"><audio controls preload="metadata" src="' . e($url) . '"></audio></div>';
+        }
+        if ($mediaType === 'video') {
+            return '<div class="message-content"><video controls preload="metadata" src="' . e($url) . '" class="msg-video"></video></div>';
+        }
+        return '<div class="message-content">'
+             . '<a class="msg-file" href="' . e($url) . '" target="_blank" rel="noopener" download>'
+             . '<i class="fas fa-file-download"></i>'
+             . '<span class="msg-file-name">' . e($name) . '</span>'
+             . ($size ? '<span class="msg-file-size">' . e($size) . '</span>' : '')
+             . '</a></div>';
+    }
+
+    // Texto puro: detecta JSON escapado, links e formata quebras de linha
+    $parsed = json_decode($raw, true);
+    if (is_array($parsed) && isset($parsed['text']) && is_string($parsed['text'])) {
+        $raw = $parsed['text'];
+    }
+    $body = e($raw);
+    $body = preg_replace('@(https?://[^\s<]+)@', '<a href="$1" target="_blank" rel="noopener">$1</a>', $body);
+    $body = nl2br($body);
+    return '<div class="message-content">' . $body . '</div>';
+};
+
+/**
+ * Renderiza o "recibo de leitura" (✓ / ✓✓) e a posição do autor para mensagens enviadas.
+ */
+$renderReceipts = function (array $msg) {
+    if ($msg['direction'] !== 'outbound') return '';
+    $isRead = !empty($msg['read_at']);
+    $isDelivered = !$isRead && !empty($msg['delivered_at']);
+    $cls = $isRead ? 'msg-receipts read' : 'msg-receipts delivered';
+    $icon = $isRead ? 'fa-check-double' : 'fa-check';
+    return '<span class="' . $cls . '" title="' . ($isRead ? 'Lida' : 'Entregue') . '"><i class="fas ' . $icon . '"></i></span>';
+};
 ?>
 <div class="conversation-view" id="convView" data-conv="<?= $conv['id'] ?>">
+    <script>
+    (function(){
+        try { window.__viewingConvId = '<?= (int)$conv['id'] ?>'; } catch(e) {}
+        if (window.__enhancements && window.__enhancements.GlobalNotifier) {
+            window.__enhancements.GlobalNotifier.setViewing(<?= (int)$conv['id'] ?>);
+        }
+        if (window.__enhancements && window.__enhancements.LiveFeed) {
+            window.__enhancements.LiveFeed.setViewing(<?= (int)$conv['id'] ?>);
+        }
+    })();
+    </script>
     <div class="chat-header">
         <div class="chat-header-left">
-            <button type="button" class="conv-name-btn" onclick="toggleClientDrawer()" title="Ver dados do cliente e histórico" style="display:flex;align-items:center;gap:13px;background:none;border:none;cursor:pointer;padding:0;flex:1">
-                <div class="avatar avatar-sm" style="background:<?= e($contact['avatar'] ? '' : ($online ? '#2ecc71' : 'linear-gradient(135deg,#7c5cff,#a78bfa)')) ?>">
+            <button type="button" class="chat-header-back" onclick="window.__convBack && window.__convBack()" title="Voltar para a lista">
+                <i class="fa-solid fa-arrow-left"></i>
+            </button>
+            <button type="button" class="conv-name-btn" onclick="toggleClientDrawer()" title="Ver dados do cliente e histórico">
+                <div class="chat-header-avatar">
                     <?php if (!empty($contact['avatar'])): ?>
                         <img src="<?= e(str_starts_with($contact['avatar'], 'http') ? $contact['avatar'] : upload_url($contact['avatar'])) ?>" alt="">
                     <?php else: ?>
                         <?= e($initial) ?>
                     <?php endif; ?>
+                    <span class="online-dot <?= $online ? '' : 'offline' ?>" title="<?= $online ? 'Online' : 'Offline' ?>"></span>
                 </div>
-                <div class="chat-title-group" style="text-align:left">
+                <div class="chat-title-group">
                     <div class="chat-title">
                         <?= e($contact['name'] ?? 'Contato') ?>
                         <?php if (!empty($contact['company'])): ?>
-                            <span style="font-weight:400;color:var(--text-muted)">— <?= e($contact['company']) ?></span>
+                            <span style="font-weight:400;color:var(--text-muted);font-size:13px">— <?= e($contact['company']) ?></span>
                         <?php endif; ?>
                     </div>
-                    <div class="chat-subtitle" style="display:flex;flex-wrap:wrap;align-items:center;gap:6px">
-                        <span style="display:inline-flex;align-items:center;gap:4px">
-                            <i class="<?= channel_icon($conv['channel_type'] ?? 'webchat') ?>" style="font-size:12px"></i>
-                            <?= e($conv['channel_name'] ?? '') ?>
-                        </span>
-                        <?php if ($conv['department_name']): ?>
-                            <span style="color:<?= e($conv['department_color'] ?? '#666') ?>;font-weight:700;font-size:12px"><?= e($conv['department_name']) ?></span>
+                    <div class="chat-title-meta">
+                        <span class="meta-tag"><i class="<?= channel_icon($conv['channel_type'] ?? 'webchat') ?>" style="font-size:11px"></i> <?= e($conv['channel_name'] ?? '') ?></span>
+                        <?php if (!empty($conv['department_name'])): ?>
+                            <span class="meta-sep">·</span>
+                            <span class="meta-tag" style="color:<?= e($conv['department_color'] ?? '#666') ?>;font-weight:700">
+                                <i class="fas fa-building" style="font-size:10px"></i> <?= e($conv['department_name']) ?>
+                            </span>
                         <?php endif; ?>
-                        <span id="convUnitDisplay" style="font-size:12px;color:var(--text-muted);cursor:pointer" title="Clique para editar unidade" onclick="editUnit(event)">
-                            <?php if (!empty($conv['unit'])): ?>| <?= e($conv['unit']) ?><?php else: ?><span style="opacity:.5;font-style:italic">+ unidade</span><?php endif; ?>
-                            <i class="fas fa-pen" style="font-size:9px;opacity:.4;margin-left:2px"></i>
-                        </span>
-                        <input type="text" id="convUnitInput" style="display:none;font-size:12px;padding:2px 8px;border:1px solid var(--brand);border-radius:6px;outline:none;width:160px" value="<?= e($conv['unit'] ?? '') ?>" placeholder="Unidade" onblur="saveUnit(this.value)" onkeydown="if(event.key==='Enter')saveUnit(this.value);if(event.key==='Escape')cancelUnitEdit()">
-                    </div>
-                    <div style="display:flex;flex-wrap:wrap;align-items:center;gap:4px;margin-top:4px">
+                        <?php if (!empty($conv['assigned_user_name'])): ?>
+                            <span class="meta-sep">·</span>
+                            <span class="meta-tag" id="convAssigned" title="Atendente responsável">
+                                <i class="fas fa-user" style="font-size:10px"></i> <?= e($conv['assigned_user_name']) ?>
+                            </span>
+                        <?php endif; ?>
+                        <?php if (!empty($conv['unit'])): ?>
+                            <span class="meta-sep">·</span>
+                            <span class="meta-tag" onclick="editUnit(event)" style="cursor:pointer" title="Clique para editar">
+                                <i class="fas fa-tag" style="font-size:10px"></i> <span id="convUnitDisplay"><?= e($conv['unit']) ?></span>
+                            </span>
+                        <?php else: ?>
+                            <span class="meta-tag" onclick="editUnit(event)" style="cursor:pointer;opacity:.6" title="Adicionar unidade">
+                                <i class="fas fa-plus" style="font-size:9px"></i> <span id="convUnitDisplay" style="font-style:italic">unidade</span>
+                            </span>
+                        <?php endif; ?>
                         <?php if (!empty($conv['substatus'])): ?>
-                            <span style="font-size:11px;padding:1px 8px;border-radius:10px;background:var(--bg-panel-alt);color:var(--text-muted)"><?= e($conv['substatus']) ?></span>
+                            <span class="meta-sep">·</span>
+                            <span class="meta-tag" style="background:var(--bg-panel-alt);padding:1px 6px;border-radius:8px;font-size:11px"><?= e($conv['substatus']) ?></span>
                         <?php endif; ?>
                     </div>
                 </div>
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="color:var(--text-muted);flex-shrink:0;margin-left:auto"><path d="M9 18l6-6-6-6"/></svg>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="color:var(--text-muted);flex-shrink:0;margin-left:6px"><path d="M9 18l6-6-6-6"/></svg>
             </button>
+            <input type="text" id="convUnitInput" style="display:none;font-size:12px;padding:4px 8px;border:1px solid var(--brand);border-radius:6px;outline:none;width:160px" value="<?= e($conv['unit'] ?? '') ?>" placeholder="Unidade" onblur="saveUnit(this.value)" onkeydown="if(event.key==='Enter')saveUnit(this.value);if(event.key==='Escape')cancelUnitEdit()">
         </div>
         <div class="chat-header-right">
-            <span class="status-chip <?= $conv['status'] === 'open' || $conv['status'] === 'new' ? 'chip-success' : ($conv['status'] === 'waiting_customer' ? 'chip-info' : ($conv['status'] === 'resolved' || $conv['status'] === 'closed' ? 'chip-neutral' : 'chip-warning')) ?>" onclick="openStatusModal()" title="Clique para alterar status">
-                <span class="status-dot" style="width:8px;height:8px;position:static;border:none;flex-shrink:0;background:<?= $conv['status'] === 'open' || $conv['status'] === 'new' ? 'var(--success)' : ($conv['status'] === 'waiting_customer' ? 'var(--info)' : ($conv['status'] === 'resolved' || $conv['status'] === 'closed' ? 'var(--text-muted)' : 'var(--warning)')) ?>"></span>
-                <?php $slabels = ['new'=>'Novo','open'=>'Aberto','waiting_customer'=>'Em atendimento','waiting_internal'=>'Aguard. Interno','resolved'=>'Resolvido','closed'=>'Fechado','spam'=>'Spam']; echo $slabels[$conv['status']] ?? $conv['status']; ?>
+            <?php
+            $slabels = ['new'=>'Novo','open'=>'Aberto','waiting_customer'=>'Em atendimento','waiting_internal'=>'Aguard. Interno','resolved'=>'Resolvido','closed'=>'Fechado','spam'=>'Spam'];
+            $scls = $conv['status'] === 'open' || $conv['status'] === 'new' ? 'chip-success' : ($conv['status'] === 'waiting_customer' ? 'chip-info' : ($conv['status'] === 'resolved' || $conv['status'] === 'closed' ? 'chip-neutral' : 'chip-warning'));
+            $sdot = $conv['status'] === 'open' || $conv['status'] === 'new' ? 'var(--success)' : ($conv['status'] === 'waiting_customer' ? 'var(--info)' : ($conv['status'] === 'resolved' || $conv['status'] === 'closed' ? 'var(--text-muted)' : 'var(--warning)'));
+            $sicon = $conv['status'] === 'waiting_customer' ? 'fa-headset' : ($conv['status'] === 'new' ? 'fa-bell' : ($conv['status'] === 'open' ? 'fa-comments' : ($conv['status'] === 'resolved' ? 'fa-check-circle' : ($conv['status'] === 'closed' ? 'fa-archive' : ($conv['status'] === 'spam' ? 'fa-ban' : 'fa-clock')))));
+            ?>
+            <span class="status-chip header-chip-status <?= $scls ?>" onclick="openStatusModal()" title="Clique para alterar status">
+                <i class="fas <?= $sicon ?>" style="font-size:11px"></i>
+                <span class="chip-text"><?= e($slabels[$conv['status']] ?? $conv['status']) ?></span>
             </span>
-            <?php
-                try {
-                    $convSubjects = \App\Core\Database::getInstance()->fetchAll(
-                        "SELECT * FROM conversation_subjects WHERE is_active = 1 ORDER BY sort_order ASC, name ASC"
-                    );
-                } catch (\Throwable $e) {
-                    $convSubjects = [];
-                }
-            ?>
-            <?php if (!empty($convSubjects)): ?>
-                <select id="convSubjectSelect" onchange="saveSubjectSelect(this.value)" style="font-size:11px;padding:2px 6px;border:1px solid var(--border-soft);border-radius:6px;background:var(--bg-panel);color:var(--text-secondary);outline:none;cursor:pointer;max-width:150px">
-                    <option value="">Assunto</option>
-                    <?php foreach ($convSubjects as $s): ?>
-                        <option value="<?= e($s['name']) ?>" <?= ($conv['subject'] ?? '') === $s['name'] ? 'selected' : '' ?>><?= e($s['name']) ?></option>
-                    <?php endforeach; ?>
-                </select>
-            <?php else: ?>
-                <span style="font-size:11px;color:var(--text-muted);padding:0 4px"><?= e($conv['subject'] ?? '') ?></span>
-            <?php endif; ?>
-            <span class="clickable-badge" onclick="openPriorityModal()" title="Clique para alterar prioridade"><?= priority_badge($conv['priority'] ?? 'normal') ?></span>
-            <?php
-                try {
-                    $substatuses = \App\Core\Database::getInstance()->fetchAll(
-                        "SELECT * FROM conversation_substatuses WHERE is_active = 1 ORDER BY sort_order ASC, name ASC"
-                    );
-                } catch (\Throwable $e) {
-                    $substatuses = [];
-                }
-            ?>
+            <button type="button" class="header-chip header-chip-subject <?= empty($conv['subject']) ? 'is-empty' : '' ?>" onclick="openSubjectModal()" title="Clique para selecionar o assunto">
+                <i class="fas fa-tag"></i>
+                <span class="chip-text"><?= !empty($conv['subject']) ? e($conv['subject']) : 'Assunto' ?></span>
+                <i class="fas fa-chevron-down" style="font-size:9px;opacity:.5;margin-left:auto"></i>
+            </button>
+            <button type="button" class="header-chip header-chip-priority" onclick="openPriorityModal()" title="Clique para alterar prioridade">
+                <i class="fas fa-flag" style="color:<?= ['urgent'=>'#d32f2f','high'=>'#f57c00','low'=>'#1976d2','normal'=>'var(--text-secondary)'][$conv['priority'] ?? 'normal'] ?>"></i>
+                <span class="chip-text"><?= ['low'=>'Baixa','normal'=>'Normal','high'=>'Alta','urgent'=>'Urgente'][$conv['priority'] ?? 'normal'] ?></span>
+                <i class="fas fa-chevron-down" style="font-size:9px;opacity:.5;margin-left:auto"></i>
+            </button>
             <?php if (!empty($substatuses)): ?>
-                <select id="convSubstatusSelect" onchange="saveSubstatus(this.value)" style="font-size:11px;padding:2px 6px;border:1px solid var(--border-soft);border-radius:6px;background:var(--bg-panel);color:var(--text-secondary);outline:none;cursor:pointer;max-width:140px">
-                    <option value="">Sub-status</option>
-                    <?php foreach ($substatuses as $ss): ?>
-                        <option value="<?= e($ss['name']) ?>" <?= ($conv['substatus'] ?? '') === $ss['name'] ? 'selected' : '' ?> style="color:<?= e($ss['color'] ?? '#6c757d') ?>">
-                            <?= e($ss['name']) ?>
-                        </option>
-                    <?php endforeach; ?>
-                </select>
+            <button type="button" class="header-chip header-chip-substatus <?= empty($conv['substatus']) ? 'is-empty' : '' ?>" onclick="openSubstatusModal()" title="Clique para selecionar o sub-status">
+                <i class="fas fa-bookmark"></i>
+                <span class="chip-text"><?= !empty($conv['substatus']) ? e($conv['substatus']) : 'Sub-status' ?></span>
+                <i class="fas fa-chevron-down" style="font-size:9px;opacity:.5;margin-left:auto"></i>
+            </button>
             <?php endif; ?>
-            <div class="icon-divider"></div>
-            <button class="icon-btn" onclick="toggleMsgSearch()" title="Buscar na conversa"><i class="fas fa-search"></i></button>
-            <button class="icon-btn" id="convSnoozeBtn" onclick="openSnoozeModal()" title="Agendar"><i class="fas fa-clock"></i></button>
-            <button class="icon-btn" onclick="openCsatModal()" title="Avaliação"><i class="fas fa-smile"></i></button>
-            <button class="icon-btn" onclick="openMergeModal()" title="Mesclar"><i class="fas fa-code-merge"></i></button>
-            <button class="icon-btn" onclick="window.print()" title="Imprimir"><i class="fas fa-print"></i></button>
-            <a href="<?= url('inbox/') ?><?= $conv['id'] ?>/pdf" class="icon-btn" title="Baixar PDF"><i class="fas fa-file-pdf"></i></a>
-            <button class="icon-btn" onclick="openTransferModal()" title="Transferir"><i class="fas fa-exchange-alt"></i></button>
+            <div class="conv-quick-actions">
+                <button class="icon-btn" onclick="toggleMsgSearch()" title="Buscar na conversa"><i class="fas fa-search"></i></button>
+                <button class="icon-btn" id="convSnoozeBtn" onclick="openSnoozeModal()" title="Agendar"><i class="fas fa-clock"></i></button>
+                <button class="icon-btn" onclick="openMergeModal()" title="Mesclar"><i class="fas fa-code-merge"></i></button>
+                <a href="<?= url('inbox/') ?><?= $conv['id'] ?>/pdf" class="icon-btn" title="Baixar PDF"><i class="fas fa-file-pdf"></i></a>
+                <button class="icon-btn" onclick="openTransferModal()" title="Transferir"><i class="fas fa-exchange-alt"></i></button>
+            </div>
             <?php if (empty($conv['assigned_user_id'])): ?>
-                <form action="<?= url('inbox/') ?><?= $conv['id'] ?>/assign" method="POST" class="conv-action-form" style="display:inline">
+                <form action="<?= url('inbox/') ?><?= $conv['id'] ?>/assign" method="POST" class="conv-action-form">
                     <?= csrf_field() ?>
-                    <input type="hidden" name="user_id" value="<?= \App\Core\Auth::id() ?>">
-                    <button type="submit" class="icon-btn" title="Atribuir a mim"><i class="fas fa-hand-paper"></i></button>
+                    <input type="hidden" name="user_id" value="<?= $currentUserId ?>">
+                    <button type="submit" class="icon-btn" title="Atribuir a mim" style="background:var(--brand-soft);color:var(--brand-2)"><i class="fas fa-hand-paper"></i></button>
                 </form>
             <?php endif; ?>
         </div>
@@ -139,6 +271,54 @@ $csat = $conversation['csat'] ?? null;
         <?php endif; ?>
     </div>
 
+    <?php if ($isClosed): ?>
+    <div class="close-info-banner <?= $conv['status'] === 'closed' ? 'is-closed' : ($conv['status'] === 'spam' ? 'is-spam' : '') ?>" id="closeInfoBanner">
+        <div class="close-info-icon">
+            <i class="fas <?= $conv['status'] === 'resolved' ? 'fa-check-circle' : ($conv['status'] === 'spam' ? 'fa-ban' : 'fa-archive') ?>"></i>
+        </div>
+        <div class="close-info-body">
+            <div class="close-info-row">
+                <span class="close-info-label"><?= $conv['status'] === 'spam' ? 'Marcada como spam' : 'Conversa encerrada' ?></span>
+                <?php if ($currentCloseReason): ?>
+                <span class="close-info-reason" style="--reason-color:<?= e($currentCloseReason['color']) ?>">
+                    <i class="fas <?= e($currentCloseReason['icon'] ?: 'fa-tag') ?>"></i>
+                    <?= e($currentCloseReason['label']) ?>
+                </span>
+                <?php elseif (!empty($conv['close_reason'])): ?>
+                <span class="close-info-reason" style="--reason-color:var(--text-secondary)">
+                    <i class="fas fa-tag"></i>
+                    <?= e($conv['close_reason']) ?>
+                </span>
+                <?php endif; ?>
+            </div>
+            <?php if (!empty($conv['close_description'])): ?>
+            <div class="close-info-description"><?= nl2br(e($conv['close_description'])) ?></div>
+            <?php endif; ?>
+            <div class="close-info-meta">
+                <?php if (!empty($conv['closed_at'])): ?>
+                <span><i class="fas fa-calendar-check"></i> <?= format_datetime($conv['closed_at']) ?></span>
+                <?php endif; ?>
+                <?php
+                $closerName = null;
+                if (!empty($conv['events'])) {
+                    foreach ($conv['events'] as $ev) {
+                        if (in_array($ev['event_type'], ['status_changed'], true) && !empty($ev['user_name'])) {
+                            $closerName = $ev['user_name'];
+                            break;
+                        }
+                    }
+                }
+                if ($closerName): ?>
+                <span><i class="fas fa-user"></i> <?= e($closerName) ?></span>
+                <?php endif; ?>
+            </div>
+        </div>
+        <div class="close-info-actions">
+            <button type="button" class="icon-btn" onclick="openStatusModal()" title="Editar encerramento"><i class="fas fa-pen"></i></button>
+        </div>
+    </div>
+    <?php endif; ?>
+
     <div class="conv-msg-search" id="convMsgSearch" style="display:none">
         <input type="text" id="msgSearchInput" class="form-control" placeholder="Buscar mensagens..." oninput="filterMessages()">
         <span id="msgSearchCount" class="msg-search-count"></span>
@@ -146,6 +326,11 @@ $csat = $conversation['csat'] ?? null;
 
     <div class="chat-body" id="convMessages">
         <button type="button" class="conv-load-older" id="loadOlderBtn" style="display:<?= !empty($hasOlder) ? 'block' : 'none' ?>" onclick="loadOlder()">Carregar mensagens anteriores</button>
+        <div id="typingIndicator" class="typing-indicator" style="display:none;align-self:flex-start">
+            <span class="msg-avatar msg-avatar-contact" style="width:32px;height:32px"><?= e($initial) ?></span>
+            <div class="typing-dots"><span></span><span></span><span></span></div>
+            <span><?= e($contact['name'] ?? 'Cliente') ?> está digitando...</span>
+        </div>
         <div id="convMessagesList">
         <?php
         $lastDate = null;
@@ -170,100 +355,54 @@ $csat = $conversation['csat'] ?? null;
             $grouped = $sender === $lastSender && !$showDate;
             $lastDate = $msgDate;
             $lastSender = $sender;
+            $msgClasses = 'message ' . ($msg['direction'] === 'outbound' ? 'message-out' : 'message-in');
+            if ($msg['type'] === 'internal_note') $msgClasses .= ' message-note';
+            if ($msg['type'] === 'system') $msgClasses .= ' message-system';
+            if ($msg['type'] === 'sticker') $msgClasses .= ' message-sticker';
+            if ($grouped) $msgClasses .= ' message-grouped';
+            $textForSearch = strip_tags((string) ($msg['content'] ?? ''));
         ?>
             <?php if ($showDate): ?>
             <div class="date-sep"><span><?= format_date_sep($msg['created_at']) ?></span></div>
             <?php endif; ?>
-            <div class="message <?= $msg['direction'] === 'outbound' ? 'message-out' : 'message-in' ?> <?= $msg['type'] === 'internal_note' ? 'message-note' : '' ?> <?= $msg['type'] === 'system' ? 'message-system' : '' ?> <?= $msg['type'] === 'sticker' ? 'message-sticker' : '' ?> <?= $grouped ? 'message-grouped' : '' ?>" data-mid="<?= $msg['id'] ?>" data-text="<?= e(strip_tags($msg['content'])) ?>">
+            <div class="<?= $msgClasses ?>" data-mid="<?= $msg['id'] ?>" data-text="<?= e($textForSearch) ?>">
                 <?php if (!$grouped): ?>
                 <div class="msg-avatar msg-avatar-<?= $sender ?>"><?= $av ?></div>
                 <?php endif; ?>
                 <div class="message-body <?= $isDeleted ? 'is-deleted' : '' ?>">
-                    <?php if ($isDeleted): ?>
-                    <div class="message-deleted"><i class="fas fa-ban"></i> Mensagem excluída</div>
-                    <?php endif; ?>
                     <?php if (!empty($msg['reply_to_data'])): ?>
                     <div class="msg-quote" onclick="scrollToMessage(<?= (int) $msg['reply_to_data']['id'] ?>)">
                         <div class="msg-quote-content">
                             <div class="msg-quote-name"><?= ($msg['reply_to_data']['direction'] ?? '') === 'outbound' ? 'Você' : e($contact['name'] ?? 'Contato') ?></div>
-                            <div class="msg-quote-text"><?= e(mb_substr(strip_tags(str_replace(['[',']'], '', $msg['reply_to_data']['content'] ?? '')), 0, 100)) ?></div>
+                            <div class="msg-quote-text"><?= e(mb_substr(strip_tags((string) ($msg['reply_to_data']['content'] ?? '')), 0, 200)) ?></div>
                         </div>
                     </div>
                     <?php endif; ?>
-                    <?php if ($msg['type'] === 'internal_note'): ?>
-                        <div class="message-note-header">
-                            <i class="fas fa-lock"></i> Nota interna
-                            <?php if ($msg['user_name']): ?> - <?= e($msg['user_name']) ?><?php endif; ?>
-                        </div>
-                        <div class="message-content"><?= e($msg['content']) ?></div>
-                    <?php elseif ($msg['type'] === 'csat_request'):
-                        $csatData = json_decode($msg['content'], true) ?: [];
-                        $csatPrompt = $csatData['prompt'] ?? 'Solicitação de avaliação enviada ao cliente.';
-                        $csatUrl = $csatData['url'] ?? '';
-                    ?>
-                        <div class="message-content csat-request-note">
-                            <i class="fas fa-smile"></i> <?= e($csatPrompt) ?>
-                            <?php if ($csatUrl): ?>
-                                <a href="<?= e($csatUrl) ?>" target="_blank" rel="noopener">Avaliar</a>
-                            <?php endif; ?>
-                        </div>
-                    <?php elseif ($msg['type'] === 'reaction'): ?>
-                        <?php
-                            $rData = json_decode($msg['content'], true) ?: [];
-                            $rEmoji = $rData['reaction'] ?? '';
-                            $rParentId = $rData['parent_message_id'] ?? '';
-                        ?>
-                        <div class="message-content">
-                            <span class="reaction-emoji"><?= e($rEmoji) ?></span>
-                            <span class="reaction-label">reagiu a uma mensagem</span>
-                        </div>
-                    <?php elseif ($msg['type'] === 'system'): ?>
-                        <div class="message-content"><?= e($msg['content']) ?></div>
-                    <?php elseif ($isFile && $meta): ?>
-                        <div class="message-content">
-                            <?php if ($mediaType === 'image' || $mediaType === 'sticker'): ?>
-                                <a href="<?= e($meta['url']) ?>" target="_blank" rel="noopener">
-                                    <img class="msg-img" src="<?= e($meta['url']) ?>" alt="<?= e($meta['name']) ?>">
-                                </a>
-                            <?php elseif ($mediaType === 'audio'): ?>
-                                <audio controls preload="metadata" src="<?= e($meta['url']) ?>"></audio>
-                            <?php elseif ($mediaType === 'video'): ?>
-                                <video controls preload="metadata" src="<?= e($meta['url']) ?>"></video>
-                            <?php else: ?>
-                                <a class="msg-file" href="<?= e($meta['url']) ?>" target="_blank" rel="noopener" download>
-                                    <i class="fas fa-file-download"></i>
-                                    <span class="msg-file-name"><?= e($meta['name']) ?></span>
-                                    <?php if ($meta['size']): ?><span class="msg-file-size">(<?= format_bytes($meta['size']) ?>)</span><?php endif; ?>
-                                </a>
-                            <?php endif; ?>
-                        </div>
-                    <?php else: ?>
-                        <div class="message-content"><?= e($msg['content']) ?></div>
-                    <?php endif; ?>
+                    <?= $renderMessageContent($msg) ?>
                     <div class="message-time">
-                        <?= format_time($msg['created_at']) ?>
-                        <?php if ($msg['user_name'] && $msg['direction'] === 'outbound'): ?>
-                            - <?= e($msg['user_name']) ?>
+                        <span><?= format_time($msg['created_at']) ?></span>
+                        <?php if (!empty($msg['user_name']) && $msg['direction'] === 'outbound'): ?>
+                            <span style="opacity:.7">· <?= e($msg['user_name']) ?></span>
                         <?php endif; ?>
                         <?php if (!empty($msg['updated_at']) && $msg['updated_at'] !== $msg['created_at']): ?>
-                            <span class="msg-edited" title="Editada"> (editada)</span>
+                            <span class="msg-edited" title="Editada">editada</span>
                         <?php endif; ?>
+                        <?= $renderReceipts($msg) ?>
                     </div>
-                    <?php if (!$isDeleted && !empty($msg['reactions'])): ?>
-                    <?php
+                    <?php if (!$isDeleted && !empty($msg['reactions'])):
                         $rxs = json_decode($msg['reactions'], true) ?: [];
                         $rGroups = [];
                         foreach ($rxs as $rx) {
-                            $e = $rx['emoji'] ?? '';
-                            if (!$e) continue;
-                            if (!isset($rGroups[$e])) $rGroups[$e] = ['emoji' => $e, 'count' => 0, 'senders' => []];
-                            $rGroups[$e]['count']++;
-                            $rGroups[$e]['senders'][] = $rx['sender_name'] ?? $rx['from'] ?? '';
+                            $emoji = $rx['emoji'] ?? '';
+                            if (!$emoji) continue;
+                            if (!isset($rGroups[$emoji])) $rGroups[$emoji] = ['emoji' => $emoji, 'count' => 0, 'senders' => []];
+                            $rGroups[$emoji]['count']++;
+                            $rGroups[$emoji]['senders'][] = $rx['sender_name'] ?? $rx['from'] ?? '';
                         }
                     ?>
                     <div class="reactions-row">
                         <?php foreach ($rGroups as $rg): ?>
-                        <span class="reaction-pill <?= in_array($conv['assigned_user_name'] ?? '', $rg['senders']) ? 'me' : '' ?>" title="<?= e(implode(', ', $rg['senders'])) ?>"><?= e($rg['emoji']) ?><?= $rg['count'] > 1 ? '<span class="count">' . $rg['count'] . '</span>' : '' ?></span>
+                        <span class="reaction-pill <?= in_array($msg['user_name'] ?? '', $rg['senders'], true) ? 'me' : '' ?>" title="<?= e(implode(', ', $rg['senders'])) ?>"><?= e($rg['emoji']) ?><?= $rg['count'] > 1 ? '<span class="count">' . $rg['count'] . '</span>' : '' ?></span>
                         <?php endforeach; ?>
                     </div>
                     <?php endif; ?>
@@ -271,13 +410,13 @@ $csat = $conversation['csat'] ?? null;
                     <div class="msg-actions">
                         <button type="button" class="msg-act" title="Copiar" onclick="copyMessage(<?= $msg['id'] ?>)"><i class="fas fa-copy"></i></button>
                         <button type="button" class="msg-act" title="Citar" onclick="quoteMessage(<?= $msg['id'] ?>)"><i class="fas fa-quote-right"></i></button>
+                        <button type="button" class="msg-act" title="Reagir" onclick="toggleReactionPicker(<?= $msg['id'] ?>, event)"><i class="far fa-smile"></i></button>
                         <?php if ($own && in_array($msg['type'], ['text', 'internal_note'], true)): ?>
                             <button type="button" class="msg-act" title="Editar" onclick="editMessage(<?= $msg['id'] ?>)"><i class="fas fa-edit"></i></button>
                             <button type="button" class="msg-act msg-act-danger" title="Excluir" onclick="deleteMessage(<?= $msg['id'] ?>)"><i class="fas fa-trash"></i></button>
                         <?php endif; ?>
                     </div>
-                    <button type="button" class="msg-reaction-btn" data-mid="<?= $msg['id'] ?>" title="Reagir" onclick="toggleReactionPicker(<?= $msg['id'] ?>, event)"><i class="far fa-smile"></i></button>
-                    <div class="reaction-picker" id="rp-<?= $msg['id'] ?>" data-mid="<?= $msg['id'] ?>"><?php foreach (['👍','❤️','😂','😮','😢','🙏'] as $re): ?><span class="rp-emoji" onclick="sendReaction(<?= $msg['id'] ?>, '<?= $re ?>')"><?= $re ?></span><?php endforeach; ?></div>
+                    <div class="reaction-picker" id="rp-<?= $msg['id'] ?>" data-mid="<?= $msg['id'] ?>"><?php foreach (['👍','❤️','😂','😮','😢','🙏','🔥'] as $re): ?><span class="rp-emoji" onclick="sendReaction(<?= $msg['id'] ?>, '<?= $re ?>')"><?= $re ?></span><?php endforeach; ?></div>
                     <?php endif; ?>
                 </div>
             </div>
@@ -287,8 +426,14 @@ $csat = $conversation['csat'] ?? null;
 
     <button type="button" class="new-msg-pill" id="convNewPill" style="display:none" onclick="scrollConvBottom()">Novas mensagens ↓</button>
 
+    <?php $panelFinished = in_array($conv['status'] ?? '', ['resolved', 'closed', 'spam']); ?>
     <div class="chat-input">
-        <form action="<?= url('inbox/') ?><?= $conv['id'] ?>/messages" method="POST" enctype="multipart/form-data" class="composer-form" id="composerForm">
+        <?php if ($panelFinished): ?>
+            <div class="composer-locked" style="margin:12px 16px 0">
+                <i class="fas fa-lock"></i> Conversa <?= ($conv['status'] ?? '') === 'spam' ? 'marcada como spam' : 'finalizada' ?>. Não é possível enviar mensagens.
+            </div>
+        <?php endif; ?>
+        <form action="<?= $panelFinished ? '#' : url('inbox/') . $conv['id'] . '/messages' ?>" method="POST" enctype="multipart/form-data" class="composer-form" id="composerForm">
             <?= csrf_field() ?>
             <input type="hidden" name="type" id="msgType" value="text">
             <div class="quote-bar" id="quoteBar" style="display:none">
@@ -300,31 +445,40 @@ $csat = $conversation['csat'] ?? null;
                 <label class="icon-btn" title="Anexar arquivo" style="cursor:pointer">
                     <i class="fas fa-paperclip"></i>
                     <input type="file" name="file" id="attachInput"
-                           accept="image/*,audio/*,video/*,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.zip" hidden>
+                           accept="image/*,audio/*,video/*,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.zip" hidden <?= $panelFinished ? 'disabled' : '' ?>>
                 </label>
-                <button type="button" class="icon-btn" title="Resposta pronta" onclick="openCannedModal()"><i class="fas fa-bookmark"></i></button>
-                <button type="button" class="icon-btn" title="Macro" onclick="openMacroModal()"><i class="fas fa-bolt"></i></button>
+                <button type="button" class="icon-btn" title="Resposta pronta" onclick="openCannedModal()" <?= $panelFinished ? 'disabled' : '' ?>><i class="fas fa-bookmark"></i></button>
+                <button type="button" class="icon-btn" title="Macro" onclick="openMacroModal()" <?= $panelFinished ? 'disabled' : '' ?>><i class="fas fa-bolt"></i></button>
                 <div style="flex:1"></div>
-                <button type="button" class="icon-btn" id="emojiToggle" title="Emoji"><i class="fas fa-smile"></i></button>
+                <button type="button" class="icon-btn" id="emojiToggle" title="Emoji" <?= $panelFinished ? 'disabled' : '' ?>><i class="fas fa-smile"></i></button>
                 <button type="button" class="icon-btn" id="internalToggle"
-                        onclick="toggleInternal()" title="Mensagem interna (não enviada ao cliente)">
+                        onclick="toggleInternal()" title="Mensagem interna (não enviada ao cliente)" <?= $panelFinished ? 'disabled' : '' ?>>
                     <i class="fas fa-lock"></i>
                 </button>
                 <?php if (($conv['channel_type'] ?? '') === 'whatsapp'): ?>
                 <button type="button" class="icon-btn <?= empty($conv['signature_enabled']) ? '' : 'active' ?>" id="signatureToggle"
-                        onclick="toggleSignature(<?= (int) $conv['id'] ?>)" title="Assinatura automática no WhatsApp">
+                        onclick="toggleSignature(<?= (int) $conv['id'] ?>)" title="Assinatura automática no WhatsApp" <?= $panelFinished ? 'disabled' : '' ?>>
                     <i class="fas fa-signature"></i>
                 </button>
                 <?php endif; ?>
             </div>
             <div class="input-row">
                 <textarea name="content" id="messageInput" class="input-box" rows="1"
-                          placeholder="Digite sua mensagem... (Enter para enviar, '/' resposta, ':' macro)"></textarea>
+                          placeholder="<?= $panelFinished ? 'Conversa finalizada' : "Digite sua mensagem... Enter envia, Shift+Enter quebra linha" ?>"
+                          <?= $panelFinished ? 'disabled' : '' ?>></textarea>
                 <input type="hidden" name="reply_to" id="replyToInput" value="">
-                <button type="submit" class="send-btn" id="sendBtn" title="Enviar (Enter)">
+                <button type="submit" class="send-btn" id="sendBtn" title="Enviar (Enter)" <?= $panelFinished ? 'disabled' : '' ?>>
                     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/></svg>
                 </button>
             </div>
+            <?php if (!$panelFinished): ?>
+            <div class="composer-hint">
+                <span><kbd>/</kbd> resposta pronta</span>
+                <span><kbd>:</kbd> macro</span>
+                <span><kbd>@</kbd> mencionar</span>
+                <span class="char-count" id="charCount">0</span>
+            </div>
+            <?php endif; ?>
             <div class="composer-file" id="composerFile" style="display:none">
                 <i class="fas fa-file"></i> <span id="composerFileName"></span>
                 <button type="button" class="composer-file-x" id="composerFileX" title="Remover">&times;</button>
@@ -348,7 +502,7 @@ $csat = $conversation['csat'] ?? null;
                 <div class="client-cover">
                     <div class="client-cover-photo">
                         <?php if (!empty($contact['avatar'])): ?>
-                            <img src="<?= e(str_starts_with($contact['avatar'], 'http') ? $contact['avatar'] : upload_url($contact['avatar'])) ?>" alt="<?= e($contact['name'] ?? '') ?>">
+                            <img src="<?= e(str_starts_with($contact['avatar'], 'http') ? $contact['avatar'] : upload_url($contact['avatar'])) ?>" alt="<?= e($contact['name'] ?? '') ?>" onerror="this.style.display='none';this.parentElement.textContent='<?= e($initial) ?>'">
                         <?php else: ?>
                             <?= e($initial) ?>
                         <?php endif; ?>
@@ -383,12 +537,6 @@ $csat = $conversation['csat'] ?? null;
                             <div class="client-field-item">
                                 <span class="field-icon icon-document"><i class="fas fa-id-card"></i></span>
                                 <span><?= e($contact['document']) ?></span>
-                            </div>
-                        <?php endif; ?>
-                        <?php if (!empty($conv['unit'])): ?>
-                            <div class="client-field-item">
-                                <span class="field-icon icon-location"><i class="fas fa-map-marker-alt"></i></span>
-                                <span><?= e($conv['unit']) ?></span>
                             </div>
                         <?php endif; ?>
                         <?php foreach (($contact['phones'] ?? []) as $ph): ?>
@@ -428,12 +576,13 @@ $csat = $conversation['csat'] ?? null;
                             <?php foreach ($otherConversations as $oc): ?>
                                 <a href="<?= url('inbox') ?>?conv=<?= $oc['id'] ?>" class="other-ticket-item">
                                     <div class="other-ticket-head">
-                                        <span class="other-ticket-title"><?= e($oc['subject'] ?: $oc['contact_name']) ?></span>
-                                        <?= status_badge($oc['status']) ?>
+                                        <span class="other-ticket-title"><?= e($oc['subject'] ?: $oc['contact_name']) ?><?php if (!empty($oc['unit'])): ?> — <?= e($oc['unit']) ?><?php endif; ?></span>
                                     </div>
                                     <div class="other-ticket-meta">
                                         <i class="<?= channel_icon($oc['channel_type'] ?? 'webchat') ?>"></i>
                                         <?= e($oc['channel_name'] ?? '') ?>
+                                        <span class="dot-sep">&middot;</span>
+                                        <?= status_badge($oc['status']) ?>
                                         <span class="dot-sep">&middot;</span>
                                         <?= format_datetime($oc['last_message_at'] ?? $oc['created_at']) ?>
                                     </div>
@@ -518,8 +667,16 @@ $csat = $conversation['csat'] ?? null;
                                             <?= format_datetime($event['created_at']) ?>
                                             <?php if ($event['user_name']): ?> &middot; <?= e($event['user_name']) ?><?php endif; ?>
                                         </span>
-                                    </div>
-                                </div>
+    </div>
+</div>
+
+<div class="lightbox" id="msgLightbox" onclick="closeLightbox(event)">
+    <button type="button" class="lightbox-close" onclick="closeLightbox(event, true)">&times;</button>
+    <button type="button" class="lightbox-nav lightbox-prev" id="lightboxPrev" onclick="lightboxNav(event, -1)"><i class="fas fa-chevron-left"></i></button>
+    <button type="button" class="lightbox-nav lightbox-next" id="lightboxNext" onclick="lightboxNav(event, 1)"><i class="fas fa-chevron-right"></i></button>
+    <div id="lightboxContent"></div>
+    <div class="lightbox-info" id="lightboxInfo"></div>
+</div>
                             <?php endforeach; ?>
                         <?php endif; ?>
                     </div>
@@ -558,28 +715,125 @@ $csat = $conversation['csat'] ?? null;
 </div>
 
 <div class="modal-overlay" id="priorityModal" style="display:none" onclick="if(event.target===this)closePriorityModal()">
-    <div class="modal-container" style="max-width:460px">
-        <div class="modal-header"><h3><i class="fas fa-flag"></i> Alterar Prioridade</h3><button class="modal-close" onclick="closePriorityModal()">&times;</button></div>
-        <form action="<?= url('inbox/') ?><?= $conv['id'] ?>/priority" method="POST">
-            <?= csrf_field() ?>
-            <div class="modal-body">
-                <div class="form-group">
-                    <label>Nível de prioridade</label>
-                    <select name="priority" class="form-control">
-                        <option value="low" <?= ($conv['priority'] ?? 'normal') === 'low' ? 'selected' : '' ?>>Baixa</option>
-                        <option value="normal" <?= ($conv['priority'] ?? 'normal') === 'normal' ? 'selected' : '' ?>>Normal</option>
-                        <option value="high" <?= ($conv['priority'] ?? 'normal') === 'high' ? 'selected' : '' ?>>Alta</option>
-                        <option value="urgent" <?= ($conv['priority'] ?? 'normal') === 'urgent' ? 'selected' : '' ?>>Urgente</option>
-                    </select>
-                </div>
+    <div class="modal-container" style="max-width:440px">
+        <div class="modal-header">
+            <h3><i class="fas fa-flag"></i> Selecionar prioridade</h3>
+            <button class="modal-close" onclick="closePriorityModal()">&times;</button>
+        </div>
+        <div class="modal-body" style="padding:14px">
+            <p class="text-muted" style="margin:0 0 12px;font-size:12.5px">Escolha a urgência do atendimento desta conversa.</p>
+            <div class="option-list">
+                <?php
+                $priorities = [
+                    'low' => ['label' => 'Baixa', 'desc' => 'Sem urgência, pode aguardar.', 'icon' => 'fa-arrow-down', 'color' => '#1976d2'],
+                    'normal' => ['label' => 'Normal', 'desc' => 'Padrão da maioria dos atendimentos.', 'icon' => 'fa-equals', 'color' => 'var(--text-secondary)'],
+                    'high' => ['label' => 'Alta', 'desc' => 'Requer atenção em breve.', 'icon' => 'fa-arrow-up', 'color' => '#f57c00'],
+                    'urgent' => ['label' => 'Urgente', 'desc' => 'Resolver imediatamente.', 'icon' => 'fa-bolt', 'color' => '#d32f2f'],
+                ];
+                $currentPriority = $conv['priority'] ?? 'normal';
+                foreach ($priorities as $pval => $pinfo): ?>
+                <button type="button" class="option-item option-priority-<?= $pval ?> <?= $currentPriority === $pval ? 'is-active' : '' ?>" data-priority="<?= $pval ?>" onclick="pickPriority('<?= $pval ?>')">
+                    <span class="option-icon" style="background:<?= $pinfo['color'] ?>15;color:<?= $pinfo['color'] ?>">
+                        <i class="fas <?= $pinfo['icon'] ?>"></i>
+                    </span>
+                    <span class="option-content">
+                        <span class="option-title"><?= $pinfo['label'] ?></span>
+                        <span class="option-desc"><?= $pinfo['desc'] ?></span>
+                    </span>
+                    <?php if ($currentPriority === $pval): ?>
+                    <i class="fas fa-check option-check"></i>
+                    <?php endif; ?>
+                </button>
+                <?php endforeach; ?>
             </div>
-            <div class="modal-footer">
-                <button type="button" class="btn btn-outline" onclick="closePriorityModal()">Cancelar</button>
-                <button type="submit" class="btn btn-primary">Salvar</button>
-            </div>
-        </form>
+            <?php if (empty($conv['subject']) && false): ?>
+            <button type="button" class="btn btn-outline" style="width:100%;margin-top:8px" onclick="clearPriority()">
+                <i class="fas fa-times"></i> Remover prioridade
+            </button>
+            <?php endif; ?>
+        </div>
     </div>
 </div>
+
+<div class="modal-overlay" id="subjectModal" style="display:none" onclick="if(event.target===this)closeSubjectModal()">
+    <div class="modal-container" style="max-width:520px">
+        <div class="modal-header">
+            <h3><i class="fas fa-tag"></i> Selecionar assunto</h3>
+            <button class="modal-close" onclick="closeSubjectModal()">&times;</button>
+        </div>
+        <div class="modal-body" style="padding:14px">
+            <input type="text" id="subjectSearchInput" class="form-control" placeholder="Buscar assunto..." oninput="filterSubjects()" style="margin-bottom:10px">
+            <div class="option-list" id="subjectList">
+                <button type="button" class="option-item <?= empty($conv['subject']) ? 'is-active' : '' ?>" data-subject="" onclick="pickSubject('')">
+                    <span class="option-icon" style="background:var(--bg-panel-alt);color:var(--text-muted)"><i class="fas fa-ban"></i></span>
+                    <span class="option-content">
+                        <span class="option-title">Sem assunto</span>
+                        <span class="option-desc">Remover o assunto atual desta conversa.</span>
+                    </span>
+                    <?php if (empty($conv['subject'])): ?>
+                    <i class="fas fa-check option-check"></i>
+                    <?php endif; ?>
+                </button>
+                <?php foreach (($convSubjects ?? []) as $s): ?>
+                <button type="button" class="option-item <?= ($conv['subject'] ?? '') === $s['name'] ? 'is-active' : '' ?>" data-subject="<?= e($s['name']) ?>" onclick="pickSubject('<?= e($s['name']) ?>')">
+                    <span class="option-icon" style="background:var(--brand-soft);color:var(--brand-2)"><i class="fas fa-tag"></i></span>
+                    <span class="option-content">
+                        <span class="option-title"><?= e($s['name']) ?></span>
+                        <span class="option-desc">Assunto predefinido para classificar a conversa.</span>
+                    </span>
+                    <?php if (($conv['subject'] ?? '') === $s['name']): ?>
+                    <i class="fas fa-check option-check"></i>
+                    <?php endif; ?>
+                </button>
+                <?php endforeach; ?>
+                <?php if (empty($convSubjects)): ?>
+                <div class="empty-state" style="padding:24px">
+                    <i class="fas fa-folder-open" style="font-size:32px;color:var(--text-muted);margin-bottom:8px"></i>
+                    <p style="margin:0;font-size:13px">Nenhum assunto cadastrado.</p>
+                    <p style="margin:4px 0 0;font-size:12px"><a href="<?= url('settings/subjects') ?>" target="_blank">Cadastrar assuntos</a></p>
+                </div>
+                <?php endif; ?>
+            </div>
+        </div>
+    </div>
+</div>
+
+<?php if (!empty($substatuses)): ?>
+<div class="modal-overlay" id="substatusModal" style="display:none" onclick="if(event.target===this)closeSubstatusModal()">
+    <div class="modal-container" style="max-width:480px">
+        <div class="modal-header">
+            <h3><i class="fas fa-bookmark"></i> Selecionar sub-status</h3>
+            <button class="modal-close" onclick="closeSubstatusModal()">&times;</button>
+        </div>
+        <div class="modal-body" style="padding:14px">
+            <div class="option-list">
+                <button type="button" class="option-item <?= empty($conv['substatus']) ? 'is-active' : '' ?>" data-substatus="" onclick="pickSubstatus('')">
+                    <span class="option-icon" style="background:var(--bg-panel-alt);color:var(--text-muted)"><i class="fas fa-ban"></i></span>
+                    <span class="option-content">
+                        <span class="option-title">Sem sub-status</span>
+                        <span class="option-desc">Remover o sub-status atual.</span>
+                    </span>
+                    <?php if (empty($conv['substatus'])): ?>
+                    <i class="fas fa-check option-check"></i>
+                    <?php endif; ?>
+                </button>
+                <?php foreach ($substatuses as $ss): ?>
+                <button type="button" class="option-item <?= ($conv['substatus'] ?? '') === $ss['name'] ? 'is-active' : '' ?>" data-substatus="<?= e($ss['name']) ?>" onclick="pickSubstatus('<?= e($ss['name']) ?>')">
+                    <span class="option-icon" style="background:<?= e($ss['color'] ?? '#6c757d') ?>20;color:<?= e($ss['color'] ?? '#6c757d') ?>"><i class="fas fa-bookmark"></i></span>
+                    <span class="option-content">
+                        <span class="option-title"><?= e($ss['name']) ?></span>
+                        <span class="option-desc">Sub-status predefinido.</span>
+                    </span>
+                    <?php if (($conv['substatus'] ?? '') === $ss['name']): ?>
+                    <i class="fas fa-check option-check"></i>
+                    <?php endif; ?>
+                </button>
+                <?php endforeach; ?>
+            </div>
+        </div>
+    </div>
+</div>
+<?php endif; ?>
 
 <div class="modal-overlay" id="cannedModal" style="display:none" onclick="if(event.target===this)closeCannedModal()">
     <div class="modal-container" style="max-width:480px">
@@ -607,43 +861,89 @@ $csat = $conversation['csat'] ?? null;
 </div>
 
 <div class="modal-overlay" id="statusModal" style="display:none" onclick="if(event.target===this)closeStatusModal()">
-    <div class="modal-container" style="max-width:460px">
-        <div class="modal-header"><h3>Alterar Status</h3><button class="modal-close" onclick="closeStatusModal()">&times;</button></div>
-        <form action="<?= url('inbox/') ?><?= $conv['id'] ?>/status" method="POST">
+    <div class="modal-container" style="max-width:520px">
+        <div class="modal-header">
+            <h3><i class="fas fa-comments"></i> Selecionar status</h3>
+            <button class="modal-close" onclick="closeStatusModal()">&times;</button>
+        </div>
+        <form action="<?= url('inbox/') ?><?= $conv['id'] ?>/status" method="POST" id="statusForm">
             <?= csrf_field() ?>
-            <div class="modal-body">
-                <div class="form-group">
-                    <label>Novo status</label>
-                    <select name="status" id="statusSelect" class="form-control" onchange="toggleCloseFields()">
-                        <option value="open" <?= $conv['status'] === 'open' ? 'selected' : '' ?>>Aberto</option>
-                        <option value="waiting_customer" <?= $conv['status'] === 'waiting_customer' ? 'selected' : '' ?>>Em atendimento</option>
-                        <option value="waiting_internal" <?= $conv['status'] === 'waiting_internal' ? 'selected' : '' ?>>Aguardando Interno</option>
-                        <option value="resolved" <?= $conv['status'] === 'resolved' ? 'selected' : '' ?>>Resolvido</option>
-                        <option value="closed" <?= $conv['status'] === 'closed' ? 'selected' : '' ?>>Fechado</option>
-                    </select>
+            <input type="hidden" name="status" id="statusValue" value="<?= e($conv['status']) ?>">
+            <div class="modal-body" style="padding:14px">
+                <p class="text-muted" style="margin:0 0 12px;font-size:12.5px">Defina o estado atual desta conversa na fila.</p>
+                <div class="option-list">
+                    <?php
+                    $statuses = [
+                        'open' => ['label' => 'Aberto', 'desc' => 'Conversa em atendimento ativo.', 'icon' => 'fa-comments', 'cls' => 'option-status-open'],
+                        'waiting_customer' => ['label' => 'Em atendimento', 'desc' => 'Aguardando resposta do cliente.', 'icon' => 'fa-headset', 'cls' => 'option-status-waiting_customer'],
+                        'waiting_internal' => ['label' => 'Aguardando interno', 'desc' => 'Aguardando outro atendente ou setor.', 'icon' => 'fa-hourglass-half', 'cls' => 'option-status-waiting_internal'],
+                        'resolved' => ['label' => 'Resolvido', 'desc' => 'Solicitação concluída com sucesso.', 'icon' => 'fa-check-circle', 'cls' => 'option-status-resolved'],
+                        'closed' => ['label' => 'Fechado', 'desc' => 'Conversa encerrada sem solução.', 'icon' => 'fa-archive', 'cls' => 'option-status-closed'],
+                        'spam' => ['label' => 'Spam', 'desc' => 'Marcada como lixo eletrônico.', 'icon' => 'fa-ban', 'cls' => 'option-status-spam'],
+                    ];
+                    foreach ($statuses as $sval => $sinfo): ?>
+                    <button type="button" class="option-item <?= $sinfo['cls'] ?> <?= $conv['status'] === $sval ? 'is-active' : '' ?>" data-status="<?= $sval ?>" onclick="pickStatus('<?= $sval ?>')">
+                        <span class="option-icon"><i class="fas <?= $sinfo['icon'] ?>"></i></span>
+                        <span class="option-content">
+                            <span class="option-title"><?= $sinfo['label'] ?></span>
+                            <span class="option-desc"><?= $sinfo['desc'] ?></span>
+                        </span>
+                        <?php if ($conv['status'] === $sval): ?>
+                        <i class="fas fa-check option-check"></i>
+                        <?php endif; ?>
+                    </button>
+                    <?php endforeach; ?>
                 </div>
-                <div id="closeFields" style="display:none">
-                    <div class="form-group">
-                        <label>Motivo (ao concluir/fechar)</label>
-                        <select name="reason" class="form-control">
-                            <option value="">—</option>
-                            <option value="Resolvido">Resolvido</option>
-                            <option value="Duplicado">Duplicado</option>
-                            <option value="Não respondeu">Não respondeu</option>
-                            <option value="Fora de escopo">Fora de escopo</option>
-                            <option value="Solicitação cancelada">Solicitação cancelada</option>
-                            <option value="Outro">Outro</option>
-                        </select>
+                <div id="closeFields" class="close-fields" style="display:none">
+                    <div class="close-fields-header">
+                        <i class="fas fa-clipboard-check"></i>
+                        <div class="close-fields-title">
+                            <strong>Detalhes do encerramento</strong>
+                            <span>Registre o motivo e contexto para histórico e relatórios.</span>
+                        </div>
                     </div>
-                    <div class="form-group">
-                        <label>Descrição</label>
-                        <textarea name="description" class="form-control" rows="3" placeholder="Detalhes do encerramento..."></textarea>
+
+                    <div class="close-fields-section">
+                        <label class="close-fields-label">
+                            <span>Motivo</span>
+                            <span class="close-fields-required">obrigatório</span>
+                        </label>
+                        <input type="hidden" name="reason" id="closeReasonValue" value="<?= e($conversation['close_reason'] ?? '') ?>">
+                        <div class="reason-grid" id="reasonGrid">
+                            <?php foreach ($closeReasons as $r): ?>
+                            <button type="button" class="reason-chip <?= ($conversation['close_reason'] ?? '') === $r['code'] ? 'is-active' : '' ?>" data-reason="<?= e($r['code']) ?>" data-label="<?= e($r['label']) ?>" onclick="pickReason('<?= e($r['code']) ?>', this)" style="--reason-color:<?= e($r['color']) ?>">
+                                <span class="reason-icon"><i class="fas <?= e($r['icon'] ?: 'fa-tag') ?>"></i></span>
+                                <span class="reason-label"><?= e($r['label']) ?></span>
+                                <?php if (!empty($r['description'])): ?>
+                                <span class="reason-desc"><?= e($r['description']) ?></span>
+                                <?php endif; ?>
+                            </button>
+                            <?php endforeach; ?>
+                        </div>
+                        <p class="close-fields-hint" id="closeReasonHint" style="display:none">
+                            <i class="fas fa-info-circle"></i>
+                            <span>Nenhum motivo selecionado. Selecione um acima para continuar.</span>
+                        </p>
+                    </div>
+
+                    <div class="close-fields-section">
+                        <label class="close-fields-label" for="closeDescription">
+                            <span>Descrição / observações</span>
+                            <span class="close-fields-optional">opcional</span>
+                        </label>
+                        <textarea name="description" id="closeDescription" class="close-fields-textarea" rows="3" maxlength="600"
+                                  placeholder="Descreva brevemente o que foi feito, a solução aplicada ou o contexto do encerramento..."
+                                  oninput="updateCharCount('closeDescription','closeCharCount',600)"><?= e($conversation['close_description'] ?? '') ?></textarea>
+                        <div class="close-fields-meta">
+                            <span class="close-fields-hint-inline"><i class="fas fa-lock"></i> Visível apenas para a equipe</span>
+                            <span class="char-count" id="closeCharCount"><?= mb_strlen($conversation['close_description'] ?? '') ?></span>
+                        </div>
                     </div>
                 </div>
             </div>
             <div class="modal-footer">
                 <button type="button" class="btn btn-outline" onclick="closeStatusModal()">Cancelar</button>
-                <button type="submit" class="btn btn-primary">Alterar</button>
+                <button type="submit" class="btn btn-primary" id="statusSubmitBtn">Alterar status</button>
             </div>
         </form>
     </div>
@@ -674,33 +974,6 @@ $csat = $conversation['csat'] ?? null;
     </div>
 </div>
 
-<div class="modal-overlay" id="csatModal" style="display:none" onclick="if(event.target===this)closeCsatModal()">
-    <div class="modal-container" style="max-width:460px">
-        <div class="modal-header"><h3>Avaliação de Satisfação</h3><button class="modal-close" onclick="closeCsatModal()">&times;</button></div>
-        <?php if ($csat): ?>
-            <div class="modal-body"><p>Esta conversa já foi avaliada.</p></div>
-        <?php else: ?>
-            <form action="<?= url('inbox/') ?><?= $conv['id'] ?>/csat" method="POST">
-                <?= csrf_field() ?>
-                <div class="modal-body">
-                    <div class="form-group csat-pick" id="csatPick">
-                        <?php for ($i = 1; $i <= 5; $i++): ?>
-                            <i class="far fa-star csat-star" data-v="<?= $i ?>"></i>
-                        <?php endfor; ?>
-                        <input type="hidden" name="rating" id="csatRating" value="0">
-                    </div>
-                    <div class="form-group">
-                        <textarea name="comment" class="form-control" rows="3" placeholder="Comentário (opcional)"></textarea>
-                    </div>
-                </div>
-                <div class="modal-footer">
-                    <button type="button" class="btn btn-outline" onclick="closeCsatModal()">Cancelar</button>
-                    <button type="submit" class="btn btn-primary">Registrar</button>
-                </div>
-            </form>
-        <?php endif; ?>
-    </div>
-</div>
 
 <div class="modal-overlay" id="mergeModal" style="display:none" onclick="if(event.target===this)closeMergeModal()">
     <div class="modal-container" style="max-width:460px">
@@ -936,17 +1209,52 @@ function closeTransferModal() { document.getElementById('transferModal').style.d
 function openStatusModal() { document.getElementById('statusModal').style.display = 'flex'; toggleCloseFields(); }
 function closeStatusModal() { document.getElementById('statusModal').style.display = 'none'; }
 function toggleCloseFields() {
-    var sel = document.getElementById('statusSelect');
+    var val = document.getElementById('statusValue')?.value || '';
     var box = document.getElementById('closeFields');
-    if (!sel || !box) return;
-    box.style.display = (sel.value === 'resolved' || sel.value === 'closed') ? 'block' : 'none';
+    if (!box) return;
+    box.style.display = (val === 'resolved' || val === 'closed') ? 'block' : 'none';
+}
+function pickStatus(val) {
+    var hidden = document.getElementById('statusValue');
+    if (hidden) hidden.value = val;
+    document.querySelectorAll('#statusModal .option-item').forEach(function(el) {
+        el.classList.toggle('is-active', el.dataset.status === val);
+        var hasCheck = el.querySelector('.option-check');
+        if (el.dataset.status === val && !hasCheck) {
+            var ic = document.createElement('i');
+            ic.className = 'fas fa-check option-check';
+            el.appendChild(ic);
+        } else if (el.dataset.status !== val && hasCheck) {
+            hasCheck.remove();
+        }
+    });
+    toggleCloseFields();
+}
+function pickReason(code, btn) {
+    var hidden = document.getElementById('closeReasonValue');
+    if (hidden) hidden.value = code;
+    document.querySelectorAll('#reasonGrid .reason-chip').forEach(function(el) {
+        el.classList.toggle('is-active', el.dataset.reason === code);
+    });
+    var hint = document.getElementById('closeReasonHint');
+    if (hint) hint.style.display = 'none';
+}
+function updateCharCount(inputId, countId, max) {
+    var ta = document.getElementById(inputId);
+    var cc = document.getElementById(countId);
+    if (!ta || !cc) return;
+    var n = ta.value.length;
+    cc.textContent = n + (n >= max ? ' / ' + max : '');
+    cc.classList.toggle('warn', n > max * 0.8 && n < max);
+    cc.classList.toggle('danger', n >= max);
+}
+    });
+    toggleCloseFields();
 }
 function openPriorityModal() { document.getElementById('priorityModal').style.display = 'flex'; }
 function closePriorityModal() { document.getElementById('priorityModal').style.display = 'none'; }
 function openSnoozeModal() { document.getElementById('snoozeModal').style.display = 'flex'; }
 function closeSnoozeModal() { document.getElementById('snoozeModal').style.display = 'none'; }
-function openCsatModal() { document.getElementById('csatModal').style.display = 'flex'; }
-function closeCsatModal() { document.getElementById('csatModal').style.display = 'none'; }
 function openMergeModal() { document.getElementById('mergeModal').style.display = 'flex'; }
 function closeMergeModal() { document.getElementById('mergeModal').style.display = 'none'; }
 function openCannedModal() { document.getElementById('cannedModal').style.display = 'flex'; loadCanned(); }
@@ -956,15 +1264,113 @@ function closeMacroModal() { document.getElementById('macroModal').style.display
 function closeEditModal() { document.getElementById('editModal').style.display = 'none'; }
 function openContactEditModal() { document.getElementById('contactEditModal').style.display = 'flex'; }
 function closeContactEditModal() { document.getElementById('contactEditModal').style.display = 'none'; }
-function saveSubjectSelect(val) {
-    var cv = document.getElementById('convView');
-    var id = cv ? cv.dataset.conv : 0;
-    if (id) {
-        var fd = csrfForm();
-        fd.append('subject', val);
-        fetch('/inbox/' + id + '/subject', { method: 'POST', headers: { 'X-Requested-With': 'XMLHttpRequest' }, body: fd }).then(function(r){
-            if (!r.ok) console.error('Subject save failed:', r.status);
-        }).catch(function(e){ console.error('Subject save error:', e); });
+
+/* ---------- Modais de Assunto, Prioridade e Sub-status (chips) ---------- */
+function openSubjectModal() {
+    var m = document.getElementById('subjectModal');
+    if (!m) return;
+    m.style.display = 'flex';
+    setTimeout(function() {
+        var input = document.getElementById('subjectSearchInput');
+        if (input) { input.value = ''; input.focus(); filterSubjects(); }
+    }, 50);
+}
+function closeSubjectModal() { var m = document.getElementById('subjectModal'); if (m) m.style.display = 'none'; }
+function filterSubjects() {
+    var q = (document.getElementById('subjectSearchInput')?.value || '').toLowerCase();
+    var items = document.querySelectorAll('#subjectList .option-item');
+    var any = false;
+    items.forEach(function(el) {
+        var txt = (el.textContent || '').toLowerCase();
+        var match = !q || txt.indexOf(q) !== -1;
+        el.style.display = match ? '' : 'none';
+        if (match) any = true;
+    });
+    var empty = document.getElementById('subjectListEmpty');
+    if (empty) empty.style.display = any ? 'none' : 'block';
+}
+function pickSubject(val) {
+    var fd = csrfForm();
+    fd.append('subject', val);
+    var btn = document.querySelector('#subjectModal .option-item[data-subject="' + (val || '').replace(/"/g, '\\"') + '"]');
+    if (btn) { btn.disabled = true; btn.style.opacity = '0.6'; }
+    fetch(BASE + '/inbox/' + CONV_ID + '/subject', { method: 'POST', headers: { 'X-Requested-With': 'XMLHttpRequest' }, body: fd })
+        .then(function(r){ return r.json(); })
+        .then(function(resp) {
+            if (resp && resp.ok) {
+                updateHeaderChip('subject', val);
+                closeSubjectModal();
+                toast(val ? 'Assunto atualizado' : 'Assunto removido');
+            } else {
+                if (btn) { btn.disabled = false; btn.style.opacity = '1'; }
+                toast('Erro ao atualizar assunto');
+            }
+        }).catch(function(){ if (btn) { btn.disabled = false; btn.style.opacity = '1'; } });
+}
+
+function openSubstatusModal() {
+    var m = document.getElementById('substatusModal');
+    if (!m) return;
+    m.style.display = 'flex';
+}
+function closeSubstatusModal() { var m = document.getElementById('substatusModal'); if (m) m.style.display = 'none'; }
+function pickSubstatus(val) {
+    var fd = csrfForm();
+    fd.append('substatus', val);
+    fetch(BASE + '/inbox/' + CONV_ID + '/substatus', { method: 'POST', headers: { 'X-Requested-With': 'XMLHttpRequest' }, body: fd })
+        .then(function(r){ return r.json(); })
+        .then(function(resp) {
+            if (resp && resp.ok !== false) {
+                updateHeaderChip('substatus', val);
+                closeSubstatusModal();
+                toast(val ? 'Sub-status atualizado' : 'Sub-status removido');
+            } else {
+                toast('Erro ao atualizar sub-status');
+            }
+        }).catch(function(){ toast('Erro de rede'); });
+}
+
+function pickPriority(val) {
+    var fd = csrfForm();
+    fd.append('priority', val);
+    var btn = document.querySelector('#priorityModal .option-item[data-priority="' + val + '"]');
+    if (btn) { btn.disabled = true; btn.style.opacity = '0.6'; }
+    fetch(BASE + '/inbox/' + CONV_ID + '/priority', { method: 'POST', headers: { 'X-Requested-With': 'XMLHttpRequest' }, body: fd })
+        .then(function(r){ return r.json(); })
+        .then(function(resp) {
+            if (resp && resp.ok) {
+                updateHeaderChip('priority', val);
+                closePriorityModal();
+                toast('Prioridade atualizada');
+            } else {
+                if (btn) { btn.disabled = false; btn.style.opacity = '1'; }
+                toast('Erro ao atualizar prioridade');
+            }
+        }).catch(function(){ if (btn) { btn.disabled = false; btn.style.opacity = '1'; } });
+}
+
+/* Atualiza visualmente o chip do header após salvar */
+function updateHeaderChip(kind, val) {
+    if (kind === 'subject') {
+        var btn = document.querySelector('.header-chip-subject');
+        if (!btn) return;
+        var txt = btn.querySelector('.chip-text');
+        if (txt) txt.textContent = val || 'Assunto';
+        btn.classList.toggle('is-empty', !val);
+    } else if (kind === 'substatus') {
+        var btn = document.querySelector('.header-chip-substatus');
+        if (!btn) return;
+        var txt = btn.querySelector('.chip-text');
+        if (txt) txt.textContent = val || 'Sub-status';
+        btn.classList.toggle('is-empty', !val);
+    } else if (kind === 'priority') {
+        var btn = document.querySelector('.header-chip-priority');
+        if (!btn) return;
+        var labels = {low:'Baixa',normal:'Normal',high:'Alta',urgent:'Urgente'};
+        var colors = {urgent:'#d32f2f',high:'#f57c00',low:'#1976d2',normal:'var(--text-secondary)'};
+        btn.querySelector('.chip-text').textContent = labels[val] || val;
+        var icon = btn.querySelector('i.fa-flag');
+        if (icon) icon.style.color = colors[val] || colors.normal;
     }
 }
 function editUnit(e) {
@@ -990,7 +1396,7 @@ function saveUnit(val) {
     if (id) {
         var fd = csrfForm();
         fd.append('unit', val);
-        fetch('/inbox/' + id + '/unit', { method: 'POST', headers: { 'X-Requested-With': 'XMLHttpRequest' }, body: fd }).then(function(r){
+        fetch(BASE + '/inbox/' + id + '/unit', { method: 'POST', headers: { 'X-Requested-With': 'XMLHttpRequest' }, body: fd }).then(function(r){
             if (!r.ok) console.error('Unit save failed:', r.status);
         }).catch(function(e){ console.error('Unit save error:', e); });
     }
@@ -1002,17 +1408,7 @@ function cancelUnitEdit() {
     i.style.display = 'none';
     d.style.display = 'inline-block';
 }
-function saveSubstatus(val) {
-    var cv = document.getElementById('convView');
-    var id = cv ? cv.dataset.conv : 0;
-    if (id) {
-        var fd = csrfForm();
-        fd.append('substatus', val);
-        fetch('/inbox/' + id + '/substatus', { method: 'POST', headers: { 'X-Requested-With': 'XMLHttpRequest' }, body: fd }).then(function(r){
-            if (!r.ok) console.error('Substatus save failed:', r.status);
-        }).catch(function(e){ console.error('Substatus save error:', e); });
-    }
-}
+function saveSubstatus(val) { pickSubstatus(val); }
 function submitContactEdit(e) {
     e.preventDefault();
     var form = document.getElementById('contactEditForm');
@@ -1046,20 +1442,6 @@ document.addEventListener('keydown', function(e) {
         document.querySelectorAll('.modal-overlay').forEach(function(m) { m.style.display = 'none'; });
     }
 });
-
-/* CSAT star picker */
-var csatPick = document.getElementById('csatPick');
-if (csatPick) {
-    csatPick.querySelectorAll('.csat-star').forEach(function(st) {
-        st.addEventListener('click', function() {
-            var v = parseInt(st.dataset.v, 10);
-            document.getElementById('csatRating').value = v;
-            csatPick.querySelectorAll('.csat-star').forEach(function(s) {
-                s.classList.toggle('fas', parseInt(s.dataset.v, 10) <= v);
-            });
-        });
-    });
-}
 
 /* ---------- Transfer / Canned / Macros ---------- */
 function loadTransferUsers() {
@@ -1280,10 +1662,17 @@ function filterMessages() {
 var msgContainer = document.getElementById('convMessagesList');
 function esc(s) { var d = document.createElement('div'); d.textContent = s == null ? '' : s; return d.innerHTML; }
 function avatarSrc(p) { return (typeof p === 'string' && p.indexOf('http') === 0) ? p : (uploadsBase + '/' + p); }
-function nl2br(s) { return esc(s); }
+function nl2br(s) { return esc(s).replace(/\n/g, '<br>'); }
 function fmtBytes(b) { var u = ['B','KB','MB','GB'], i = 0; b = b || 0; while (b >= 1024 && i < u.length - 1) { b /= 1024; i++; } return Math.round(b * 10) / 10 + ' ' + u[i]; }
 function fmtDt(s) { if (!s) return ''; var d = new Date(String(s).replace(' ', 'T')); if (isNaN(d)) return s; var p = function(n) { return (n < 10 ? '0' : '') + n; }; return p(d.getDate()) + '/' + p(d.getMonth() + 1) + '/' + p(d.getFullYear()) + ' ' + p(d.getHours()) + ':' + p(d.getMinutes()); }
-function fileMeta(content) { try { var m = JSON.parse(content); if (m && m.url) return m; } catch (e) {} return { url: content }; }
+function fileMeta(content) {
+    if (!content) return { url: '' };
+    try {
+        var m = JSON.parse(content);
+        if (m && typeof m === 'object' && m.url) return m;
+    } catch (e) {}
+    return { url: content, name: (content || '').split('/').pop() || 'arquivo' };
+}
 
 function mediaTypeOf(m) {
     var mt = m.type;
@@ -1305,6 +1694,11 @@ function mediaTypeOf(m) {
         }
     } catch (e) {}
     return null;
+}
+function linkify(text) {
+    return text.replace(/@?(https?:\/\/[^\s<]+)/g, function (m) {
+        return '<a href="' + m + '" target="_blank" rel="noopener">' + m + '</a>';
+    });
 }
 function renderReactions(reactionsJson) {
     if (!reactionsJson) return '';
@@ -1329,11 +1723,54 @@ function renderReactions(reactionsJson) {
 function isAbsoluteUrl(u) { return /^https?:\/\//i.test(u); }
 function fileContentHtml(type, content, uploadsBase) {
     var m = fileMeta(content); var url = isAbsoluteUrl(m.url) ? m.url : (uploadsBase + '/' + m.url);
-    if (type === 'image' || type === 'sticker') return '<a href="' + esc(url) + '" target="_blank" rel="noopener"><img class="msg-img" src="' + esc(url) + '" alt="' + esc(m.name || 'imagem') + '"></a>';
+    if (type === 'image' || type === 'sticker') return '<a href="' + esc(url) + '" target="_blank" rel="noopener" class="msg-lightbox"><img class="msg-img" src="' + esc(url) + '" alt="' + esc(m.name || 'imagem') + '" loading="lazy"></a>';
     if (type === 'audio') return '<audio controls preload="metadata" src="' + esc(url) + '"></audio>';
-    if (type === 'video') return '<video controls preload="metadata" src="' + esc(url) + '"></video>';
+    if (type === 'video') return '<video controls preload="metadata" src="' + esc(url) + '" class="msg-video"></video>';
     var name = m.name || 'arquivo'; var size = m.size ? ' (' + fmtBytes(m.size) + ')' : '';
     return '<a class="msg-file" href="' + esc(url) + '" target="_blank" rel="noopener" download><i class="fas fa-file-download"></i><span class="msg-file-name">' + esc(name) + '</span><span class="msg-file-size">' + esc(size) + '</span></a>';
+}
+function renderReceiptsHtml(m) {
+    if (m.direction !== 'outbound') return '';
+    var isRead = !!m.read_at;
+    var icon = isRead ? 'fa-check-double' : 'fa-check';
+    var cls = isRead ? 'msg-receipts read' : 'msg-receipts delivered';
+    var title = isRead ? 'Lida' : 'Entregue';
+    return '<span class="' + cls + '" title="' + title + '"><i class="fas ' + icon + '"></i></span>';
+}
+function renderMessageBody(m) {
+    var body = '';
+    var mtype = mediaTypeOf(m);
+    if (m.reply_to_data) {
+        var qname = m.reply_to_data.direction === 'outbound' ? 'Você' : (CONTACT_NAME || 'Contato');
+        var qtext = (m.reply_to_data.content || '').replace(/<[^>]+>/g, '').substring(0, 200);
+        body += '<div class="msg-quote" onclick="scrollToMessage(' + m.reply_to_data.id + ')">' +
+            '<div class="msg-quote-content"><div class="msg-quote-name">' + esc(qname) + '</div>' +
+            '<div class="msg-quote-text">' + esc(qtext) + '</div></div></div>';
+    }
+    if (m.type === 'internal_note') {
+        body += '<div class="message-note-header"><i class="fas fa-lock"></i> Nota interna · ' + esc(m.user_name || 'Equipe') + '</div>';
+        body += '<div class="message-content">' + nl2br(m.content) + '</div>';
+    } else if (m.type === 'csat_request') {
+        var cdat = {}; try { cdat = JSON.parse(m.content); } catch (e) {}
+        var prompt = cdat.prompt || 'Solicitação de avaliação enviada ao cliente.';
+        var link = cdat.url ? ' · <a href="' + esc(cdat.url) + '" target="_blank" rel="noopener">Abrir avaliação</a>' : '';
+        body += '<div class="message-content csat-request-note"><i class="fas fa-smile"></i> ' + esc(prompt) + link + '</div>';
+    } else if (m.type === 'reaction') {
+        try {
+            var rd = JSON.parse(m.content);
+            body += '<div class="message-content"><span class="reaction-emoji">' + esc(rd.reaction || '') + '</span> <span class="reaction-label">reagiu a uma mensagem</span></div>';
+        } catch (e) {}
+    } else if (m.type === 'system') {
+        body += '<div class="message-content">' + nl2br(m.content) + '</div>';
+    } else if (mtype) {
+        body += '<div class="message-content">' + fileContentHtml(mtype, m.content, uploadsBase) + '</div>';
+    } else {
+        // Texto puro: detecta JSON, linkifica e formata
+        var raw = m.content || '';
+        try { var parsed = JSON.parse(raw); if (parsed && typeof parsed.text === 'string') raw = parsed.text; } catch (e) {}
+        body += '<div class="message-content">' + linkify(nl2br(raw)) + '</div>';
+    }
+    return body;
 }
 function renderMessageHtml(m, uploadsBase) {
     var cls = 'message ' + (m.direction === 'outbound' ? 'message-out' : 'message-in');
@@ -1342,57 +1779,37 @@ function renderMessageHtml(m, uploadsBase) {
     if (m.type === 'sticker') cls += ' message-sticker';
     var avHtml;
     if (m.direction === 'outbound' && m.user_avatar) {
-        avHtml = '<img src="' + esc(avatarSrc(m.user_avatar)) + '" class="msg-avatar-img" alt="">';
+        avHtml = '<img src="' + esc(avatarSrc(m.user_avatar)) + '" alt="">';
     } else if (m.direction === 'inbound' && CONTACT_AVATAR) {
-        avHtml = '<img src="' + esc(avatarSrc(CONTACT_AVATAR)) + '" class="msg-avatar-img" alt="">';
+        avHtml = '<img src="' + esc(avatarSrc(CONTACT_AVATAR)) + '" alt="">';
     } else {
         avHtml = esc(m.direction === 'outbound' ? (m.user_name ? m.user_name.charAt(0).toUpperCase() : 'A') : CONTACT_INITIAL);
     }
     var deleted = !!(m.deleted_at);
-    var body = '';
-    var mtype = mediaTypeOf(m);
-    if (deleted) {
-        body += '<div class="message-deleted"><i class="fas fa-ban"></i> Mensagem excluída</div>';
-    }
-    if (m.reply_to_data) {
-        var qname = m.reply_to_data.direction === 'outbound' ? 'Você' : (CONTACT_NAME || 'Contato');
-        var qtext = (m.reply_to_data.content || '').replace(/<[^>]+>/g, '').substring(0, 100);
-        body += '<div class="msg-quote" onclick="scrollToMessage(' + m.reply_to_data.id + ')">' +
-            '<div class="msg-quote-content"><div class="msg-quote-name">' + esc(qname) + '</div>' +
-            '<div class="msg-quote-text">' + esc(qtext) + '</div></div></div>';
-    }
-    if (m.type === 'internal_note') {
-        body += '<div class="message-note-header"><i class="fas fa-lock"></i> Nota interna' + (m.user_name ? ' - ' + esc(m.user_name) : '') + '</div>';
-        body += '<div class="message-content">' + nl2br(m.content) + '</div>';
-    } else if (m.type === 'csat_request') {
-        var cdat = {}; try { cdat = JSON.parse(m.content); } catch (e) {}
-        body += '<div class="message-content csat-request-note"><i class="fas fa-smile"></i> ' + nl2br(cdat.prompt || 'Solicitação de avaliação enviada ao cliente.') +
-            (cdat.url ? ' <a href="' + esc(cdat.url) + '" target="_blank" rel="noopener">Avaliar</a>' : '') + '</div>';
-    } else if (m.type === 'system') {
-        body += '<div class="message-content">' + esc(m.content) + '</div>';
-    } else if (mtype) {
-        body += '<div class="message-content">' + fileContentHtml(mtype, m.content, uploadsBase) + '</div>';
-    } else {
-        body += '<div class="message-content">' + nl2br(m.content) + '</div>';
-    }
-    var time = fmtDt(m.created_at);
-    if (m.user_name && m.direction === 'outbound') time += ' - ' + esc(m.user_name);
-    if (m.updated_at && m.updated_at !== m.created_at) time += ' <span class="msg-edited">(editada)</span>';
+    var body = deleted
+        ? '<div class="message-deleted"><i class="fas fa-ban"></i> Mensagem excluída</div>'
+        : renderMessageBody(m);
+    var time = '<span>' + esc(fmtDt(m.created_at)) + '</span>';
+    if (m.user_name && m.direction === 'outbound') time += ' <span style="opacity:.7">· ' + esc(m.user_name) + '</span>';
+    if (m.updated_at && m.updated_at !== m.created_at) time += ' <span class="msg-edited" title="Editada">editada</span>';
+    time += renderReceiptsHtml(m);
+
     var actions = '';
     var reactionPicker = '';
     if (!deleted) {
         actions = '<button type="button" class="msg-act" title="Copiar" onclick="copyMessage(' + m.id + ')"><i class="fas fa-copy"></i></button>' +
-                  '<button type="button" class="msg-act" title="Citar" onclick="quoteMessage(' + m.id + ')"><i class="fas fa-quote-right"></i></button>';
-        if (m.user_id && m.user_id == <?= \App\Core\Auth::id() ?> && ['text','internal_note'].indexOf(m.type) >= 0) {
+                  '<button type="button" class="msg-act" title="Citar" onclick="quoteMessage(' + m.id + ')"><i class="fas fa-quote-right"></i></button>' +
+                  '<button type="button" class="msg-act" title="Reagir" onclick="toggleReactionPicker(' + m.id + ', event)"><i class="far fa-smile"></i></button>';
+        if (m.user_id && m.user_id == <?= $currentUserId ?> && ['text','internal_note'].indexOf(m.type) >= 0) {
             actions += '<button type="button" class="msg-act" title="Editar" onclick="editMessage(' + m.id + ')"><i class="fas fa-edit"></i></button>' +
                        '<button type="button" class="msg-act msg-act-danger" title="Excluir" onclick="deleteMessage(' + m.id + ')"><i class="fas fa-trash"></i></button>';
         }
-        reactionPicker = '<button type="button" class="msg-reaction-btn" data-mid="' + m.id + '" title="Reagir" onclick="toggleReactionPicker(' + m.id + ', event)"><i class="far fa-smile"></i></button>' +
-            '<div class="reaction-picker" id="rp-' + m.id + '" data-mid="' + m.id + '">' +
-            ['👍','❤️','😂','😮','😢','🙏'].map(function(e){return '<span class="rp-emoji" onclick="sendReaction(' + m.id + ', \'' + e + '\')">' + e + '</span>';}).join('') + '</div>';
+        reactionPicker = '<div class="reaction-picker" id="rp-' + m.id + '" data-mid="' + m.id + '">' +
+            ['👍','❤️','😂','😮','😢','🙏','🔥'].map(function(e){return '<span class="rp-emoji" onclick="sendReaction(' + m.id + ', \'' + e + '\')">' + e + '</span>';}).join('') + '</div>';
     }
     var reactionsHtml = renderReactions(m.reactions);
-    return '<div class="' + cls + '" data-mid="' + m.id + '" data-text="' + esc((m.content || '').replace(/<[^>]+>/g, '')) + '">' +
+    var text = (m.content || '').replace(/<[^>]+>/g, '').replace(/[\u0000-\u001f]/g, ' ').substring(0, 1000);
+    return '<div class="' + cls + '" data-mid="' + m.id + '" data-text="' + esc(text) + '">' +
         '<div class="msg-avatar msg-avatar-' + (m.direction === 'outbound' ? 'agent' : 'contact') + '">' + avHtml + '</div>' +
         '<div class="message-body' + (deleted ? ' is-deleted' : '') + '">' + body +
         '<div class="message-time">' + time + '</div>' +
@@ -1429,6 +1846,120 @@ function decorateDates() {
 
 var lastMid = 0;
 msgContainer.querySelectorAll('.message[data-mid]').forEach(function(el) { var id = parseInt(el.getAttribute('data-mid'), 10); if (id > lastMid) lastMid = id; });
+
+/* ---------- Lightbox de imagens ---------- */
+var lightboxItems = [];
+var lightboxIndex = -1;
+function openLightbox(src, caption) {
+    var all = Array.from(document.querySelectorAll('.msg-lightbox img')).map(function(img){ return { src: img.src, alt: img.alt || '' }; });
+    lightboxItems = all.length ? all : [{ src: src, alt: caption || '' }];
+    lightboxIndex = Math.max(0, lightboxItems.findIndex(function(x){ return x.src === src; }));
+    renderLightbox();
+    var lb = document.getElementById('msgLightbox');
+    if (lb) lb.classList.add('open');
+}
+function renderLightbox() {
+    if (lightboxIndex < 0 || !lightboxItems[lightboxIndex]) return;
+    var item = lightboxItems[lightboxIndex];
+    var content = document.getElementById('lightboxContent');
+    var info = document.getElementById('lightboxInfo');
+    if (content) content.innerHTML = '<img src="' + esc(item.src) + '" alt="' + esc(item.alt) + '">';
+    if (info) info.innerHTML = '<span>' + esc(item.alt || '') + '</span><span style="opacity:.6">' + (lightboxIndex + 1) + ' / ' + lightboxItems.length + '</span>';
+    var prev = document.getElementById('lightboxPrev');
+    var next = document.getElementById('lightboxNext');
+    if (prev) prev.style.display = lightboxItems.length > 1 ? '' : 'none';
+    if (next) next.style.display = lightboxItems.length > 1 ? '' : 'none';
+}
+function lightboxNav(e, dir) {
+    if (e) e.stopPropagation();
+    if (!lightboxItems.length) return;
+    lightboxIndex = (lightboxIndex + dir + lightboxItems.length) % lightboxItems.length;
+    renderLightbox();
+}
+function closeLightbox(e, force) {
+    if (e && e.target && e.target.closest('.lightbox-nav')) return;
+    if (e && e.target && e.target.closest('.lightbox-close')) force = true;
+    if (e && e.target && e.target.id !== 'msgLightbox' && !force) return;
+    var lb = document.getElementById('msgLightbox');
+    if (lb) lb.classList.remove('open');
+}
+document.addEventListener('keydown', function(e) {
+    var lb = document.getElementById('msgLightbox');
+    if (!lb || !lb.classList.contains('open')) return;
+    if (e.key === 'Escape') closeLightbox({target: lb}, true);
+    else if (e.key === 'ArrowLeft') lightboxNav(e, -1);
+    else if (e.key === 'ArrowRight') lightboxNav(e, 1);
+});
+document.addEventListener('click', function(e) {
+    var a = e.target.closest && e.target.closest('.msg-lightbox');
+    if (a) {
+        e.preventDefault();
+        var img = a.querySelector('img');
+        if (img) openLightbox(img.src, img.alt);
+    }
+});
+
+/* ---------- Char counter no composer ---------- */
+(function() {
+    var ta = document.getElementById('messageInput');
+    var cc = document.getElementById('charCount');
+    if (!ta || !cc) return;
+    var max = 4096;
+    var update = function() {
+        var n = ta.value.length;
+        cc.textContent = n + (n >= max ? ' (limite)' : '');
+        cc.classList.toggle('warn', n > max * 0.8 && n < max);
+        cc.classList.toggle('danger', n >= max);
+    };
+    ta.addEventListener('input', update);
+    update();
+})();
+
+/* ---------- Voltar para a lista (mobile) ---------- */
+window.__convBack = function() {
+    var listPanel = document.getElementById('listPanel');
+    var panel = document.getElementById('conversationDetail');
+    if (listPanel) listPanel.style.display = '';
+    if (panel) panel.style.display = 'none';
+};
+
+/* ---------- Indicador de "está digitando" ---------- */
+var typingTimer = null;
+function showTyping(convId) {
+    if (convId !== CONV_ID) return;
+    var el = document.getElementById('typingIndicator');
+    if (el) el.style.display = 'flex';
+    clearTimeout(typingTimer);
+    typingTimer = setTimeout(hideTyping, 5500);
+}
+function hideTyping() {
+    var el = document.getElementById('typingIndicator');
+    if (el) el.style.display = 'none';
+}
+document.addEventListener('atendeflow:typing', function(e) {
+    var d = e && e.detail;
+    if (d && d.conversation_id) showTyping(d.conversation_id);
+});
+
+/* ---------- Polling de typing (fallback caso SSE caia) ---------- */
+var lastTypingCheck = 0;
+function pollTyping() {
+    var now = Date.now();
+    if (now - lastTypingCheck < 4000) return;
+    lastTypingCheck = now;
+    fetch(API + '/conversations/' + CONV_ID, { headers: { 'X-Requested-With': 'XMLHttpRequest' } })
+        .then(function(r){ return r.json(); })
+        .then(function(c){
+            if (!c || !c.id) return;
+            if (c.last_typing_at) {
+                var t = new Date(String(c.last_typing_at).replace(' ', 'T')).getTime();
+                if (!isNaN(t) && (Date.now() - t) < 6000) showTyping(c.id);
+                else hideTyping();
+            } else {
+                hideTyping();
+            }
+        }).catch(function(){});
+}
 (function() {
     var fi = document.getElementById('attachInput'); var box = document.getElementById('composerFile');
     var nameEl = document.getElementById('composerFileName'); var x = document.getElementById('composerFileX');
@@ -1571,6 +2102,59 @@ document.getElementById('messageInput')?.addEventListener('keydown', function(e)
         });
     });
 })();
+
+/* ---------- Form de status (submit via AJAX) ---------- */
+(function() {
+    var form = document.getElementById('statusForm');
+    if (!form) return;
+    form.addEventListener('submit', function(e) {
+        e.preventDefault();
+        var statusVal = document.getElementById('statusValue')?.value || '';
+        var reasonVal = document.getElementById('closeReasonValue')?.value || '';
+        if ((statusVal === 'resolved' || statusVal === 'closed') && !reasonVal) {
+            var hint = document.getElementById('closeReasonHint');
+            if (hint) {
+                hint.style.display = 'flex';
+                hint.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            }
+            document.getElementById('reasonGrid')?.animate(
+                [{ transform: 'translateX(-3px)' }, { transform: 'translateX(3px)' }, { transform: 'translateX(0)' }],
+                { duration: 300, easing: 'ease-out' }
+            );
+            return;
+        }
+        var btn = document.getElementById('statusSubmitBtn');
+        if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Salvando...'; }
+        var fd = new FormData(form);
+        fetch(form.action, {
+            method: 'POST',
+            headers: { 'X-Requested-With': 'XMLHttpRequest' },
+            body: fd
+        }).then(function(r){ return r.json(); })
+          .then(function(resp) {
+            if (resp && resp.ok) {
+                var statusEl = document.querySelector('.header-chip-status');
+                if (statusEl) statusEl.outerHTML = statusBadgeHtml(resp.status || statusVal);
+                closeStatusModal();
+                toast('Status atualizado');
+                // Recarrega a página para refletir o banner de fechamento
+                setTimeout(function(){ location.reload(); }, 600);
+            } else {
+                toast('Erro ao atualizar status');
+            }
+        }).catch(function(){ toast('Erro de rede'); })
+          .finally(function(){
+            if (btn) { btn.disabled = false; btn.innerHTML = 'Alterar status'; }
+          });
+    });
+})();
+
+/* Inicializa contador de caracteres do closeDescription (caso esteja pré-preenchido) */
+(function() {
+    var ta = document.getElementById('closeDescription');
+    if (ta) updateCharCount('closeDescription', 'closeCharCount', 600);
+})();
+
 ensureCannedData();
 
 var uploadsBase = '<?= rtrim(base_url('uploads'), '/') ?>';
@@ -1594,7 +2178,8 @@ function notifyInbound() {
     notifyCount++;
     playNotifySound();
     if (window.__enhancements?.SoundManager) { window.__enhancements.SoundManager.play('message'); }
-    if ('Notification' in window && Notification.permission === 'granted') {
+    var browserOn = !!(window.__enhancements?.GlobalNotifier && window.__enhancements.GlobalNotifier._browserNotifEnabled);
+    if (browserOn && 'Notification' in window && Notification.permission === 'granted') {
         new Notification('Nova mensagem de ' + '<?= e($contact['name'] ?? 'cliente') ?>');
     }
     if (document.title !== origTitle) document.title = origTitle;
@@ -1624,24 +2209,40 @@ if ('Notification' in window && Notification.permission === 'default') { Notific
 function pollMeta() {
     fetch(API + '/conversations/' + CONV_ID).then(function(r) { return r.json(); }).then(function(c) {
         if (!c || !c.id) return;
-        var badge = document.querySelector('.chat-header .status-chip');
+        var badge = document.querySelector('.header-chip-status');
         if (badge && c.status) badge.outerHTML = statusBadgeHtml(c.status);
-        var pb = document.querySelector('.chat-header .priority-badge');
+        var pb = document.querySelector('.header-chip-priority');
         if (pb && c.priority) pb.outerHTML = priorityBadgeHtml(c.priority);
+        var sub = document.querySelector('.header-chip-substatus');
+        if (sub) {
+            var txt = sub.querySelector('.chip-text');
+            if (txt) txt.textContent = c.substatus || 'Sub-status';
+            sub.classList.toggle('is-empty', !c.substatus);
+        }
+        var subj = document.querySelector('.header-chip-subject');
+        if (subj) {
+            var txt2 = subj.querySelector('.chip-text');
+            if (txt2) txt2.textContent = c.subject || 'Assunto';
+            subj.classList.toggle('is-empty', !c.subject);
+        }
         var asg = document.getElementById('convAssigned');
         if (asg) asg.textContent = c.assigned_user_name || 'Sem responsável';
     }).catch(function() {});
 }
 function statusBadgeHtml(s) {
-    var map = {new:'Novo',open:'Aberto',waiting_customer:'Em atendimento',waiting_internal:'Aguardando Interno',resolved:'Resolvido',closed:'Fechado',spam:'Spam'};
+    var map = {new:'Novo',open:'Aberto',waiting_customer:'Em atendimento',waiting_internal:'Aguard. Interno',resolved:'Resolvido',closed:'Fechado',spam:'Spam'};
+    var icon = s === 'waiting_customer' ? 'fa-headset' : s === 'new' ? 'fa-bell' : s === 'open' ? 'fa-comments' : s === 'resolved' ? 'fa-check-circle' : s === 'closed' ? 'fa-archive' : s === 'spam' ? 'fa-ban' : 'fa-clock';
     var cls = s === 'open' || s === 'new' ? 'chip-success' : s === 'waiting_customer' ? 'chip-info' : s === 'resolved' || s === 'closed' ? 'chip-neutral' : 'chip-warning';
-    var dot = {'new':'var(--success)','open':'var(--success)','waiting_customer':'var(--info)','waiting_internal':'var(--warning)','resolved':'var(--text-muted)','closed':'var(--text-muted)','spam':'var(--danger)'}[s] || 'var(--success)';
-    return '<span class="status-chip ' + cls + '" onclick="openStatusModal()" title="Clique para alterar status"><span class="status-dot" style="width:8px;height:8px;position:static;border:none;flex-shrink:0;background:' + dot + '"></span>' + (map[s] || s) + '</span>';
+    return '<span class="status-chip header-chip-status ' + cls + '" onclick="openStatusModal()" title="Clique para alterar status"><i class="fas ' + icon + '" style="font-size:11px"></i><span class="chip-text">' + (map[s] || s) + '</span></span>';
 }
-function priorityBadgeHtml(p) { var map = {low:'Baixa',normal:'Normal',high:'Alta',urgent:'Urgente'}; var cls = 'priority-' + p; return '<span class="priority-badge ' + cls + '" onclick="openPriorityModal()" title="Clique para alterar prioridade">' + (map[p] || p) + '</span>'; }
+function priorityBadgeHtml(p) {
+    var map = {low:'Baixa',normal:'Normal',high:'Alta',urgent:'Urgente'};
+    var colors = {urgent:'#d32f2f',high:'#f57c00',low:'#1976d2',normal:'var(--text-secondary)'};
+    return '<button type="button" class="header-chip header-chip-priority" onclick="openPriorityModal()" title="Clique para alterar prioridade"><i class="fas fa-flag" style="color:' + (colors[p] || colors.normal) + '"></i><span class="chip-text">' + (map[p] || p) + '</span><i class="fas fa-chevron-down" style="font-size:9px;opacity:.5;margin-left:auto"></i></button>';
+}
 
 if (window.__convPollInterval) clearInterval(window.__convPollInterval);
-window.__convPollInterval = setInterval(pollMessages, 3000);
+window.__convPollInterval = setInterval(function() { pollMessages(); pollTyping(); }, 3000);
 window.__metaPollInterval = setInterval(pollMeta, 10000);
 pollMessages();
 

@@ -158,18 +158,40 @@ class ConversationService
 
         $conv = Conversation::find($conversationId);
 
-        $newStatus = $conv['assigned_user_id'] ? 'open' : 'new';
-        Conversation::update($conversationId, [
-            'status' => $newStatus,
-            'last_message_at' => date('Y-m-d H:i:s'),
-        ]);
+        // Só reabre se não estiver num estado final
+        $isFinal = in_array($conv['status'], ['closed', 'resolved', 'spam'], true);
+        if (!$isFinal) {
+            $newStatus = $conv['assigned_user_id'] ? 'open' : 'new';
+            Conversation::update($conversationId, [
+                'status' => $newStatus,
+                'last_message_at' => date('Y-m-d H:i:s'),
+            ]);
+        } else {
+            Conversation::update($conversationId, [
+                'last_message_at' => date('Y-m-d H:i:s'),
+            ]);
+        }
 
         Contact::update($conv['contact_id'], ['last_contact_at' => date('Y-m-d H:i:s')]);
 
         $flowState = \App\Models\Flow::getActiveFlowState($conversationId);
+        $flowWillRespond = (bool) $flowState;
         if ($flowState) {
             $flowEngine = new FlowEngineService();
             $flowEngine->handleCustomerMessage($conversationId, $content);
+        }
+
+        // Garante que o atendente seja notificado mesmo em conversas em
+        // chatbot: o NotificationService escolhe o tipo correto
+        // (new_message x new_conversation) conforme o estado da conversa.
+        try {
+            \App\Services\NotificationService::notifyNewMessage(
+                $conversationId,
+                $messageId,
+                $content
+            );
+        } catch (\Throwable $e) {
+            error_log('receiveMessage notify error: ' . $e->getMessage());
         }
 
         $this->maybeSendAbsence($conversationId);

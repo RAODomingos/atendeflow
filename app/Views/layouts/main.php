@@ -24,14 +24,49 @@ $userRole = \App\Core\Session::get('user_role') ?? 'admin';
 $userInitial = mb_strtoupper(mb_substr($userName, 0, 1));
 ?>
 <div class="app<?= $isInbox ? ' app-inbox' : '' ?>" id="app">
-    <aside class="sidebar">
-        <div class="brand">
-            <div class="brand-icon"><i class="fas fa-headset" style="color:#fff"></i></div>
-            <div class="brand-name">AtendeFlow</div>
+    <header class="topbar">
+        <div class="topbar-left">
+            <button class="topbar-toggle" id="sidebarToggle" title="Menu">
+                <i class="fa-solid fa-bars"></i>
+            </button>
+            <div class="topbar-brand">
+                <i class="fas fa-headset" style="color:var(--brand);font-size:18px"></i>
+                AtendeFlow
+            </div>
         </div>
-
-        <div class="nav-section">
-            <div class="nav-label">Principal</div>
+        <div class="topbar-right">
+            <div class="notif-wrapper">
+                <button class="notif-btn" id="notifBtn" title="Notificações">
+                    <i class="fa-regular fa-bell"></i>
+                    <span class="notif-badge" id="notifBadge" style="display:none">0</span>
+                </button>
+                <div class="notif-dropdown" id="notifDropdown">
+                    <div class="notif-header">
+                        <strong>Notificações</strong>
+                        <button class="notif-mark-read" id="notifMarkAllRead">Marcar todas como lidas</button>
+                    </div>
+                    <div class="notif-list" id="notifList"></div>
+                </div>
+            </div>
+            <button class="notif-btn" id="soundToggle" title="Som de notificações" style="margin-left:4px">
+                <i class="fa-solid fa-volume-high"></i>
+            </button>
+            <div class="topbar-user" id="topbarUser">
+                <div class="avatar avatar-sm"><?= $userInitial ?></div>
+                <div class="topbar-user-info">
+                    <div class="topbar-user-name"><?= e($userName) ?></div>
+                    <div class="topbar-user-role"><?= ucfirst($userRole) ?></div>
+                </div>
+                <form method="post" action="<?= url('logout') ?>" style="margin:0;display:flex">
+                    <button type="submit" class="topbar-logout" title="Sair">
+                        <i class="fas fa-sign-out-alt"></i>
+                    </button>
+                </form>
+            </div>
+        </div>
+    </header>
+    <aside class="sidebar">
+        <div class="nav-section" style="margin-top:0">
             <a href="<?= route('dashboard') ?>" class="nav-item <?= $activePage === 'dashboard' ? 'active' : '' ?>">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/></svg>
                 Dashboard
@@ -69,11 +104,7 @@ $userInitial = mb_strtoupper(mb_substr($userName, 0, 1));
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M4 21v-1a7 7 0 0114 0v1"/></svg>
                 Minha Caixa
             </a>
-            <a href="<?= route('inbox.chatbot') ?>" class="nav-item <?= $activePage === 'inbox_chatbot' ? 'active' : '' ?>">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="7" width="16" height="13" rx="2"/><path d="M9 7V5a3 3 0 016 0v2"/></svg>
-                Chatbot
-                <?php if ($chatbotBadge > 0): ?><span class="nav-badge"><?= $chatbotBadge ?></span><?php endif; ?>
-            </a>
+
             <?php foreach ($personalInboxes as $ib): ?>
                 <a href="<?= url('inbox?inbox=' . $ib['id']) ?>" class="nav-item nav-sub <?= (($_GET['inbox'] ?? '') == $ib['id']) ? 'active' : '' ?>">
                     <i class="fa-solid fa-lock" style="font-size:14px;width:17px;text-align:center"></i>
@@ -163,35 +194,6 @@ $userInitial = mb_strtoupper(mb_substr($userName, 0, 1));
         </div>
         <?php endif; ?>
 
-        <div class="sidebar-bottom">
-            <div class="user-mini">
-                <div class="avatar avatar-sm"><?= $userInitial ?></div>
-                <div>
-                    <div class="user-mini-name"><?= e($userName) ?></div>
-                    <div class="user-mini-role"><?= ucfirst($userRole) ?></div>
-                </div>
-                <div class="notif-wrapper" style="margin-left:auto">
-                    <button class="notif-btn" id="notifBtn" title="Notificações">
-                        <i class="fa-regular fa-bell"></i>
-                        <span class="notif-badge" id="notifBadge" style="display:none">0</span>
-                    </button>
-                    <div class="notif-dropdown" id="notifDropdown">
-                        <div class="notif-header">
-                            <strong>Notificações</strong>
-                            <button class="notif-mark-read" id="notifMarkAllRead">Marcar todas como lidas</button>
-                        </div>
-                        <div class="notif-list" id="notifList"></div>
-                    </div>
-                </div>
-            </div>
-            <form method="post" action="<?= url('logout') ?>" style="margin:0;">
-                <?= csrf_field() ?>
-                <button type="submit" class="sidebar-logout">
-                    <i class="fas fa-sign-out-alt"></i>
-                    <span>Sair</span>
-                </button>
-            </form>
-        </div>
     </aside>
 
     <?php if (!$isInbox): ?>
@@ -248,40 +250,48 @@ $userInitial = mb_strtoupper(mb_substr($userName, 0, 1));
 (function(){
     var notifBtn=document.getElementById('notifBtn'),notifDropdown=document.getElementById('notifDropdown'),
         notifBadge=document.getElementById('notifBadge'),notifList=document.getElementById('notifList'),
-        markAllBtn=document.getElementById('notifMarkAllRead');
+        markAllBtn=document.getElementById('notifMarkAllRead'),
+        soundBtn=document.getElementById('soundToggle');
     if(!notifBtn)return;
     var baseUrl=document.querySelector('meta[name="base-url"]')?.content||'';
     var channelIcons={whatsapp:'fab fa-whatsapp',webchat:'fas fa-comment-dots',email:'fas fa-envelope',telegram:'fab fa-telegram',facebook:'fab fa-facebook',instagram:'fab fa-instagram',phone:'fas fa-phone'};
+    var typeIcons={mention:'fa-at',assignment:'fa-user-plus',new_message:'fa-comment',new_conversation:'fa-comments',transfer:'fa-share',status_change:'fa-circle-info',system:'fa-gear'};
     function esc(s){if(s==null)return'';var d=document.createElement('div');d.textContent=String(s);return d.innerHTML;}
     function timeAgo(dt){if(!dt)return'';var d=new Date(String(dt).replace(' ','T'));if(isNaN(d))return'';var n=new Date(),s=Math.floor((n-d)/1000);if(s<60)return'agora';var m=Math.floor(s/60);if(m<60)return m+'m';var h=Math.floor(m/60);if(h<24)return h+'h';var dy=Math.floor(h/24);if(dy<30)return dy+'d';return d.toLocaleDateString('pt-BR');}
     function trunc(s,l){if(!s)return'Sem mensagens';if(s.length<=l)return s;return s.substring(0,l)+'...';}
     function fetchUnreadConversations(){return fetch(baseUrl+'/api/unread-conversations',{headers:{'X-Requested-With':'XMLHttpRequest'}}).then(function(r){return r.json()}).catch(function(){return{conversations:[],total_unread:0}});}
-    function fetchNotifications(){return fetch(baseUrl+'/notifications?limit=10',{headers:{'X-Requested-With':'XMLHttpRequest'}}).then(function(r){return r.json()}).catch(function(){return{notifications:[],unread_count:0}});}
+    function fetchNotifications(){return fetch(baseUrl+'/api/notifications/dropdown',{headers:{'X-Requested-With':'XMLHttpRequest'}}).then(function(r){return r.json()}).catch(function(){return{notifications:[],unread_count:0}});}
+    function renderConvItem(c){
+        var ci=channelIcons[c.channel_type]||'fas fa-comment-dots',cc=c.channel_type==='whatsapp'?'#25D366':c.channel_type==='webchat'?'#4361ee':c.channel_type==='email'?'#f59e0b':'#6c757d';
+        var init=(c.contact_name||'?').charAt(0).toUpperCase();
+        var av=c.contact_avatar?'<img class="notif-msg-avatar" src="'+(c.contact_avatar.indexOf('http')===0?'':baseUrl+'/uploads/')+esc(c.contact_avatar)+'" alt="">':'<div class="notif-msg-avatar">'+esc(init)+'</div>';
+        return '<a href="'+baseUrl+'/inbox?conv='+c.id+'" class="notif-msg-item">'+av+'<div class="notif-msg-content"><div class="notif-msg-header"><span class="notif-msg-name">'+esc(c.contact_name||'Cliente')+'</span><span class="notif-msg-channel" style="color:'+cc+'"><i class="'+ci+'"></i></span><span class="notif-msg-time">'+timeAgo(c.last_message_at||c.created_at)+'</span></div><div class="notif-msg-preview">'+esc(trunc(c.last_message,100))+'</div>'+(c.unread_count>1?'<span class="notif-msg-count">'+c.unread_count+' mensagens</span>':'')+'</div></a>';
+    }
+    function renderNotifItem(n){
+        var icon=typeIcons[n.notification_type]||'fa-bell';
+        var link=n.conversation_id?baseUrl+'/inbox?conv='+n.conversation_id:'#';
+        return '<a href="'+link+'" class="notif-msg-item notif-struct"><div class="notif-msg-avatar notif-msg-icon"><i class="fa-solid '+icon+'"></i></div><div class="notif-msg-content"><div class="notif-msg-header"><span class="notif-msg-name">'+esc(n.title||'Notificação')+'</span><span class="notif-msg-time">'+timeAgo(n.created_at)+'</span></div>'+(n.body?'<div class="notif-msg-preview">'+esc(n.body)+'</div>':'')+'</div></a>';
+    }
     function renderDropdown(){
         notifList.innerHTML='<div class="notif-loading"><i class="fas fa-spinner fa-spin"></i> Carregando...</div>';
-        Promise.all([fetchUnreadConversations(),fetchNotifications()]).then(function(r){
-            var convs=r[0].conversations||[],notifs=r[1].notifications||[],html='';
-            if(convs.length){
-                html+='<div class="notif-section-label"><i class="fas fa-comment-dots"></i> Mensagens não lidas</div>';
-                convs.forEach(function(c){
-                    var ci=channelIcons[c.channel_type]||'fas fa-comment-dots',cc=c.channel_type==='whatsapp'?'#25D366':c.channel_type==='webchat'?'#4361ee':c.channel_type==='email'?'#f59e0b':'#6c757d';
-                    var init=(c.contact_name||'?').charAt(0).toUpperCase();
-                    var av=c.contact_avatar?'<img class="notif-msg-avatar" src="'+(c.contact_avatar.indexOf('http')===0?'':baseUrl+'/uploads/')+esc(c.contact_avatar)+'" alt="">':'<div class="notif-msg-avatar">'+esc(init)+'</div>';
-                    html+='<a href="'+baseUrl+'/inbox/'+c.id+'" class="notif-msg-item">'+av+'<div class="notif-msg-content"><div class="notif-msg-header"><span class="notif-msg-name">'+esc(c.contact_name||'Cliente')+'</span><span class="notif-msg-channel" style="color:'+cc+'"><i class="'+ci+'"></i></span><span class="notif-msg-time">'+timeAgo(c.last_message_at||c.created_at)+'</span></div><div class="notif-msg-preview">'+esc(trunc(c.last_message,100))+'</div>'+(c.unread_count>1?'<span class="notif-msg-count">'+c.unread_count+' mensagens</span>':'')+'</div></a>';
-                });
-                html+='<div class="notif-section-divider"></div>';
-            }
+        var promises=[fetchUnreadConversations(), fetchNotifications()];
+        Promise.all(promises).then(function(results){
+            var convs=(results[0]&&results[0].conversations)||[];
+            var notifs=(results[1]&&results[1].notifications)||[];
+            var html='';
             if(notifs.length){
-                html+='<div class="notif-section-label"><i class="fas fa-bell"></i> Notificações</div>';
-                notifs.forEach(function(n){
-                    var u=!n.is_read;
-                    html+='<div class="notif-item'+(u?' notif-unread':'')+'" data-id="'+n.id+'"><div class="notif-icon"><i class="fa-solid fa-'+(n.notification_type==='mention'?'at':'user-plus')+'"></i></div><div class="notif-content"><div class="notif-title">'+esc(n.title||'')+'</div><div class="notif-body">'+esc(n.body||'')+'</div><div class="notif-time">'+timeAgo(n.created_at)+'</div></div>'+(u?'<button class="notif-mark-one" data-id="'+n.id+'"><i class="fa-solid fa-check"></i></button>':'')+'</div>';
-                });
+                html+='<div class="notif-section-label"><i class="fa-solid fa-bell"></i> Menções e atribuições</div>';
+                notifs.forEach(function(n){ html+=renderNotifItem(n); });
             }
-            if(!convs.length&&!notifs.length)html='<div class="notif-empty">Nenhuma notificação</div>';
+            if(convs.length){
+                html+='<div class="notif-section-label"><i class="fas fa-comment-dots"></i> Conversas não lidas</div>';
+                convs.forEach(function(c){ html+=renderConvItem(c); });
+            }
+            if(!html){
+                html='<div class="notif-empty">Nenhuma notificação no momento</div>';
+            }
             notifList.innerHTML=html;
-            notifList.querySelectorAll('.notif-mark-one').forEach(function(b){b.addEventListener('click',function(e){e.stopPropagation();var id=b.dataset.id;fetch(baseUrl+'/notifications/'+id+'/read',{method:'POST',headers:{'X-Requested-With':'XMLHttpRequest'},body:new URLSearchParams({_csrf_token:window.utils?.csrf()||''})}).then(function(){var i=b.closest('.notif-item');if(i){i.classList.remove('notif-unread');b.remove();}}).catch(function(){})});});
-        }).catch(function(){notifList.innerHTML='<div class="notif-empty">Erro ao carregar notificações</div>';});
+        }).catch(function(){notifList.innerHTML='<div class="notif-empty">Erro ao carregar</div>';});
     }
     notifBtn.addEventListener('click',function(e){
         e.stopPropagation();var o=notifDropdown.classList.contains('open');
@@ -289,19 +299,52 @@ $userInitial = mb_strtoupper(mb_substr($userName, 0, 1));
         if(!o){notifDropdown.classList.add('open');renderDropdown();}
     });
     if(markAllBtn)markAllBtn.addEventListener('click',function(){
-        fetch(baseUrl+'/notifications/read-all',{method:'POST',headers:{'X-Requested-With':'XMLHttpRequest'},body:new URLSearchParams({_csrf_token:window.utils?.csrf()||''})}).then(function(){notifList.querySelectorAll('.notif-item.notif-unread').forEach(function(i){i.classList.remove('notif-unread');var m=i.querySelector('.notif-mark-one');if(m)m.remove();});}).catch(function(){});
+        fetch(baseUrl+'/api/messages/read-all',{method:'POST',headers:{'X-Requested-With':'XMLHttpRequest'}}).then(function(){
+            notifList.innerHTML='<div class="notif-empty">Nenhuma notificação no momento</div>';
+            if(window.__enhancements&&window.__enhancements.GlobalNotifier){
+                window.__enhancements.GlobalNotifier.lastUnreadConversations=0;
+                window.__enhancements.GlobalNotifier.lastUnreadNotifications=0;
+                window.__enhancements.GlobalNotifier._updateBadge(0);
+            }
+        }).catch(function(){});
     });
+    if(soundBtn){
+        var refreshIcon=function(){
+            var on=window.__enhancements&&window.__enhancements.SoundManager&&window.__enhancements.SoundManager.isEnabled();
+            soundBtn.innerHTML=on?'<i class="fa-solid fa-volume-high"></i>':'<i class="fa-solid fa-volume-xmark"></i>';
+            soundBtn.style.opacity=on?'1':'0.55';
+        };
+        refreshIcon();
+        soundBtn.addEventListener('click',function(e){
+            e.stopPropagation();
+            var sm=window.__enhancements&&window.__enhancements.SoundManager;
+            var gn=window.__enhancements&&window.__enhancements.GlobalNotifier;
+            if(!sm)return;
+            var willEnable=!sm.isEnabled();
+            sm.toggle();
+            if(gn){gn.savePreferences({sound_enabled:willEnable});}
+            refreshIcon();
+        });
+    }
     document.addEventListener('click',function(){notifDropdown.classList.remove('open');});
     notifDropdown.addEventListener('click',function(e){e.stopPropagation();});
 })();
 (function(){
-    var overlay=document.getElementById('sidebarOverlay');
-    if(!overlay)return;
+    var toggle=document.getElementById('sidebarToggle');
     var sidebar=document.querySelector('.sidebar');
-    function closeSidebar(){sidebar?.classList.remove('open');overlay.style.display='none';overlay.classList.remove('open');}
-    overlay.addEventListener('click',closeSidebar);
+    var overlay=document.getElementById('sidebarOverlay');
+    if(toggle&&sidebar&&overlay){
+        toggle.addEventListener('click',function(){sidebar.classList.toggle('open');overlay.classList.toggle('open');});
+        overlay.addEventListener('click',function(){sidebar.classList.remove('open');overlay.classList.remove('open');});
+    }
+})();
+(function(){
+    var sidebarEl=document.querySelector('.sidebar');
+    var overlayEl=document.getElementById('sidebarOverlay');
+    if(!overlayEl)return;
+    function closeSidebar(){sidebarEl?.classList.remove('open');overlayEl.style.display='none';overlayEl.classList.remove('open');}
     document.addEventListener('click',function(e){
-        if(window.innerWidth<=768&&!e.target.closest('.sidebar')&&!e.target.closest('.notif-btn')&&!e.target.closest('.notif-dropdown')){
+        if(window.innerWidth<=768&&!e.target.closest('.sidebar')&&!e.target.closest('.topbar-toggle')&&!e.target.closest('.notif-btn')&&!e.target.closest('.notif-dropdown')){
             closeSidebar();
         }
     });

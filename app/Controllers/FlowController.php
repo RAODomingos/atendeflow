@@ -28,6 +28,13 @@ class FlowController
         $departments = Department::all();
         $tags = Database::getInstance()->fetchAll("SELECT * FROM tags ORDER BY name");
         $users = \App\Models\User::all();
+        $whatsappChannels = Database::getInstance()->fetchAll(
+            "SELECT c.id, c.name, wc.instance_name
+             FROM channels c
+             JOIN whatsapp_connections wc ON wc.channel_id = c.id
+             WHERE c.type = 'whatsapp' AND c.is_active = 1
+             ORDER BY c.name"
+        );
 
         View::renderWithLayout('flows/form', 'main', [
             'title' => 'Novo Fluxo',
@@ -36,6 +43,7 @@ class FlowController
             'departments' => $departments,
             'tags' => $tags,
             'users' => $users,
+            'whatsappChannels' => $whatsappChannels,
         ]);
     }
 
@@ -71,6 +79,13 @@ class FlowController
         $departments = Department::all();
         $tags = Database::getInstance()->fetchAll("SELECT * FROM tags ORDER BY name");
         $users = \App\Models\User::all();
+        $whatsappChannels = Database::getInstance()->fetchAll(
+            "SELECT c.id, c.name, wc.instance_name
+             FROM channels c
+             JOIN whatsapp_connections wc ON wc.channel_id = c.id
+             WHERE c.type = 'whatsapp' AND c.is_active = 1
+             ORDER BY c.name"
+        );
 
         View::renderWithLayout('flows/form', 'main', [
             'title' => 'Editar Fluxo: ' . $flow['name'],
@@ -79,6 +94,7 @@ class FlowController
             'departments' => $departments,
             'tags' => $tags,
             'users' => $users,
+            'whatsappChannels' => $whatsappChannels,
         ]);
     }
 
@@ -273,6 +289,21 @@ class FlowController
                     }
                     break;
 
+                case 'day_of_week':
+                    if (empty($config['days']) || !is_array($config['days'])) {
+                        $errors[] = "Nó day_of_week deve ter pelo menos um dia selecionado";
+                    }
+                    break;
+
+                case 'time_range':
+                    if (empty($config['start_time'])) {
+                        $errors[] = "Nó time_range deve ter horário início definido";
+                    }
+                    if (empty($config['end_time'])) {
+                        $errors[] = "Nó time_range deve ter horário fim definido";
+                    }
+                    break;
+
                 case 'assign_department':
                     if (empty($config['department_id'])) {
                         $errors[] = "Nó assign_department deve ter department_id definido";
@@ -291,6 +322,17 @@ class FlowController
                     }
                     break;
 
+                case 'notify':
+                    $phones = $config['phones'] ?? (isset($config['phone_number']) ? [$config['phone_number']] : []);
+                    $validPhones = array_filter($phones, fn($p) => strlen(preg_replace('/\D/', '', $p)) >= 10);
+                    if (empty($validPhones)) {
+                        $errors[] = "Nó notify deve ter pelo menos um telefone destino válido (mín. 10 dígitos)";
+                    }
+                    if (empty($config['message_template'])) {
+                        $errors[] = "Nó notify deve ter mensagem definida";
+                    }
+                    break;
+
                 case 'image':
                 case 'audio':
                 case 'video':
@@ -301,6 +343,11 @@ class FlowController
                     if (!filter_var($config['file_url'] ?? '', FILTER_VALIDATE_URL)) {
                         $errors[] = "Nó {$type} deve ter URL válida";
                     }
+                    break;
+
+                case 'end':
+                case 'finish':
+                    // Sem validação adicional
                     break;
             }
         }

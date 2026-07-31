@@ -67,35 +67,71 @@ class Notification
     }
 
     /**
+     * Mantido por compatibilidade: delega ao NotificationService.
      * Cria notificação de @menção para um usuário
      */
     public static function mention(int $fromUserId, int $toUserId, int $conversationId, string $message): int
     {
-        $from = \App\Models\User::find($fromUserId);
-        return self::create([
-            'user_id' => $toUserId,
-            'notification_type' => 'mention',
-            'title' => ($from['name'] ?? 'Alguém') . ' mencionou você',
-            'body' => mb_substr($message, 0, 200),
-            'conversation_id' => $conversationId,
-            'metadata' => json_encode(['from_user_id' => $fromUserId]),
-        ]);
+        $id = \App\Services\NotificationService::notifyMention($fromUserId, $toUserId, $conversationId, $message);
+        return $id ?? 0;
     }
 
     /**
+     * Mantido por compatibilidade: delega ao NotificationService.
      * Cria notificação de atribuição de conversa
      */
     public static function assigned(int $toUserId, int $conversationId, int $assignedByUserId): int
     {
-        $conv = \App\Models\Conversation::find($conversationId);
-        $by = \App\Models\User::find($assignedByUserId);
-        return self::create([
-            'user_id' => $toUserId,
-            'notification_type' => 'assignment',
-            'title' => 'Conversa atribuída a você',
-            'body' => ($by['name'] ?? 'Sistema') . ' lhe atribuiu: ' . ($conv['contact_name'] ?? "Conversa #{$conversationId}"),
-            'conversation_id' => $conversationId,
-            'metadata' => json_encode(['assigned_by' => $assignedByUserId]),
-        ]);
+        $id = \App\Services\NotificationService::notifyAssigned($toUserId, $conversationId, $assignedByUserId);
+        return $id ?? 0;
+    }
+
+    /**
+     * Lista as notificações estruturadas para o dropdown do sino, juntando
+     * menções/atribuições com conversas não lidas do mesmo usuário.
+     */
+    public static function getForDropdown(int $userId, int $limit = 10): array
+    {
+        $rows = \App\Core\Database::getInstance()->fetchAll(
+            "SELECT n.id, n.notification_type, n.title, n.body, n.conversation_id,
+                    n.is_read, n.created_at, n.metadata
+             FROM notifications n
+             WHERE n.user_id = ? AND n.is_read = 0
+             ORDER BY n.id DESC
+             LIMIT " . (int) $limit,
+            [$userId]
+        );
+
+        foreach ($rows as &$r) {
+            if (!empty($r['conversation_id'])) {
+                $conv = \App\Core\Database::getInstance()->fetch(
+                    "SELECT ct.name as contact_name, ch.type as channel_type, ch.name as channel_name,
+                            c.status, c.last_message_at
+                     FROM conversations c
+                     JOIN contacts ct ON ct.id = c.contact_id
+                     LEFT JOIN channels ch ON ch.id = c.channel_id
+                     WHERE c.id = ?",
+                    [$r['conversation_id']]
+                );
+                if ($conv) {
+                    $r['contact_name'] = $conv['contact_name'] ?? null;
+                    $r['channel_type'] = $conv['channel_type'] ?? null;
+                    $r['channel_name'] = $conv['channel_name'] ?? null;
+                    $r['conv_status'] = $conv['status'] ?? null;
+                    $r['last_message_at'] = $conv['last_message_at'] ?? null;
+                }
+            }
+        }
+
+        return $rows;
+    }
+
+    /**
+     * Marca como lidas todas as notificações das conversas em que o usuário
+     * está envolvido. Chamado ao abrir a inbox / carregar uma conversa.
+     */
+    public static function markConversationNotificationsRead(int $conversationId, int $userId): int
+    {
+        return \App\Services\NotificationService::markConversationNotificationsRead($conversationId, $userId);
     }
 }

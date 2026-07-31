@@ -90,7 +90,7 @@ class FlowEngineService
 
         if (in_array($currentNode['node_type'], ['menu', 'button_list', 'list_menu'], true)) {
             $this->handleMenuResponse($conversationId, $currentNode, $messageText, $flow);
-        } elseif ($currentNode['node_type'] === 'question') {
+        } elseif (in_array($currentNode['node_type'], ['question', 'collect_field'], true)) {
             $this->handleQuestionResponse($conversationId, $currentNode, $messageText, $flow);
         }
     }
@@ -325,6 +325,68 @@ class FlowEngineService
                 Flow::completeFlowState($conversationId);
                 break;
 
+            case 'day_of_week':
+                $config = $node['config'] ?? [];
+                $selectedDays = $config['days'] ?? [1,2,3,4,5];
+                $currentDay = (int) date('w');
+                $matched = in_array($currentDay, $selectedDays);
+                $this->logExecution($conversationId, $node['flow_id'], $node['id'], 'day_of_week', [
+                    'current' => $currentDay,
+                    'selected' => $selectedDays,
+                    'matched' => $matched,
+                ]);
+                if ($matched && !empty($node['options'])) {
+                    $nextNodeId = $node['options'][0]['next_node_id'];
+                } else {
+                    $nextNodeId = $node['options'][1]['next_node_id'] ?? ($node['options'][0]['next_node_id'] ?? null);
+                }
+                if ($nextNodeId) {
+                    $f = Flow::find($node['flow_id']);
+                    if ($f) {
+                        foreach ($f['nodes'] as $n) {
+                            if ($n['id'] === $nextNodeId) {
+                                Flow::saveFlowState($conversationId, $f['id'], $nextNodeId);
+                                $this->executeNode($conversationId, $n);
+                                return;
+                            }
+                        }
+                    }
+                }
+                Flow::completeFlowState($conversationId);
+                break;
+
+            case 'time_range':
+                $config = $node['config'] ?? [];
+                $start = $config['start_time'] ?? '08:00';
+                $end = $config['end_time'] ?? '18:00';
+                $now = date('H:i');
+                $matched = $now >= $start && $now <= $end;
+                $this->logExecution($conversationId, $node['flow_id'], $node['id'], 'time_range', [
+                    'now' => $now,
+                    'start' => $start,
+                    'end' => $end,
+                    'matched' => $matched,
+                ]);
+                if ($matched && !empty($node['options'])) {
+                    $nextNodeId = $node['options'][0]['next_node_id'];
+                } else {
+                    $nextNodeId = $node['options'][1]['next_node_id'] ?? ($node['options'][0]['next_node_id'] ?? null);
+                }
+                if ($nextNodeId) {
+                    $f = Flow::find($node['flow_id']);
+                    if ($f) {
+                        foreach ($f['nodes'] as $n) {
+                            if ($n['id'] === $nextNodeId) {
+                                Flow::saveFlowState($conversationId, $f['id'], $nextNodeId);
+                                $this->executeNode($conversationId, $n);
+                                return;
+                            }
+                        }
+                    }
+                }
+                Flow::completeFlowState($conversationId);
+                break;
+
             case 'assign_department':
                 $config = $node['config'] ?? [];
                 $departmentId = $config['department_id'] ?? null;
@@ -359,6 +421,35 @@ class FlowEngineService
                 $this->goToNextNode($conversationId, $node);
                 break;
 
+            case 'notify':
+                $config = $node['config'] ?? [];
+                $phones = $config['phones'] ?? (isset($config['phone_number']) ? [$config['phone_number']] : []);
+                $template = $config['message_template'] ?? '';
+
+                if (!empty($phones) && $template) {
+                    $message = $this->processTemplate($template, $conv);
+                    $channelId = $config['notify_channel_id'] ?? $conv['channel_id'] ?? null;
+
+                    if ($channelId) {
+                        $waService = new \App\Services\WhatsAppService();
+                        $sent = [];
+                        foreach ($phones as $phone) {
+                            $phoneClean = preg_replace('/\D/', '', $phone);
+                            if (strlen($phoneClean) < 10) continue;
+                            $result = $waService->sendToPhone((int) $channelId, $phoneClean, $message);
+                            if ($result) $sent[] = $phoneClean;
+                        }
+                        $this->logExecution($conversationId, $node['flow_id'] ?? 0, $node['id'], 'notify_sent', [
+                            'phones' => $phones,
+                            'sent_count' => count($sent),
+                        ]);
+                        Conversation::addEvent($conversationId, 'flow_notification',
+                            "Notificação enviada para " . count($sent) . " número(s)");
+                    }
+                }
+                $this->goToNextNode($conversationId, $node);
+                break;
+
             case 'handoff':
                 $this->dispatchOutboundMessage($conversationId, 'text', $node['content'] ?? 'Um de nossos atendentes vai atender você em breve.');
                 Conversation::update($conversationId, ['status' => 'new']);
@@ -370,6 +461,17 @@ class FlowEngineService
             case 'end':
                 Flow::completeFlowState($conversationId);
                 Conversation::addEvent($conversationId, 'flow_completed', 'Fluxo finalizado');
+                break;
+
+            case 'finish':
+                Flow::completeFlowState($conversationId);
+                $updResult = Conversation::update($conversationId, [
+                    'status' => 'closed',
+                    'close_reason' => 'system',
+                    'closed_at' => date('Y-m-d H:i:s'),
+                ]);
+                error_log("FINISH_NODE: conversation #{$conversationId} update result={$updResult}");
+                Conversation::addEvent($conversationId, 'flow_completed', 'Fluxo finalizado, conversa encerrada pelo sistema');
                 break;
         }
     }
@@ -508,7 +610,12 @@ class FlowEngineService
     private function processTemplate(string $content, array $conversation): string
     {
         $contact = Contact::find($conversation['contact_id'] ?? 0);
-        
+
+        $lastMsg = Database::getInstance()->fetch(
+            "SELECT content FROM messages WHERE conversation_id = ? AND direction = 'inbound' ORDER BY id DESC LIMIT 1",
+            [$conversation['id']]
+        );
+
         $replacements = [
             '{nome}' => $contact['name'] ?? $conversation['contact_name'] ?? 'Cliente',
             '{email}' => $contact['email'] ?? $conversation['contact_email'] ?? '',
@@ -517,6 +624,7 @@ class FlowEngineService
             '{atendente}' => $conversation['assigned_user_name'] ?? 'Atendente',
             '{empresa}' => $contact['company'] ?? '',
             '{documento}' => $contact['document'] ?? '',
+            '{mensagem}' => $lastMsg['content'] ?? '',
             '{data}' => date('d/m/Y'),
             '{hora}' => date('H:i'),
             '{data_hora}' => date('d/m/Y H:i'),
@@ -643,11 +751,11 @@ class FlowEngineService
             [$cutoffDate]
         );
 
-        // Limpar respostas de fluxo antigas (opcional, manter histórico)
+        $cutoffDate2 = date('Y-m-d H:i:s', strtotime("-" . ($cleanupDays * 2) . " days"));
         Database::getInstance()->execute(
             "DELETE FROM flow_answers 
              WHERE created_at < ?",
-            [date('Y-m-d H:i:s', strtotime("-{$cleanupDays * 2} days"))]
+            [$cutoffDate2]
         );
     }
 }

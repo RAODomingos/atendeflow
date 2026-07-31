@@ -65,6 +65,11 @@ class InboxController
             $detail = $this->getConversationDetail((int) $convId);
             if ($detail) {
                 Conversation::markMessagesAsRead((int) $convId, Auth::id());
+                $convStatus = $detail['conversation']['status'] ?? '';
+                if (in_array($convStatus, ['resolved', 'closed', 'spam']) && $statusFilter === 'active') {
+                    $statusFilter = 'resolved_closed';
+                    $filters['status'] = 'resolved_closed';
+                }
             }
         }
 
@@ -154,6 +159,7 @@ class InboxController
             return;
         }
         Conversation::markMessagesAsRead($id, Auth::id());
+        \App\Models\Notification::markConversationNotificationsRead($id, Auth::id());
         View::render('inbox/panel', $detail);
     }
 
@@ -193,6 +199,15 @@ class InboxController
     public function chatbot(Request $request): void
     {
         $conversations = Conversation::getChatbotConversations(Auth::id());
+        $botCount = 0;
+        $attendingCount = 0;
+        foreach ($conversations as $c) {
+            if (empty($c['assigned_user_id'])) {
+                $botCount++;
+            } else {
+                $attendingCount++;
+            }
+        }
         View::renderWithLayout('inbox/index', 'main', [
             'title' => 'Chatbot',
             'activePage' => 'chatbot',
@@ -203,6 +218,8 @@ class InboxController
             'activeTab' => 'chatbot',
             'inboxes' => Inbox::getUserInboxes(Auth::id()),
             'channels' => \App\Models\Channel::getWhatsapp(),
+            'botCount' => $botCount,
+            'attendingCount' => $attendingCount,
         ]);
     }
 
@@ -241,6 +258,7 @@ class InboxController
         $departments = Department::all();
 
         Conversation::markMessagesAsRead($id, Auth::id());
+        \App\Models\Notification::markConversationNotificationsRead($id, Auth::id());
 
         $unread = Conversation::getUnreadCount(Auth::id());
 
@@ -450,6 +468,10 @@ class InboxController
             $description = trim((string) $request->post('description'));
             $this->conversationService->changeStatus($id, $status, $reason ?: null, $description ?: null);
         }
+        if ($request->isAjax() || $request->wantsJson()) {
+            View::json(['ok' => true, 'status' => $status]);
+            return;
+        }
         View::redirect("/inbox?conv={$id}");
     }
 
@@ -541,6 +563,12 @@ class InboxController
         View::json($conversations);
     }
 
+    public function apiChatbotConversations(Request $request): void
+    {
+        $conversations = Conversation::getChatbotConversations(Auth::id());
+        View::json($conversations);
+    }
+
     public function apiCreateConversation(Request $request): void
     {
         $contactId = (int) $request->post('contact_id');
@@ -604,6 +632,7 @@ class InboxController
         $messages = Conversation::getMessages($id, $opts);
         if (!$before) {
             Conversation::markMessagesAsRead($id, Auth::id());
+            \App\Models\Notification::markConversationNotificationsRead($id, Auth::id());
         }
         View::json($messages);
     }
@@ -635,6 +664,10 @@ class InboxController
         if (in_array($priority, ['low', 'normal', 'high', 'urgent'], true)) {
             Conversation::update($id, ['priority' => $priority]);
             Conversation::addEvent($id, 'priority_changed', "Prioridade alterada para: {$priority}", Auth::id());
+        }
+        if ($request->isAjax() || $request->wantsJson()) {
+            View::json(['ok' => true, 'priority' => $priority]);
+            return;
         }
         View::redirect("/inbox?conv={$id}");
     }
@@ -749,21 +782,6 @@ class InboxController
         }
         Session::setFlash('success', $until ? 'Atendimento agendado.' : 'Agendamento cancelado.');
         View::redirect('/inbox');
-    }
-
-    public function csat(Request $request, int $id): void
-    {
-        $rating = (int) $request->post('rating');
-        $comment = trim((string) $request->post('comment'));
-        if ($rating >= 1 && $rating <= 5) {
-            Conversation::addCsat($id, $rating, $comment);
-        }
-        if ($this->isAjax($request)) {
-            View::json(['success' => true]);
-            return;
-        }
-        Session::setFlash('success', 'Avaliação registrada.');
-        View::redirect("/inbox?conv={$id}");
     }
 
     public function merge(Request $request, int $id): void

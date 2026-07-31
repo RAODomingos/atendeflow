@@ -436,6 +436,32 @@
 .afw-list-menu { margin-top: 8px; display: flex; flex-direction: column; gap: 4px; }
 .afw-list-title { font-size: 11px; font-weight: 600; color: var(--afw-text-soft); text-transform: uppercase; letter-spacing: .3px; margin-bottom: 2px; }
 
+/* ── Finalização do atendimento ──────────────────────────── */
+.afw-ended-wrap {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 0 4px;
+    align-self: center;
+}
+.afw-start-new-btn {
+    display: inline-block;
+    padding: 12px 28px;
+    border-radius: 12px;
+    background: var(--afw-primary);
+    color: #fff;
+    font-size: 14px;
+    font-weight: 600;
+    font-family: inherit;
+    cursor: pointer;
+    transition: background .18s, transform .1s;
+    border: none;
+    text-align: center;
+}
+.afw-start-new-btn:hover { background: var(--afw-primary-dark); }
+.afw-start-new-btn:active { transform: scale(.985); }
+
 /* ── Mobile (bottom sheet) ───────────────────────────────── */
 @media (max-width: 480px) {
     .afw-panel {

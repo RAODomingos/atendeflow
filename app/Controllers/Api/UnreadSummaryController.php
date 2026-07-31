@@ -20,10 +20,12 @@ class UnreadSummaryController
 
         $unreadMessages = Conversation::getUnreadCount($userId);
         $unreadNotifications = Notification::getUnreadCount($userId);
+        $unreadConversations = Conversation::getUnreadConversationsCount($userId);
 
         View::json([
             'unread_messages' => $unreadMessages,
             'unread_notifications' => $unreadNotifications,
+            'unread_conversations' => $unreadConversations,
             'total' => $unreadMessages + $unreadNotifications,
         ]);
     }

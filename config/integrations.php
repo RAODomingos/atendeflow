@@ -16,10 +16,14 @@ return [
         // registrado no WhatsAppManager.
         'providers' => [
             'waha' => [
-                // URL base da API WAHA (sem barra final). Ex.: http://localhost:3000
                 'base_url' => env('WAHA_BASE_URL', 'http://localhost:3000'),
-                // API Key do WAHA (necessária para todas as requisições).
                 'api_key' => env('WAHA_API_KEY', ''),
+            ],
+            'uazapi' => [
+                // URL base da API Uazapi (ex.: https://free.uazapi.com)
+                'base_url' => env('UAZAPI_BASE_URL', 'https://free.uazapi.com'),
+                // Token de administrador para criar instâncias
+                'admin_token' => env('UAZAPI_ADMIN_TOKEN', ''),
             ],
         ],
     ],

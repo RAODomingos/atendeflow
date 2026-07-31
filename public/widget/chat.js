@@ -607,6 +607,9 @@
                 var r2 = await fetch(API_BASE + '/api/webchat/messages?' + new URLSearchParams({ session_id: sessionId }));
                 var d2 = await r2.json();
                 hideTyping();
+                if (d2.conversation && (d2.conversation.status === 'closed' || d2.conversation.status === 'resolved')) {
+                    started = false;
+                    composer.classList.remove('show');
                     if (d2.messages && d2.messages.length) {
                         d2.messages
                             .filter(function (m) { return m.type !== 'system' && m.type !== 'internal_note'; })
@@ -614,17 +617,36 @@
                                 if (m.direction === 'outbound' && !m.content) return;
                                 renderMsg(m.content, m.direction === 'inbound', m.user_name || TITLE, m.avatar_url || AVATAR, m.type, m.content, fmtTime(m.created_at));
                             });
-                        lastPoll = d2.messages[d2.messages.length - 1].created_at;
                     }
+                    renderMsg('Atendimento Finalizado', false, TITLE, AVATAR);
+                    var endBtn = document.createElement('div');
+                    endBtn.className = 'afw-ended-wrap';
+                    endBtn.innerHTML = '<button class="afw-start-new-btn" onclick="AFW.restart()">Iniciar novo atendimento</button>';
+                    messagesEl.appendChild(endBtn);
+                    scrollToBottom();
+                    btn.disabled = false; btn.textContent = 'Iniciar conversa';
+                    return;
+                }
+                if (d2.messages && d2.messages.length) {
+                    d2.messages
+                        .filter(function (m) { return m.type !== 'system' && m.type !== 'internal_note'; })
+                        .forEach(function (m) {
+                            if (m.direction === 'outbound' && !m.content) return;
+                            renderMsg(m.content, m.direction === 'inbound', m.user_name || TITLE, m.avatar_url || AVATAR, m.type, m.content, fmtTime(m.created_at));
+                        });
+                    lastPoll = d2.messages[d2.messages.length - 1].created_at;
+                }
                 if (!messagesEl.children.length) renderMsg(WELCOME, false, TITLE);
             } catch (e2) {
                 hideTyping();
                 renderMsg(WELCOME, false, TITLE);
             }
-            showQuick(QUICK_REPLIES);
-            scrollToBottom();
-            startPolling();
-            setTimeout(function(){ input.focus(); }, 400);
+            if (started) {
+                showQuick(QUICK_REPLIES);
+                scrollToBottom();
+                startPolling();
+                setTimeout(function(){ input.focus(); }, 400);
+            }
         } catch (e) {
             messagesEl.innerHTML = '';
             renderMsg('Não consegui conectar. Tente novamente em instantes.', false, TITLE);
@@ -711,6 +733,28 @@
         fetch(API_BASE + '/api/webchat/messages', { method: 'POST', body: fd })
             .then(function (r) { return r.json(); })
             .then(function (data) {
+                if (data.conversation && (data.conversation.status === 'closed' || data.conversation.status === 'resolved')) {
+                    clearSession();
+                    sessionId = null;
+                    started = false;
+                    isPolling = false;
+                    composer.classList.remove('show');
+                    if (data.messages && data.messages.length) {
+                        data.messages
+                            .filter(function (m) { return m.type !== 'system' && m.type !== 'internal_note'; })
+                            .forEach(function (m) {
+                                if (m.direction === 'outbound' && !m.content) return;
+                                renderMsg(m.content, m.direction === 'inbound', m.user_name || TITLE, m.avatar_url || AVATAR, m.type, m.content, fmtTime(m.created_at));
+                            });
+                    }
+                    renderMsg('Atendimento Finalizado', false, TITLE, AVATAR);
+                    var endBtn = document.createElement('div');
+                    endBtn.className = 'afw-ended-wrap';
+                    endBtn.innerHTML = '<button class="afw-start-new-btn" onclick="AFW.restart()">Iniciar novo atendimento</button>';
+                    messagesEl.appendChild(endBtn);
+                    scrollToBottom();
+                    return;
+                }
                 touchSession();
                 if (data.messages && data.messages.length) {
                     var news = data.messages.filter(function (m) {
@@ -740,6 +784,28 @@
             fetch(API_BASE + '/api/webchat/messages?' + new URLSearchParams({ session_id: sessionId, since: lastPoll || '' }))
                 .then(function (r) { return r.json(); })
                 .then(function (data) {
+                    if (data.conversation && (data.conversation.status === 'closed' || data.conversation.status === 'resolved')) {
+                        clearSession();
+                        sessionId = null;
+                        started = false;
+                        isPolling = false;
+                        composer.classList.remove('show');
+                        if (data.messages && data.messages.length) {
+                            data.messages
+                                .filter(function (m) { return m.type !== 'system' && m.type !== 'internal_note'; })
+                                .forEach(function (m) {
+                                    if (m.direction === 'outbound' && !m.content) return;
+                                    renderMsg(m.content, m.direction === 'inbound', m.user_name || TITLE, m.avatar_url || AVATAR, m.type, m.content, fmtTime(m.created_at));
+                                });
+                        }
+                        renderMsg('Atendimento Finalizado', false, TITLE, AVATAR);
+                        var endBtn = document.createElement('div');
+                        endBtn.className = 'afw-ended-wrap';
+                        endBtn.innerHTML = '<button class="afw-start-new-btn" onclick="AFW.restart()">Iniciar novo atendimento</button>';
+                        messagesEl.appendChild(endBtn);
+                        scrollToBottom();
+                        return;
+                    }
                     if (data.messages && data.messages.length) {
                         var news = data.messages.filter(function (m) {
                             return m.direction === 'outbound' && m.type !== 'system' && m.type !== 'internal_note' && (!lastPoll || m.created_at > lastPoll);
@@ -765,6 +831,20 @@
     window.AFW = {
         open: function () { root.classList.add('afw-open'); panel.classList.remove('afw-min'); clearUnread(); scrollToBottom(); },
         close: function () { root.classList.remove('afw-open'); },
-        setStyle: function (vars) { for (var k in vars) root.style.setProperty('--afw-' + k, vars[k]); }
+        setStyle: function (vars) { for (var k in vars) root.style.setProperty('--afw-' + k, vars[k]); },
+        restart: function () {
+            clearSession();
+            sessionId = null;
+            started = false;
+            isPolling = false;
+            g('afwPrechat').style.display = 'flex';
+            composer.classList.remove('show');
+            messagesEl.innerHTML = '';
+            var startBtn = g('afwStart');
+            startBtn.disabled = false;
+            startBtn.textContent = 'Iniciar conversa';
+            var firstInput = g('afwF_name') || startBtn;
+            if (firstInput) firstInput.focus();
+        }
     };
 })();

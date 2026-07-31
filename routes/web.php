@@ -66,7 +66,6 @@ $router->group('', function (Router $router) {
     $router->post('/inbox/{id}/messages/{mid}/reaction', [InboxController::class, 'sendReaction']);
     $router->post('/inbox/{id}/read', [InboxController::class, 'markRead']);
     $router->post('/inbox/{id}/snooze', [InboxController::class, 'snooze']);
-    $router->post('/inbox/{id}/csat', [InboxController::class, 'csat']);
     $router->post('/inbox/{id}/merge', [InboxController::class, 'merge']);
     $router->post('/inbox/{id}/macro', [InboxController::class, 'applyMacro']);
     $router->post('/inbox/bulk', [InboxController::class, 'bulk']);
@@ -83,6 +82,7 @@ $router->group('', function (Router $router) {
     $router->get('/contacts/create', [ContactController::class, 'create']);
     $router->post('/contacts/create', [ContactController::class, 'store']);
     $router->get('/contacts/{id}', [ContactController::class, 'show']);
+    $router->get('/contacts/{id}/pdf', [ContactController::class, 'downloadPdf']);
     $router->get('/contacts/{id}/edit', [ContactController::class, 'edit']);
     $router->post('/contacts/{id}/merge', [ContactController::class, 'merge']);
     $router->post('/contacts/{id}/update', [ContactController::class, 'update']);
@@ -176,6 +176,12 @@ $router->group('', function (Router $router) {
     $router->post('/settings/subjects/{id}/update', [SettingsController::class, 'updateSubject']);
     $router->post('/settings/subjects/{id}/delete', [SettingsController::class, 'deleteSubject']);
 
+    // Motivos de encerramento
+    $router->get('/settings/close-reasons', [SettingsController::class, 'closeReasons']);
+    $router->post('/settings/close-reasons/create', [SettingsController::class, 'createCloseReason']);
+    $router->post('/settings/close-reasons/{id}/update', [SettingsController::class, 'updateCloseReason']);
+    $router->post('/settings/close-reasons/{id}/delete', [SettingsController::class, 'deleteCloseReason']);
+
     // Reports
     $router->get('/reports', [ReportsController::class, 'index']);
     $router->get('/reports/conversations', [ReportsController::class, 'conversations']);
@@ -187,6 +193,7 @@ $router->group('', function (Router $router) {
 // Internal JSON API routes (auth only, no CSRF — called via fetch())
 $router->group('', function (Router $router) {
     $router->get('/api/conversations', [InboxController::class, 'apiConversations']);
+    $router->get('/api/chatbot-conversations', [InboxController::class, 'apiChatbotConversations']);
     $router->get('/api/conversations/{id}', [InboxController::class, 'apiConversation']);
     $router->get('/api/conversations/{id}/messages', [InboxController::class, 'apiMessages']);
     $router->get('/api/departments/{id}/users', [DepartmentController::class, 'apiUsers']);
@@ -200,9 +207,22 @@ $router->group('', function (Router $router) {
 
     // Unread conversations list for the bell dropdown
     $router->get('/api/unread-conversations', [\App\Controllers\Api\UnreadConversationsController::class, 'index']);
+    $router->post('/api/messages/read-all', [\App\Controllers\Api\MessagesController::class, 'readAll']);
+    $router->post('/api/messages/{id}/read', [\App\Controllers\Api\MessagesController::class, 'markRead']);
+    $router->post('/api/conversations/{id}/typing', [\App\Controllers\Api\MessagesController::class, 'typing']);
 
     // User notification preferences
     $router->get('/api/user-preferences', [\App\Controllers\Api\UserPreferencesController::class, 'index']);
+    $router->post('/api/user-preferences', [\App\Controllers\Api\UserPreferencesController::class, 'update']);
+
+    // Motivos de encerramento
+    $router->get('/api/close-reasons', [\App\Controllers\Api\CloseReasonsController::class, 'index']);
+    $router->post('/api/close-reasons', [\App\Controllers\Api\CloseReasonsController::class, 'store']);
+    $router->post('/api/close-reasons/{id}/update', [\App\Controllers\Api\CloseReasonsController::class, 'update']);
+    $router->post('/api/close-reasons/{id}/delete', [\App\Controllers\Api\CloseReasonsController::class, 'delete']);
+
+    // Dropdown de notificações estruturadas (menções, atribuições, novas conversas)
+    $router->get('/api/notifications/dropdown', [\App\Controllers\Api\NotificationsController::class, 'dropdown']);
 
     // Server-Sent Events for real-time notifications
     $router->get('/realtime/events', [\App\Controllers\Api\RealtimeController::class, 'events']);

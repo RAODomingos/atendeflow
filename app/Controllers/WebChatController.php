@@ -145,7 +145,7 @@ class WebChatController
                         'name' => $uploaded['name'],
                         'size' => $uploaded['size'],
                     ];
-                    Conversation::addMessage($conversation['id'], [
+                    $mediaMsgId = Conversation::addMessage($conversation['id'], [
                         'type' => $uploaded['type'],
                         'content' => json_encode($meta),
                         'direction' => 'inbound',
@@ -155,6 +155,17 @@ class WebChatController
                         'last_message_at' => date('Y-m-d H:i:s'),
                     ]);
                     Contact::update($conversation['contact_id'], ['last_contact_at' => date('Y-m-d H:i:s')]);
+
+                    try {
+                        $label = ['image' => 'Imagem', 'audio' => 'Áudio', 'video' => 'Vídeo', 'file' => 'Arquivo'][$uploaded['type']] ?? 'Mídia';
+                        \App\Services\NotificationService::notifyNewMessage(
+                            (int) $conversation['id'],
+                            (int) $mediaMsgId,
+                            $label
+                        );
+                    } catch (\Throwable $e) {
+                        error_log('webchat media notify error: ' . $e->getMessage());
+                    }
                 }
             }
 
@@ -164,21 +175,33 @@ class WebChatController
 
             $messages = Conversation::getMessages($conversation['id']);
 
+            $convUpdated = Conversation::findByPublicId($publicId);
             View::json([
                 'success' => true,
                 'messages' => $messages,
+                'conversation' => [
+                    'id' => $convUpdated['id'],
+                    'status' => $convUpdated['status'],
+                ],
             ]);
         } else {
             $since = $request->input('since');
             if ($since) {
                 $messages = Database::getInstance()->fetchAll(
-                    "SELECT m.*, u.name as user_name
+                    "SELECT m.*, u.name as user_name, u.avatar as user_avatar, ct.avatar as contact_avatar
                      FROM messages m
                      LEFT JOIN users u ON u.id = m.user_id
+                     JOIN conversations c ON c.id = m.conversation_id
+                     LEFT JOIN contacts ct ON ct.id = c.contact_id
                      WHERE m.conversation_id = ? AND m.created_at > ?
                      ORDER BY m.created_at ASC",
                     [$conversation['id'], $since]
                 );
+                foreach ($messages as &$m) {
+                    $m['avatar_url'] = $m['direction'] === 'inbound'
+                        ? ($m['contact_avatar'] ?? null)
+                        : ($m['user_avatar'] ?? null);
+                }
             } else {
                 $messages = Conversation::getMessages($conversation['id']);
             }
