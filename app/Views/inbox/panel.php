@@ -1248,9 +1248,6 @@ function updateCharCount(inputId, countId, max) {
     cc.classList.toggle('warn', n > max * 0.8 && n < max);
     cc.classList.toggle('danger', n >= max);
 }
-    });
-    toggleCloseFields();
-}
 function openPriorityModal() { document.getElementById('priorityModal').style.display = 'flex'; }
 function closePriorityModal() { document.getElementById('priorityModal').style.display = 'none'; }
 function openSnoozeModal() { document.getElementById('snoozeModal').style.display = 'flex'; }
