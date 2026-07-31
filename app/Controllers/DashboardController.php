@@ -39,6 +39,7 @@ class DashboardController
 
         // --- Today metrics (global) ---
         $todayStart = date('Y-m-d 00:00:00');
+        $yesterdayStart = date('Y-m-d 00:00:00', strtotime('-1 day'));
         $todayConversations = (int) ($db->fetch(
             "SELECT COUNT(*) as c FROM conversations WHERE created_at >= ?", [$todayStart]
         )['c'] ?? 0);
@@ -49,7 +50,30 @@ class DashboardController
             "SELECT COUNT(*) as c FROM conversations WHERE status = 'resolved' AND closed_at >= ?", [$todayStart]
         )['c'] ?? 0);
 
-        // --- Trend (last 7 days) ---
+        // --- Yesterday comparisons (for delta badges) ---
+        $prevDayConversations = (int) ($db->fetch(
+            "SELECT COUNT(*) as c FROM conversations WHERE created_at >= ? AND created_at < ?",
+            [$yesterdayStart, $todayStart]
+        )['c'] ?? 0);
+        $prevDayMessages = (int) ($db->fetch(
+            "SELECT COUNT(*) as c FROM messages WHERE created_at >= ? AND created_at < ?",
+            [$yesterdayStart, $todayStart]
+        )['c'] ?? 0);
+        $prevDayResolved = (int) ($db->fetch(
+            "SELECT COUNT(*) as c FROM conversations WHERE status = 'resolved' AND closed_at >= ? AND closed_at < ?",
+            [$yesterdayStart, $todayStart]
+        )['c'] ?? 0);
+
+        // --- CSAT (last 30 days) ---
+        $csatRow = $db->fetch(
+            "SELECT ROUND(AVG(rating), 2) as avg_rating, COUNT(*) as total
+             FROM conversation_csats
+             WHERE created_at >= DATE_SUB(NOW(), INTERVAL 30 DAY)"
+        );
+        $csatAvg = $csatRow && $csatRow['avg_rating'] !== null ? (float) $csatRow['avg_rating'] : null;
+        $csatCount = (int) ($csatRow['total'] ?? 0);
+
+        // --- Trend (last 7 days): conversations + resolved ---
         $trendData = $db->fetchAll(
             "SELECT DATE(created_at) as date, COUNT(*) as total
              FROM conversations
@@ -57,16 +81,29 @@ class DashboardController
              GROUP BY DATE(created_at)
              ORDER BY date ASC"
         );
+        $resolvedTrendData = $db->fetchAll(
+            "SELECT DATE(closed_at) as date, COUNT(*) as total
+             FROM conversations
+             WHERE status = 'resolved' AND closed_at >= DATE_SUB(CURDATE(), INTERVAL 7 DAY)
+             GROUP BY DATE(closed_at)
+             ORDER BY date ASC"
+        );
         $trendLabels = [];
         $trendValues = [];
+        $trendResolvedValues = [];
         $trendMap = [];
+        $resolvedTrendMap = [];
         foreach ($trendData as $row) {
             $trendMap[$row['date']] = (int) $row['total'];
+        }
+        foreach ($resolvedTrendData as $row) {
+            $resolvedTrendMap[$row['date']] = (int) $row['total'];
         }
         for ($i = 6; $i >= 0; $i--) {
             $d = date('Y-m-d', strtotime("-{$i} days"));
             $trendLabels[] = date('d/m', strtotime($d));
             $trendValues[] = $trendMap[$d] ?? 0;
+            $trendResolvedValues[] = $resolvedTrendMap[$d] ?? 0;
         }
 
         // --- Avg response time (30 days) ---
@@ -141,9 +178,15 @@ class DashboardController
             'todayConversations' => $todayConversations,
             'todayMessages' => $todayMessages,
             'todayResolved' => $todayResolved,
+            'prevDayConversations' => $prevDayConversations,
+            'prevDayMessages' => $prevDayMessages,
+            'prevDayResolved' => $prevDayResolved,
+            'csatAvg' => $csatAvg,
+            'csatCount' => $csatCount,
             'avgResponseTime' => $avgResponseTime,
             'trendLabels' => $trendLabels,
             'trendValues' => $trendValues,
+            'trendResolvedValues' => $trendResolvedValues,
             'deptData' => $deptData,
             'agentData' => $agentData,
             'recentConversations' => $recentConversations,

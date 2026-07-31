@@ -1,15 +1,97 @@
+<?php
+// ---------- Delta (hoje vs ontem) ----------
+$deltaPct = function ($today, $prev) {
+    if ($prev <= 0) return $today > 0 ? 'new' : null;
+    return round(($today - $prev) / $prev * 100);
+};
+$deltaConv = $deltaPct($todayConversations, $prevDayConversations);
+$deltaMsgs = $deltaPct($todayMessages, $prevDayMessages);
+$deltaRes  = $deltaPct($todayResolved, $prevDayResolved);
+
+// ---------- Trend chart (SVG) ----------
+$chartW = 720; $chartH = 240;
+$padL = 40; $padR = 14; $padT = 18; $padB = 30;
+$plotW = $chartW - $padL - $padR;
+$plotH = $chartH - $padT - $padB;
+$chartRawMax = max(array_merge($trendValues, $trendResolvedValues)) ?: 0;
+$chartMax = $chartRawMax;
+if ($chartMax <= 0) { $chartMax = 1; }
+$divStep = $chartMax > 100 ? 50 : ($chartMax > 20 ? 10 : ($chartMax > 5 ? 2 : 1));
+$chartMax = max(ceil($chartMax / $divStep) * $divStep, $divStep);
+$chartScale = $plotH / $chartMax;
+
+$mkSeries = function (array $vals) use ($padL, $padT, $plotW, $plotH, $chartScale) {
+    $n = count($vals);
+    $sx = $n > 1 ? $plotW / ($n - 1) : $plotW;
+    $pts = [];
+    foreach ($vals as $i => $v) {
+        $pts[] = [$padL + $i * $sx, $padT + $plotH - $v * $chartScale];
+    }
+    return $pts;
+};
+$n = count($trendValues);
+$stepX = $n > 1 ? $plotW / ($n - 1) : $plotW;
+$convPts = $mkSeries($trendValues);
+$resPts  = $mkSeries($trendResolvedValues);
+$baseY = $padT + $plotH;
+$convLine = implode(' ', array_map(fn($p) => $p[0] . ',' . $p[1], $convPts));
+$resLine  = implode(' ', array_map(fn($p) => $p[0] . ',' . $p[1], $resPts));
+$convArea = $padL . ',' . $baseY . ' ' . $convLine . ' ' . ($padL + ($n - 1) * $stepX) . ',' . $baseY;
+$resArea  = $padL . ',' . $baseY . ' ' . $resLine . ' ' . ($padL + ($n - 1) * $stepX) . ',' . $baseY;
+
+// ---------- Donut (status ativos) ----------
+$donutR = 62; $donutC = 2 * M_PI * $donutR;
+$donutDefs = [
+    ['key' => 'new',               'label' => 'Novos',        'color' => '#2e90fa'],
+    ['key' => 'open',              'label' => 'Abertos',      'color' => '#7c5cff'],
+    ['key' => 'waiting_customer',  'label' => 'Agu. cliente', 'color' => '#12b76a'],
+    ['key' => 'waiting_internal',  'label' => 'Agu. interno', 'color' => '#f59e0b'],
+];
+$donutTotal = $globalOpen > 0 ? $globalOpen : 1;
+$donutSegs = [];
+$donutCum = 0;
+foreach ($donutDefs as $def) {
+    $v = $globalCounts[$def['key']] ?? 0;
+    if ($v <= 0) continue;
+    $len = $v / $donutTotal * $donutC;
+    $donutSegs[] = [
+        'color'  => $def['color'],
+        'dash'   => round($len, 2),
+        'offset' => round($donutC - $donutCum, 2),
+    ];
+    $donutCum += $len;
+}
+$statusLabels = [
+    'new' => 'Novos', 'open' => 'Abertos',
+    'waiting_customer' => 'Agu. cliente', 'waiting_internal' => 'Agu. interno',
+    'resolved' => 'Resolvidos', 'closed' => 'Fechados', 'spam' => 'Spam',
+];
+
+// ---------- Agentes ----------
+$maxActive = 1;
+foreach ($agentData as $a) { $maxActive = max($maxActive, (int) $a['active_convos']); }
+
+$weekdays = ['dom', 'seg', 'ter', 'qua', 'qui', 'sex', 'sáb'];
+$todayName = $weekdays[(int) date('w')];
+$todayPt = date('j') . ' de ' . ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'][(int) date('n') - 1];
+?>
+
 <div class="dashboard" id="dashboardApp">
-    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;flex-wrap:wrap;gap:12px">
+    <!-- Header -->
+    <div class="dash-header">
         <div>
-            <h1 style="font-size:24px;font-weight:700;margin:0;display:flex;align-items:center;gap:10px">
-                <i class="fas fa-th-large" style="color:var(--primary);font-size:22px"></i>
+            <h1 class="dash-title">
+                <span class="dash-title-icon"><i class="fas fa-chart-pie"></i></span>
                 Dashboard
             </h1>
-            <p style="margin:4px 0 0;font-size:14px;color:var(--text-muted)">Visão geral dos atendimentos</p>
+            <p class="dash-subtitle">
+                <i class="fa-regular fa-calendar"></i>
+                <?= $todayName ?>, <?= $todayPt ?> — Visão geral dos atendimentos
+            </p>
         </div>
-        <div style="display:flex;gap:8px;align-items:center">
-            <span style="font-size:13px;color:var(--text-muted)">
-                <i class="fas fa-sync-alt" style="font-size:11px"></i> Atualizado <span id="dashUpdateTime">agora</span>
+        <div class="dash-header-actions">
+            <span class="dash-updated">
+                <i class="fas fa-sync-alt fa-fw"></i> Atualizado <span id="dashUpdateTime">agora</span>
             </span>
             <button class="btn btn-sm btn-outline" onclick="refreshDashboard()" title="Atualizar">
                 <i class="fas fa-redo"></i>
@@ -17,97 +99,240 @@
         </div>
     </div>
 
-    <!-- Stats row 1: Global -->
-    <div class="stats-grid">
+    <!-- Stats row: Global -->
+    <div class="stats-grid dash-stats">
         <div class="stat-card">
-            <div class="stat-icon stat-icon-primary">
-                <i class="fas fa-comments"></i>
-            </div>
+            <div class="stat-icon stat-icon-primary"><i class="fas fa-comments"></i></div>
             <div class="stat-info">
-                <span class="stat-value" id="statGlobalOpen"><?= $globalOpen ?></span>
+                <span class="stat-value" id="statGlobalOpen" data-count="<?= $globalOpen ?>"><?= $globalOpen ?></span>
                 <span class="stat-label">Total Abertos</span>
+                <span class="stat-sub"><i class="fas fa-circle" style="color:#2e90fa;font-size:7px"></i> <?= $globalCounts['new'] ?> novos</span>
             </div>
         </div>
+
         <div class="stat-card">
-            <div class="stat-icon stat-icon-info">
-                <i class="fas fa-user-check"></i>
-            </div>
+            <div class="stat-icon stat-icon-info"><i class="fas fa-user-check"></i></div>
             <div class="stat-info">
-                <span class="stat-value" id="statOnline"><?= $onlineUsers ?></span>
+                <span class="stat-value" id="statOnline" data-count="<?= $onlineUsers ?>"><?= $onlineUsers ?></span>
                 <span class="stat-label">Atendentes Online</span>
+                <span class="stat-sub"><i class="fas fa-circle" style="color:var(--success);font-size:7px"></i> disponíveis agora</span>
             </div>
         </div>
+
         <div class="stat-card">
-            <div class="stat-icon" style="background:#e8f5e9;color:var(--success)">
-                <i class="fas fa-calendar-day"></i>
-            </div>
+            <div class="stat-icon stat-icon-success"><i class="fas fa-calendar-day"></i></div>
             <div class="stat-info">
-                <span class="stat-value" id="statTodayConvs"><?= $todayConversations ?></span>
+                <span class="stat-value" id="statTodayConvs" data-count="<?= $todayConversations ?>"><?= $todayConversations ?></span>
                 <span class="stat-label">Conversas hoje</span>
+                <?php if ($deltaConv === 'new'): ?>
+                    <span class="stat-delta delta-new"><i class="fas fa-sparkles"></i> Sem base ontem</span>
+                <?php elseif ($deltaConv !== null): ?>
+                    <span class="stat-delta <?= $deltaConv >= 0 ? 'delta-up' : 'delta-down' ?>" id="dTodayConvs">
+                        <i class="fas fa-<?= $deltaConv >= 0 ? 'arrow-up' : 'arrow-down' ?>"></i> <?= abs($deltaConv) ?>% vs ontem
+                    </span>
+                <?php endif; ?>
             </div>
         </div>
+
         <div class="stat-card">
-            <div class="stat-icon" style="background:#fff3e0;color:#e65100">
-                <i class="fas fa-envelope-open-text"></i>
-            </div>
+            <div class="stat-icon stat-icon-warning"><i class="fas fa-envelope-open-text"></i></div>
             <div class="stat-info">
-                <span class="stat-value" id="statTodayMsgs"><?= $todayMessages ?></span>
+                <span class="stat-value" id="statTodayMsgs" data-count="<?= $todayMessages ?>"><?= $todayMessages ?></span>
                 <span class="stat-label">Mensagens hoje</span>
+                <?php if ($deltaMsgs === 'new'): ?>
+                    <span class="stat-delta delta-new"><i class="fas fa-sparkles"></i> Sem base ontem</span>
+                <?php elseif ($deltaMsgs !== null): ?>
+                    <span class="stat-delta <?= $deltaMsgs >= 0 ? 'delta-up' : 'delta-down' ?>" id="dTodayMsgs">
+                        <i class="fas fa-<?= $deltaMsgs >= 0 ? 'arrow-up' : 'arrow-down' ?>"></i> <?= abs($deltaMsgs) ?>% vs ontem
+                    </span>
+                <?php endif; ?>
             </div>
         </div>
+
         <div class="stat-card">
-            <div class="stat-icon" style="background:#f3e5f5;color:#7b1fa2">
-                <i class="fas fa-check-double"></i>
-            </div>
+            <div class="stat-icon stat-icon-violet"><i class="fas fa-check-double"></i></div>
             <div class="stat-info">
-                <span class="stat-value" id="statTodayResolved"><?= $todayResolved ?></span>
+                <span class="stat-value" id="statTodayResolved" data-count="<?= $todayResolved ?>"><?= $todayResolved ?></span>
                 <span class="stat-label">Resolvidos hoje</span>
+                <?php if ($deltaRes === 'new'): ?>
+                    <span class="stat-delta delta-new"><i class="fas fa-sparkles"></i> Sem base ontem</span>
+                <?php elseif ($deltaRes !== null): ?>
+                    <span class="stat-delta <?= $deltaRes >= 0 ? 'delta-up' : 'delta-down' ?>" id="dTodayResolved">
+                        <i class="fas fa-<?= $deltaRes >= 0 ? 'arrow-up' : 'arrow-down' ?>"></i> <?= abs($deltaRes) ?>% vs ontem
+                    </span>
+                <?php endif; ?>
             </div>
         </div>
+
         <div class="stat-card">
-            <div class="stat-icon" style="background:#e1f5fe;color:#0277bd">
-                <i class="fas fa-stopwatch"></i>
-            </div>
+            <div class="stat-icon stat-icon-violet"><i class="fas fa-stopwatch"></i></div>
             <div class="stat-info">
-                <span class="stat-value"><?= $avgResponseTime !== null ? $avgResponseTime . 'min' : '—' ?></span>
+                <span class="stat-value" id="statAvgResp" data-count="<?= $avgResponseTime ?? 0 ?>" data-decimals="0" data-empty="<?= $avgResponseTime === null ? '1' : '0' ?>">
+                    <?= $avgResponseTime !== null ? $avgResponseTime : '—' ?>
+                </span>
                 <span class="stat-label">Tempo médio resposta</span>
+                <?php if ($avgResponseTime !== null): ?>
+                    <span class="stat-sub">em 30 dias <span class="stat-suffix">min</span></span>
+                <?php endif; ?>
+            </div>
+        </div>
+
+        <div class="stat-card">
+            <div class="stat-icon stat-icon-amber"><i class="fas fa-star"></i></div>
+            <div class="stat-info">
+                <span class="stat-value" id="dashCsat" data-count="<?= $csatAvg ?? 0 ?>" data-decimals="1" data-empty="<?= $csatAvg === null ? '1' : '0' ?>">
+                    <?= $csatAvg !== null ? number_format($csatAvg, 1, ',', '.') : '—' ?>
+                </span>
+                <span class="stat-label">CSAT (30 dias)</span>
+                <?php if ($csatAvg !== null): ?>
+                    <span class="stat-sub"><i class="fas fa-star" style="color:#f59e0b;font-size:9px"></i> <?= $csatCount ?> avaliações</span>
+                <?php endif; ?>
+            </div>
+        </div>
+
+        <div class="stat-card">
+            <div class="stat-icon stat-icon-info"><i class="fas fa-inbox"></i></div>
+            <div class="stat-info">
+                <span class="stat-value" id="statTodayNew" data-count="<?= $globalCounts['new'] ?? 0 ?>"><?= $globalCounts['new'] ?? 0 ?></span>
+                <span class="stat-label">Novos aguardando</span>
+                <span class="stat-sub"><i class="fas fa-bell" style="font-size:9px"></i> precisam de atenção</span>
             </div>
         </div>
     </div>
 
-    <!-- Stats row 2: Personal -->
-    <div style="margin-top:8px;display:flex;align-items:center;gap:12px;flex-wrap:wrap">
-        <span style="font-size:13px;font-weight:600;color:var(--text-muted)"><i class="fas fa-user"></i> Meus números</span>
-        <span class="badge bg-primary" id="myOpen">Abertos: <?= $myOpen ?></span>
-        <span class="badge bg-warning text-dark" id="myWaiting">Agu. cliente: <?= $myCounts['waiting_customer'] ?? 0 ?></span>
-        <span class="badge bg-info" id="myInternal">Agu. interno: <?= $myCounts['waiting_internal'] ?? 0 ?></span>
-        <span class="badge bg-success" id="myResolved">Resolvidos: <?= $myCounts['resolved'] ?? 0 ?></span>
-        <span class="badge bg-danger" id="myUnread">Não lidas: <?= $unread ?></span>
+    <!-- Personal stats -->
+    <div class="dash-myrow">
+        <div class="dash-myhead">
+            <span class="dash-myicon"><i class="fas fa-user"></i></span>
+            <div>
+                <strong>Minha fila</strong>
+                <small>Meus atendimentos em foco</small>
+            </div>
+        </div>
+        <div class="dash-mystats">
+            <div class="my-stat">
+                <span class="my-stat-value" id="myOpen"><?= $myOpen ?></span>
+                <span class="my-stat-label"><i class="fas fa-inbox"></i> Abertos</span>
+            </div>
+            <div class="my-stat">
+                <span class="my-stat-value" id="myWaiting"><?= $myCounts['waiting_customer'] ?? 0 ?></span>
+                <span class="my-stat-label"><i class="fas fa-hourglass-half" style="color:var(--success)"></i> Agu. cliente</span>
+            </div>
+            <div class="my-stat">
+                <span class="my-stat-value" id="myInternal"><?= $myCounts['waiting_internal'] ?? 0 ?></span>
+                <span class="my-stat-label"><i class="fas fa-hourglass-half" style="color:var(--warning)"></i> Agu. interno</span>
+            </div>
+            <div class="my-stat">
+                <span class="my-stat-value" id="myResolved"><?= $myCounts['resolved'] ?? 0 ?></span>
+                <span class="my-stat-label"><i class="fas fa-check-double" style="color:var(--success)"></i> Resolvidos</span>
+            </div>
+            <div class="my-stat my-stat-danger">
+                <span class="my-stat-value" id="myUnread"><?= $unread ?></span>
+                <span class="my-stat-label"><i class="fas fa-envelope"></i> Não lidas</span>
+            </div>
+        </div>
     </div>
 
-    <!-- Row: chart + departments -->
-    <div class="dashboard-grid" style="grid-template-columns:2fr 1fr;margin-top:20px">
-        <div class="card" style="border-radius:12px">
+    <!-- Row: trend chart + donut -->
+    <div class="dashboard-grid" style="grid-template-columns:2fr 1fr;margin-top:16px">
+        <div class="card chart-card">
             <div class="card-header">
                 <h3><i class="fas fa-chart-line" style="color:var(--primary)"></i> Conversas (últimos 7 dias)</h3>
+                <div class="chart-legend">
+                    <span class="chart-legend-item"><span class="legend-dot" style="background:var(--primary)"></span> Novas</span>
+                    <span class="chart-legend-item"><span class="legend-dot" style="background:var(--success)"></span> Resolvidas</span>
+                </div>
             </div>
             <div class="card-body">
                 <div class="trend-chart">
-                    <?php $maxVal = max($trendValues) ?: 1; ?>
-                    <?php foreach ($trendValues as $i => $val): ?>
-                        <div class="trend-bar-item">
-                            <span class="trend-bar-value" style="font-size:11px;color:var(--text-muted);text-align:center;display:block;margin-bottom:4px"><?= $val ?></span>
-                            <div class="trend-bar-track">
-                                <div class="trend-bar-fill" style="height:<?= ($val / $maxVal) * 140 ?>px;background:var(--primary);border-radius:4px 4px 0 0;transition:height 0.5s ease"></div>
-                            </div>
-                            <span class="trend-bar-label" style="font-size:11px;color:var(--text-muted);text-align:center;display:block;margin-top:4px"><?= $trendLabels[$i] ?></span>
-                        </div>
-                    <?php endforeach; ?>
+                    <svg viewBox="0 0 <?= $chartW ?> <?= $chartH ?>" class="trend-svg" preserveAspectRatio="xMidYMid meet">
+                        <defs>
+                            <linearGradient id="gradConv" x1="0" y1="0" x2="0" y2="1">
+                                <stop offset="0%" stop-color="#7c5cff" stop-opacity="0.28"/>
+                                <stop offset="100%" stop-color="#7c5cff" stop-opacity="0.02"/>
+                            </linearGradient>
+                            <linearGradient id="gradRes" x1="0" y1="0" x2="0" y2="1">
+                                <stop offset="0%" stop-color="#12b76a" stop-opacity="0.20"/>
+                                <stop offset="100%" stop-color="#12b76a" stop-opacity="0.02"/>
+                            </linearGradient>
+                        </defs>
+                        <?php for ($g = 0; $g <= 4; $g++): $gy = $padT + $plotH - ($chartMax * $g / 4) * $chartScale; $gval = round($chartMax * $g / 4); ?>
+                            <line class="trend-gridline" x1="<?= $padL ?>" y1="<?= $gy ?>" x2="<?= $chartW - $padR ?>" y2="<?= $gy ?>"/>
+                            <text class="trend-y" x="<?= $padL - 8 ?>" y="<?= $gy + 4 ?>"><?= $gval ?></text>
+                        <?php endfor; ?>
+                        <polygon class="trend-area" points="<?= $resArea ?>" fill="url(#gradRes)"/>
+                        <polygon class="trend-area" points="<?= $convArea ?>" fill="url(#gradConv)"/>
+                        <polyline class="trend-line trend-line-res" points="<?= $resLine ?>"/>
+                        <polyline class="trend-line trend-line-conv" points="<?= $convLine ?>"/>
+                        <?php foreach ($convPts as $i => $p): ?>
+                            <circle class="trend-dot trend-dot-conv" cx="<?= $p[0] ?>" cy="<?= $p[1] ?>" r="3.2">
+                                <title><?= $trendLabels[$i] ?> — <?= $trendValues[$i] ?> conversa(s)</title>
+                            </circle>
+                            <circle class="trend-hit" cx="<?= $p[0] ?>" cy="<?= $p[1] ?>" r="10">
+                                <title><?= $trendLabels[$i] ?> — <?= $trendValues[$i] ?> conversa(s)</title>
+                            </circle>
+                        <?php endforeach; ?>
+                        <?php foreach ($resPts as $i => $p): ?>
+                            <circle class="trend-dot trend-dot-res" cx="<?= $p[0] ?>" cy="<?= $p[1] ?>" r="3.2">
+                                <title><?= $trendLabels[$i] ?> — <?= $trendResolvedValues[$i] ?> resolvida(s)</title>
+                            </circle>
+                            <circle class="trend-hit" cx="<?= $p[0] ?>" cy="<?= $p[1] ?>" r="10">
+                                <title><?= $trendLabels[$i] ?> — <?= $trendResolvedValues[$i] ?> resolvida(s)</title>
+                            </circle>
+                        <?php endforeach; ?>
+                        <?php foreach ($trendLabels as $i => $label): $lx = $padL + $i * $stepX; ?>
+                            <text class="trend-x" x="<?= $lx ?>" y="<?= $chartH - 10 ?>"><?= $label ?></text>
+                        <?php endforeach; ?>
+                    </svg>
                 </div>
             </div>
         </div>
 
-        <div class="card" style="border-radius:12px">
+        <div class="card chart-card">
+            <div class="card-header">
+                <h3><i class="fas fa-chart-pie" style="color:var(--primary)"></i> Status Global</h3>
+            </div>
+            <div class="card-body donut-body">
+                <div class="donut-wrap">
+                    <svg viewBox="0 0 160 160" class="donut-svg">
+                        <g transform="rotate(-90 80 80)">
+                            <circle class="donut-track" cx="80" cy="80" r="<?= $donutR ?>"/>
+                            <?php foreach ($donutSegs as $seg): ?>
+                                <circle class="donut-seg" cx="80" cy="80" r="<?= $donutR ?>"
+                                        stroke="<?= $seg['color'] ?>"
+                                        stroke-dasharray="<?= $seg['dash'] ?> <?= $donutC ?>"
+                                        stroke-dashoffset="<?= $seg['offset'] ?>">
+                                    <title></title>
+                                </circle>
+                            <?php endforeach; ?>
+                        </g>
+                        <text class="donut-total" x="80" y="76" text-anchor="middle"><?= $globalOpen ?></text>
+                        <text class="donut-total-label" x="80" y="96" text-anchor="middle">abertos</text>
+                    </svg>
+                </div>
+                <div class="donut-legend">
+                    <?php foreach ($donutDefs as $def): $v = $globalCounts[$def['key']] ?? 0; $pct = $globalOpen > 0 ? round($v / $globalOpen * 100) : 0; ?>
+                        <div class="donut-legend-row">
+                            <span class="legend-dot" style="background:<?= $def['color'] ?>"></span>
+                            <span class="donut-legend-name"><?= $def['label'] ?></span>
+                            <span class="donut-legend-count" id="gCount<?= ucfirst(str_replace(['waiting_customer', 'waiting_internal'], ['Waiting', 'Internal'], $def['key'])) ?>"><?= $v ?></span>
+                            <span class="donut-legend-pct"><?= $pct ?>%</span>
+                        </div>
+                    <?php endforeach; ?>
+                    <div class="donut-legend-row">
+                        <span class="legend-dot" style="background:var(--text-muted)"></span>
+                        <span class="donut-legend-name">Resolvidos</span>
+                        <span class="donut-legend-count" id="gCountResolved"><?= $globalCounts['resolved'] ?? 0 ?></span>
+                        <span class="donut-legend-pct">—</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Row: departments + inboxes -->
+    <div class="dashboard-grid" style="grid-template-columns:1fr 1fr;margin-top:0">
+        <div class="card chart-card">
             <div class="card-header">
                 <h3><i class="fas fa-layer-group" style="color:var(--primary)"></i> Por Departamento</h3>
             </div>
@@ -116,71 +341,24 @@
                     <div class="empty-state"><p>Nenhum departamento com conversas ativas.</p></div>
                 <?php else: ?>
                     <?php $deptMax = max(array_column($deptData, 'total')) ?: 1; ?>
-                    <?php foreach ($deptData as $dept): ?>
+                    <?php foreach ($deptData as $dept): $dpct = round($dept['total'] / $deptMax * 100); ?>
                         <div class="dept-bar-row">
-                            <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
-                                <span style="width:8px;height:8px;border-radius:50%;background:<?= e($dept['color'] ?? '#6c757d') ?>;flex-shrink:0"></span>
+                            <div class="hbar-top">
+                                <span class="hbar-dot" style="background:<?= e($dept['color'] ?? '#6c757d') ?>"></span>
                                 <span class="dept-bar-name"><?= e($dept['name']) ?></span>
+                                <span class="hbar-pct"><?= $dpct ?>%</span>
                                 <span class="dept-bar-count"><?= $dept['total'] ?></span>
                             </div>
                             <div class="dept-bar-track">
-                                <div class="dept-bar-fill" style="width:<?= ($dept['total'] / $deptMax) * 100 ?>%;background:<?= e($dept['color'] ?? '#6c757d') ?>"></div>
+                                <div class="dept-bar-fill" style="width:<?= $dpct ?>%;background:<?= e($dept['color'] ?? '#6c757d') ?>"></div>
                             </div>
                         </div>
                     <?php endforeach; ?>
                 <?php endif; ?>
             </div>
         </div>
-    </div>
 
-    <!-- Row: status bars + inbox breakdown -->
-    <div class="dashboard-grid" style="margin-top:0">
-        <div class="card" style="border-radius:12px">
-            <div class="card-header">
-                <h3><i class="fas fa-chart-pie" style="color:var(--primary)"></i> Status Global</h3>
-            </div>
-            <div class="card-body">
-                <div class="status-chart">
-                    <div class="status-bar-item">
-                        <span class="status-label" style="width:120px">Novos</span>
-                        <div class="status-bar-track">
-                            <div class="status-bar-fill new" style="width: <?= $globalOpen > 0 ? ($globalCounts['new'] / $globalOpen * 100) : 0 ?>%"></div>
-                        </div>
-                        <span class="status-count" id="gCountNew"><?= $globalCounts['new'] ?></span>
-                    </div>
-                    <div class="status-bar-item">
-                        <span class="status-label" style="width:120px">Abertos</span>
-                        <div class="status-bar-track">
-                            <div class="status-bar-fill open" style="width: <?= $globalOpen > 0 ? ($globalCounts['open'] / $globalOpen * 100) : 0 ?>%"></div>
-                        </div>
-                        <span class="status-count" id="gCountOpen"><?= $globalCounts['open'] ?></span>
-                    </div>
-                    <div class="status-bar-item">
-                        <span class="status-label" style="width:120px">Agu. Cliente</span>
-                        <div class="status-bar-track">
-                            <div class="status-bar-fill waiting" style="width: <?= $globalOpen > 0 ? ($globalCounts['waiting_customer'] / $globalOpen * 100) : 0 ?>%"></div>
-                        </div>
-                        <span class="status-count" id="gCountWaiting"><?= $globalCounts['waiting_customer'] ?></span>
-                    </div>
-                    <div class="status-bar-item">
-                        <span class="status-label" style="width:120px">Agu. Interno</span>
-                        <div class="status-bar-track">
-                            <div class="status-bar-fill internal" style="width: <?= $globalOpen > 0 ? ($globalCounts['waiting_internal'] / $globalOpen * 100) : 0 ?>%"></div>
-                        </div>
-                        <span class="status-count" id="gCountInternal"><?= $globalCounts['waiting_internal'] ?></span>
-                    </div>
-                    <div class="status-bar-item">
-                        <span class="status-label" style="width:120px">Resolvidos</span>
-                        <div class="status-bar-track">
-                            <div class="status-bar-fill" style="width:<?= $globalOpen > 0 ? ($globalCounts['resolved'] / max($globalOpen,1) * 100) : 0 ?>%;background:var(--success)"></div>
-                        </div>
-                        <span class="status-count" id="gCountResolved"><?= $globalCounts['resolved'] ?></span>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <div class="card" style="border-radius:12px">
+        <div class="card chart-card">
             <div class="card-header">
                 <h3><i class="fas fa-inbox" style="color:var(--primary)"></i> Por Caixa</h3>
             </div>
@@ -189,15 +367,16 @@
                     <div class="empty-state"><p>Nenhuma caixa disponível.</p></div>
                 <?php else: ?>
                     <?php $inboxMax = max($openByInbox) ?: 1; ?>
-                    <?php foreach ($inboxes as $ib): $ibCount = $openByInbox[$ib['id']] ?? 0; ?>
+                    <?php foreach ($inboxes as $ib): $ibCount = $openByInbox[$ib['id']] ?? 0; $ibpct = round($ibCount / $inboxMax * 100); ?>
                         <div class="dept-bar-row">
-                            <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
-                                <i class="fas fa-inbox" style="color:var(--primary);font-size:12px;width:16px"></i>
+                            <div class="hbar-top">
+                                <i class="fas fa-inbox hbar-icon"></i>
                                 <span class="dept-bar-name"><?= e($ib['name']) ?></span>
+                                <span class="hbar-pct"><?= $ibpct ?>%</span>
                                 <span class="dept-bar-count"><?= $ibCount ?></span>
                             </div>
                             <div class="dept-bar-track">
-                                <div class="dept-bar-fill" style="width:<?= ($ibCount / $inboxMax) * 100 ?>%;background:var(--primary)"></div>
+                                <div class="dept-bar-fill" style="width:<?= $ibpct ?>%;background:var(--primary)"></div>
                             </div>
                         </div>
                     <?php endforeach; ?>
@@ -207,7 +386,7 @@
     </div>
 
     <!-- Recent conversations -->
-    <div class="card" style="border-radius:12px;overflow:hidden;margin-top:20px">
+    <div class="card chart-card" style="overflow:hidden;margin-top:16px">
         <div class="card-header">
             <h3><i class="fas fa-bell" style="color:var(--primary)"></i> Conversas Recentes</h3>
             <a href="<?= url('inbox') ?>" class="btn btn-sm btn-outline">Ver todas <i class="fas fa-arrow-right" style="font-size:10px"></i></a>
@@ -257,13 +436,13 @@
 
     <!-- Agent performance (admin only) -->
     <?php if ($isAdmin && !empty($agentData)): ?>
-    <div class="card" style="border-radius:12px;margin-top:16px">
+    <div class="card chart-card" style="margin-top:16px;overflow:hidden">
         <div class="card-header">
             <h3><i class="fas fa-trophy" style="color:var(--primary)"></i> Performance dos Atendentes</h3>
             <a href="<?= url('reports/agents') ?>" class="btn btn-sm btn-outline">Relatório completo <i class="fas fa-arrow-right" style="font-size:10px"></i></a>
         </div>
-        <div class="card-body p-0">
-            <table class="table table-hover">
+        <div class="table-wrap">
+            <table class="table table-hover agent-table">
                 <thead>
                     <tr>
                         <th>Atendente</th>
@@ -275,10 +454,22 @@
                 <tbody>
                     <?php foreach ($agentData as $a): ?>
                     <tr>
-                        <td><strong><?= e($a['name']) ?></strong></td>
-                        <td><?= $a['active_convos'] ?></td>
-                        <td><?= $a['msgs_7d'] ?></td>
-                        <td><?= $a['resolved_30d'] ?></td>
+                        <td>
+                            <div class="user-cell">
+                                <div class="agent-avatar"><?= mb_strtoupper(mb_substr($a['name'], 0, 1)) ?></div>
+                                <strong><?= e($a['name']) ?></strong>
+                            </div>
+                        </td>
+                        <td>
+                            <div class="agent-progress">
+                                <div class="agent-progress-track">
+                                    <div class="agent-progress-fill" style="width:<?= round($a['active_convos'] / $maxActive * 100) ?>%"></div>
+                                </div>
+                                <span class="agent-progress-num"><?= $a['active_convos'] ?></span>
+                            </div>
+                        </td>
+                        <td><span class="badge badge-secondary"><?= $a['msgs_7d'] ?></span></td>
+                        <td><span class="badge badge-success"><?= $a['resolved_30d'] ?></span></td>
                     </tr>
                     <?php endforeach; ?>
                 </tbody>
@@ -289,72 +480,212 @@
 </div>
 
 <style>
-.trend-chart { display:flex;align-items:flex-end;justify-content:space-around;gap:8px;padding:8px 0;min-height:180px }
-.trend-bar-item { flex:1;display:flex;flex-direction:column;align-items:center }
-.trend-bar-track { width:100%;max-width:40px;display:flex;justify-content:center }
-.dept-bar-row { margin-bottom:12px }
-.dept-bar-name { font-size:13px;font-weight:500;flex:1 }
-.dept-bar-count { font-size:13px;font-weight:700;color:var(--text-muted) }
-.dept-bar-track { height:8px;background:var(--bg-content);border-radius:4px;overflow:hidden }
-.dept-bar-fill { height:100%;border-radius:4px;transition:width 0.5s ease }
+.dash-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:18px;flex-wrap:wrap;gap:12px}
+.dash-title{font-size:23px;font-weight:800;margin:0;display:flex;align-items:center;gap:12px;letter-spacing:-.3px}
+.dash-title-icon{width:40px;height:40px;border-radius:12px;background:linear-gradient(135deg,var(--brand),var(--brand-2));color:#fff;display:flex;align-items:center;justify-content:center;font-size:16px;box-shadow:var(--shadow-brand)}
+.dash-subtitle{margin:6px 0 0 52px;font-size:13px;color:var(--text-muted)}
+.dash-subtitle i{font-size:11px}
+.dash-header-actions{display:flex;gap:10px;align-items:center}
+.dash-updated{font-size:12px;color:var(--text-muted);background:var(--bg-panel);border:1px solid var(--border-soft);padding:7px 12px;border-radius:20px;display:inline-flex;align-items:center;gap:6px}
+.dash-stats{grid-template-columns:repeat(auto-fill,minmax(200px,1fr))}
+.stat-card{position:relative;overflow:hidden;transition:transform .18s ease,box-shadow .18s ease;min-height:112px;align-items:center}
+.stat-card .stat-info{flex:1;min-width:0}
+.stat-card:hover{transform:translateY(-2px);box-shadow:var(--shadow-md)}
+.stat-card::before{content:'';position:absolute;top:0;left:0;right:0;height:3px;background:linear-gradient(90deg,var(--brand),#a78bfa);opacity:0;transition:opacity .18s}
+.stat-card:hover::before{opacity:1}
+.stat-sub{font-size:11px;color:var(--text-muted);display:flex;align-items:center;gap:5px;margin-top:1px}
+.stat-suffix{font-weight:700;color:var(--text-secondary)}
+.stat-delta{font-size:11px;font-weight:700;display:inline-flex;align-items:center;gap:4px;margin-top:3px}
+.delta-up{color:var(--success)}
+.delta-down{color:var(--danger)}
+.delta-new{color:var(--info)}
+.stat-icon-violet{background:#f3e5f5;color:#7b1fa2}
+.stat-icon-amber{background:var(--warning-soft);color:#b45309}
+.stat-icon-success{background:var(--success-soft);color:var(--success)}
+.stat-value{font-variant-numeric:tabular-nums}
+.stat-value.stat-pulse{animation:statPulse .5s ease}
+@keyframes statPulse{0%{transform:scale(1)}40%{transform:scale(1.18)}100%{transform:scale(1)}}
+
+.dash-myrow{display:flex;align-items:center;gap:18px;flex-wrap:wrap;background:var(--bg-panel);border:1px solid var(--border-soft);border-radius:var(--radius-lg);padding:14px 18px;margin-top:14px;box-shadow:var(--shadow-sm)}
+.dash-myhead{display:flex;align-items:center;gap:10px}
+.dash-myicon{width:38px;height:38px;border-radius:11px;background:var(--brand-soft);color:var(--brand-2);display:flex;align-items:center;justify-content:center;font-size:15px;flex-shrink:0}
+.dash-myhead strong{font-size:14px;display:block}
+.dash-myhead small{font-size:11.5px;color:var(--text-muted)}
+.dash-mystats{display:flex;gap:8px;flex-wrap:wrap;margin-left:auto}
+.my-stat{display:flex;align-items:center;gap:8px;background:var(--bg-panel-alt);border:1px solid var(--border-soft);border-radius:12px;padding:8px 14px;transition:.15s}
+.my-stat:hover{transform:translateY(-1px)}
+.my-stat-value{font-size:18px;font-weight:800;font-variant-numeric:tabular-nums}
+.my-stat-label{font-size:11.5px;color:var(--text-muted);display:flex;align-items:center;gap:4px}
+.my-stat-danger .my-stat-value{color:var(--danger)}
+
+.chart-card{background:var(--bg-panel);border:1px solid var(--border-soft);border-radius:var(--radius-lg);box-shadow:var(--shadow-sm)}
+.chart-card .card-header{display:flex;align-items:center;justify-content:space-between;gap:10px;border-bottom:1px solid var(--border-soft);padding:14px 18px}
+.chart-card .card-header h3{font-size:14px;font-weight:700;margin:0;display:flex;align-items:center;gap:8px}
+.chart-card .card-body{padding:16px 18px}
+.chart-legend{display:flex;gap:14px;font-size:11.5px;color:var(--text-muted);font-weight:600;align-items:center;flex-shrink:0}
+.chart-legend-item{display:inline-flex;align-items:center;gap:6px}
+.legend-dot{width:9px;height:9px;border-radius:50%;display:inline-block;flex-shrink:0}
+
+.trend-chart{width:100%}
+.trend-svg{width:100%;height:auto;display:block}
+.trend-gridline{stroke:var(--border-soft);stroke-width:1;stroke-dasharray:3 5}
+.trend-y{font-size:10px;fill:var(--text-muted);text-anchor:end}
+.trend-x{font-size:10px;fill:var(--text-muted);text-anchor:middle}
+.trend-area{pointer-events:none}
+.trend-line{fill:none;stroke-width:2.4;stroke-linecap:round;stroke-linejoin:round}
+.trend-line-conv{stroke:var(--primary)}
+.trend-line-res{stroke:var(--success)}
+.trend-dot{stroke:#fff;stroke-width:1.6}
+.trend-dot-conv{fill:var(--primary)}
+.trend-dot-res{fill:var(--success)}
+.trend-hit{fill:transparent;cursor:pointer}
+
+.donut-body{display:flex;flex-direction:column;align-items:center;gap:16px}
+.donut-wrap{position:relative;width:170px}
+.donut-svg{width:100%;height:auto}
+.donut-track{fill:none;stroke:var(--bg-panel-alt);stroke-width:20}
+.donut-seg{fill:none;stroke-width:20;transition:stroke-dashoffset .8s ease}
+.donut-total{font-size:26px;font-weight:800;fill:var(--text-primary);font-variant-numeric:tabular-nums}
+.donut-total-label{font-size:10px;fill:var(--text-muted);letter-spacing:.06em}
+.donut-legend{width:100%;display:flex;flex-direction:column;gap:6px}
+.donut-legend-row{display:flex;align-items:center;gap:8px;font-size:12.5px}
+.donut-legend-name{flex:1;font-weight:600;color:var(--text-secondary)}
+.donut-legend-count{font-weight:800;font-variant-numeric:tabular-nums;min-width:22px;text-align:right}
+.donut-legend-pct{font-size:11px;color:var(--text-muted);font-weight:600;min-width:38px;text-align:right}
+
+.hbar-top{display:flex;align-items:center;gap:8px;margin-bottom:5px}
+.hbar-dot{width:9px;height:9px;border-radius:50%;flex-shrink:0}
+.hbar-icon{color:var(--primary);font-size:12px;width:16px;text-align:center}
+.hbar-pct{font-size:11px;font-weight:700;color:var(--text-muted);min-width:34px;text-align:right}
+.dept-bar-count{font-size:13px;font-weight:800;color:var(--text-primary);min-width:22px;text-align:right;font-variant-numeric:tabular-nums}
+.dept-bar-track{height:9px;background:var(--bg-panel-alt);border-radius:5px;overflow:hidden}
+.dept-bar-fill{height:100%;border-radius:5px;transition:width .6s ease}
+
+.agent-avatar{width:30px;height:30px;border-radius:9px;background:linear-gradient(135deg,var(--brand),#a78bfa);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:12px;flex-shrink:0}
+.agent-table td{vertical-align:middle}
+.agent-progress{display:flex;align-items:center;gap:8px;max-width:200px}
+.agent-progress-track{flex:1;height:7px;background:var(--bg-panel-alt);border-radius:4px;overflow:hidden}
+.agent-progress-fill{height:100%;border-radius:4px;background:linear-gradient(90deg,var(--brand),var(--brand-2));transition:width .6s ease}
+.agent-progress-num{font-size:12px;font-weight:800;min-width:18px;text-align:right;font-variant-numeric:tabular-nums}
+
+@media(max-width:1100px){.dashboard-grid{grid-template-columns:1fr !important}.dash-mystats{margin-left:0}}
+@media(max-width:768px){.dash-title{font-size:20px}.dash-subtitle{margin-left:0}.dash-stats{grid-template-columns:repeat(auto-fill,minmax(150px,1fr))}}
 </style>
 
 <script>
-var dashTimer;
-function refreshDashboard() {
-    fetch('/api/dashboard-stats', {
-        headers: { 'X-Requested-With': 'XMLHttpRequest' }
-    })
-        .then(function(r) { return r.json(); })
-        .then(function(d) {
-            if (!d) return;
+(function () {
+    var dashTimer;
+    function fmtInt(n) { return String(Math.round(n)); }
+    function fmtDecimal(n, d) { return n.toLocaleString('pt-BR', { minimumFractionDigits: d, maximumFractionDigits: d }); }
 
-            // Global stats
-            var el = document.getElementById('statGlobalOpen');
-            if (el) el.textContent = d.globalOpen || 0;
+    function animateValue(el, end, decimals, empty) {
+        if (empty) return;
+        var start = 0, dur = 750, t0 = null;
+        function step(ts) {
+            if (!t0) t0 = ts;
+            var p = Math.min((ts - t0) / dur, 1);
+            var cur = start + (end - start) * p;
+            el.textContent = decimals > 0 ? fmtDecimal(cur, decimals) : fmtInt(cur);
+            if (p < 1) requestAnimationFrame(step);
+            else el.textContent = decimals > 0 ? fmtDecimal(end, decimals) : fmtInt(end);
+        }
+        requestAnimationFrame(step);
+    }
 
-            el = document.getElementById('statOnline');
-            if (el) el.textContent = d.onlineUsers || 0;
+    function pulse(el) {
+        if (!el) return;
+        el.classList.remove('stat-pulse');
+        void el.offsetWidth;
+        el.classList.add('stat-pulse');
+    }
 
-            el = document.getElementById('statTodayConvs');
-            if (el) el.textContent = d.todayConversations || 0;
+    function refreshDashboard() {
+        fetch('/api/dashboard-stats', { headers: { 'X-Requested-With': 'XMLHttpRequest' } })
+            .then(function (r) { return r.json(); })
+            .then(function (d) {
+                if (!d) return;
+                var i, el, ids;
 
-            el = document.getElementById('statTodayMsgs');
-            if (el) el.textContent = d.todayMessages || 0;
+                // Global stats
+                var map = {
+                    statGlobalOpen: d.globalOpen || 0,
+                    statOnline: d.onlineUsers || 0,
+                    statTodayConvs: d.todayConversations || 0,
+                    statTodayMsgs: d.todayMessages || 0,
+                    statTodayResolved: d.todayResolved || 0,
+                    statTodayNew: (d.counts && (d.counts.new || 0)) || 0
+                };
+                for (var key in map) {
+                    el = document.getElementById(key);
+                    if (el) { el.textContent = map[key]; pulse(el); }
+                }
 
-            el = document.getElementById('statTodayResolved');
-            if (el) el.textContent = d.todayResolved || 0;
+                // CSAT
+                el = document.getElementById('dashCsat');
+                if (el) {
+                    el.textContent = d.csatAvg !== null && d.csatAvg !== undefined ? fmtDecimal(Number(d.csatAvg), 1) : '—';
+                    pulse(el);
+                }
 
-            // My stats badges
-            el = document.getElementById('myOpen');
-            if (el) el.textContent = 'Abertos: ' + (d.myOpen || 0);
-
-            el = document.getElementById('myWaiting');
-            if (el && d.myCounts) el.textContent = 'Agu. cliente: ' + (d.myCounts.waiting_customer || 0);
-
-            el = document.getElementById('myInternal');
-            if (el && d.myCounts) el.textContent = 'Agu. interno: ' + (d.myCounts.waiting_internal || 0);
-
-            el = document.getElementById('myResolved');
-            if (el && d.myCounts) el.textContent = 'Resolvidos: ' + (d.myCounts.resolved || 0);
-
-            el = document.getElementById('myUnread');
-            if (el) el.textContent = 'Não lidas: ' + (d.unread || 0);
-
-            // Status bars (global)
-            if (d.counts) {
-                var order = ['new', 'open', 'waiting_customer', 'waiting_internal', 'resolved'];
-                var openTotal = d.globalOpen || 1;
-                order.forEach(function(k) {
-                    var id = 'gCount' + k.charAt(0).toUpperCase() + k.slice(1).replace('_customer', '').replace('_internal', '');
-                    var countEl = document.getElementById(id);
-                    if (countEl) countEl.textContent = d.counts[k] || 0;
+                // Deltas
+                var deltas = [
+                    ['dTodayConvs', d.todayConversations || 0, d.prevDayConversations || 0],
+                    ['dTodayMsgs', d.todayMessages || 0, d.prevDayMessages || 0],
+                    ['dTodayResolved', d.todayResolved || 0, d.prevDayResolved || 0]
+                ];
+                deltas.forEach(function (t) {
+                    el = document.getElementById(t[0]);
+                    if (!el) return;
+                    var today = t[1], prev = t[2], html;
+                    if (prev <= 0) {
+                        html = '<i class="fas fa-sparkles"></i> Sem base ontem';
+                        el.className = 'stat-delta delta-new';
+                    } else {
+                        var pct = Math.round((today - prev) / prev * 100);
+                        var up = pct >= 0;
+                        html = '<i class="fas fa-' + (up ? 'arrow-up' : 'arrow-down') + '"></i> ' + Math.abs(pct) + '% vs ontem';
+                        el.className = 'stat-delta ' + (up ? 'delta-up' : 'delta-down');
+                    }
+                    el.innerHTML = html;
                 });
-            }
 
-            document.getElementById('dashUpdateTime').textContent = 'agora';
-        })
-        .catch(function() {});
-}
-dashTimer = setInterval(refreshDashboard, 20000);
+                // My stats
+                el = document.getElementById('myOpen'); if (el) { el.textContent = d.myOpen || 0; pulse(el); }
+                el = document.getElementById('myWaiting'); if (el && d.myCounts) { el.textContent = d.myCounts.waiting_customer || 0; pulse(el); }
+                el = document.getElementById('myInternal'); if (el && d.myCounts) { el.textContent = d.myCounts.waiting_internal || 0; pulse(el); }
+                el = document.getElementById('myResolved'); if (el && d.myCounts) { el.textContent = d.myCounts.resolved || 0; pulse(el); }
+                el = document.getElementById('myUnread'); if (el) { el.textContent = d.unread || 0; pulse(el); }
+
+                // Status counts (donut legend)
+                if (d.counts) {
+                    var statusIds = {
+                        new: 'gCountNew',
+                        open: 'gCountOpen',
+                        waiting_customer: 'gCountWaiting',
+                        waiting_internal: 'gCountInternal',
+                        resolved: 'gCountResolved'
+                    };
+                    Object.keys(statusIds).forEach(function (k) {
+                        el = document.getElementById(statusIds[k]);
+                        if (el) el.textContent = d.counts[k] || 0;
+                    });
+                }
+
+                el = document.getElementById('dashUpdateTime');
+                if (el) el.textContent = 'agora';
+            })
+            .catch(function () {});
+    }
+
+    // Initial count-up animations
+    document.querySelectorAll('.stat-value[data-count]').forEach(function (el) {
+        var end = parseFloat(el.getAttribute('data-count')) || 0;
+        var dec = parseInt(el.getAttribute('data-decimals') || '0', 10);
+        var empty = el.getAttribute('data-empty') === '1';
+        animateValue(el, end, dec, empty);
+    });
+
+    window.refreshDashboard = refreshDashboard;
+    dashTimer = setInterval(refreshDashboard, 20000);
+})();
 </script>

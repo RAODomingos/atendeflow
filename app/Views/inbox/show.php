@@ -187,13 +187,15 @@
                         <?php elseif ($isFile && $meta): ?>
                             <div class="message-content">
                                 <?php if ($mediaType === 'image' || $mediaType === 'sticker'): ?>
-                                    <a href="<?= e($meta['url']) ?>" target="_blank" rel="noopener">
-                                        <img class="msg-img" src="<?= e($meta['url']) ?>" alt="<?= e($meta['name']) ?>">
-                                    </a>
+                                    <a href="<?= e($meta['url']) ?>" target="_blank" rel="noopener" class="msg-lightbox">
+                                        <img class="msg-img" src="<?= e($meta['url']) ?>" alt="<?= e($meta['name']) ?>" loading="lazy"></a>
+                                    
                                 <?php elseif ($mediaType === 'audio'): ?>
                                     <audio controls preload="metadata" src="<?= e($meta['url']) ?>"></audio>
                                 <?php elseif ($mediaType === 'video'): ?>
-                                    <video controls preload="metadata" src="<?= e($meta['url']) ?>"></video>
+                                    <a href="<?= e($meta['url']) ?>" target="_blank" rel="noopener" class="msg-lightbox">
+                                        <video controls preload="metadata" src="<?= e($meta['url']) ?>" class="msg-video" data-alt="<?= e($meta['name']) ?>"></video>
+                                    </a>
                                 <?php else: ?>
                                     <a class="msg-file" href="<?= e($meta['url']) ?>" target="_blank" rel="noopener" download>
                                         <i class="fas fa-file-download"></i>
@@ -497,9 +499,9 @@ document.getElementById('messageInput')?.addEventListener('keydown', function(e)
     function fileContentHtml(type, content) {
         var m = fileMeta(content);
         var url = /^https?:\/\//i.test(m.url) ? m.url : (uploadsBase + '/' + m.url);
-        if (type === 'image' || type === 'sticker') return '<a href="' + esc(url) + '" target="_blank" rel="noopener"><img class="msg-img" src="' + esc(url) + '" alt="' + esc(m.name || 'imagem') + '"></a>';
+        if (type === 'image' || type === 'sticker') return '<a href="' + esc(url) + '" target="_blank" rel="noopener" class="msg-lightbox"><img class="msg-img" src="' + esc(url) + '" alt="' + esc(m.name || 'imagem') + '" loading="lazy"></a>';
         if (type === 'audio') return '<audio controls preload="metadata" src="' + esc(url) + '"></audio>';
-        if (type === 'video') return '<video controls preload="metadata" src="' + esc(url) + '"></video>';
+        if (type === 'video') return '<a href="' + esc(url) + '" target="_blank" rel="noopener" class="msg-lightbox"><video controls preload="metadata" src="' + esc(url) + '" class="msg-video" data-alt="' + esc(m.name || 'vídeo') + '"></video></a>';
         var name = m.name || 'arquivo';
         var size = m.size ? ' (' + fmtBytes(m.size) + ')' : '';
         return '<a class="msg-file" href="' + esc(url) + '" target="_blank" rel="noopener" download><i class="fas fa-file-download"></i><span class="msg-file-name">' + esc(name) + '</span><span class="msg-file-size">' + esc(size) + '</span></a>';
@@ -759,4 +761,81 @@ function postJsonS(url, body) {
     }
     bindEvents();
 })();
+</script>
+
+<div class="lightbox" id="msgLightbox" onclick="closeLightbox(event)">
+    <button type="button" class="lightbox-close" onclick="closeLightbox(event, true)">&times;</button>
+    <button type="button" class="lightbox-nav lightbox-prev" id="lightboxPrev" onclick="lightboxNav(event, -1)"><i class="fas fa-chevron-left"></i></button>
+    <button type="button" class="lightbox-nav lightbox-next" id="lightboxNext" onclick="lightboxNav(event, 1)"><i class="fas fa-chevron-right"></i></button>
+    <div id="lightboxContent"></div>
+    <div class="lightbox-info" id="lightboxInfo"></div>
+</div>
+<script>
+var lightboxItems = [];
+var lightboxIndex = -1;
+function escLb(s) { var d = document.createElement('div'); d.textContent = s == null ? '' : s; return d.innerHTML; }
+function openLightbox(src, caption) {
+    var all = [];
+    document.querySelectorAll('.msg-lightbox img').forEach(function(img) {
+        all.push({ src: img.src, alt: img.alt || '', type: 'image' });
+    });
+    document.querySelectorAll('.msg-lightbox video').forEach(function(vid) {
+        all.push({ src: vid.src, alt: vid.getAttribute('data-alt') || '', type: 'video' });
+    });
+    lightboxItems = all.length ? all : [{ src: src, alt: caption || '', type: 'image' }];
+    lightboxIndex = Math.max(0, lightboxItems.findIndex(function(x) { return x.src === src; }));
+    renderLightbox();
+    var lb = document.getElementById('msgLightbox');
+    if (lb) lb.classList.add('open');
+    document.body.style.overflow = 'hidden';
+}
+function renderLightbox() {
+    if (lightboxIndex < 0 || !lightboxItems[lightboxIndex]) return;
+    var item = lightboxItems[lightboxIndex];
+    var content = document.getElementById('lightboxContent');
+    var info = document.getElementById('lightboxInfo');
+    if (content) {
+        if (item.type === 'video') {
+            content.innerHTML = '<video controls preload="auto" src="' + escLb(item.src) + '" style="max-width:95vw;max-height:95vh;width:auto;height:auto"></video>';
+        } else {
+            content.innerHTML = '<img src="' + escLb(item.src) + '" alt="' + escLb(item.alt || '') + '" style="max-width:95vw;max-height:95vh;object-fit:contain;border-radius:8px">';
+        }
+    }
+    if (info) info.innerHTML = '<span>' + escLb(item.alt || '') + '</span><span style="opacity:.6">' + (lightboxIndex + 1) + ' / ' + lightboxItems.length + '</span>';
+    var prev = document.getElementById('lightboxPrev');
+    var next = document.getElementById('lightboxNext');
+    if (prev) prev.style.display = lightboxItems.length > 1 ? '' : 'none';
+    if (next) next.style.display = lightboxItems.length > 1 ? '' : 'none';
+}
+function lightboxNav(e, dir) {
+    if (e) e.stopPropagation();
+    if (!lightboxItems.length) return;
+    lightboxIndex = (lightboxIndex + dir + lightboxItems.length) % lightboxItems.length;
+    renderLightbox();
+}
+function closeLightbox(e, force) {
+    if (e && e.target && e.target.closest('.lightbox-nav')) return;
+    if (e && e.target && e.target.closest('.lightbox-close')) force = true;
+    if (e && e.target && e.target.id !== 'msgLightbox' && !force) return;
+    var lb = document.getElementById('msgLightbox');
+    if (lb) lb.classList.remove('open');
+    document.body.style.overflow = '';
+}
+document.addEventListener('keydown', function(e) {
+    var lb = document.getElementById('msgLightbox');
+    if (!lb || !lb.classList.contains('open')) return;
+    if (e.key === 'Escape') closeLightbox({ target: lb }, true);
+    else if (e.key === 'ArrowLeft') lightboxNav(e, -1);
+    else if (e.key === 'ArrowRight') lightboxNav(e, 1);
+});
+document.addEventListener('click', function(e) {
+    var a = e.target.closest && e.target.closest('.msg-lightbox');
+    if (a) {
+        e.preventDefault();
+        var img = a.querySelector('img');
+        var vid = a.querySelector('video');
+        if (img) openLightbox(img.src, img.alt);
+        else if (vid) openLightbox(vid.src, vid.getAttribute('data-alt') || '', 'video');
+    }
+});
 </script>

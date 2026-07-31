@@ -172,13 +172,25 @@ class UserController
     {
         $userId = Auth::id();
         $name = $request->post('name');
+        $email = trim((string) $request->post('email'));
 
         if (empty(trim($name ?? ''))) {
             Session::setFlash('error', 'O nome é obrigatório.');
             View::back();
         }
 
-        $data = ['name' => $name, 'email' => $request->post('email')];
+        if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
+            Session::setFlash('error', 'Informe um e-mail válido.');
+            View::back();
+        }
+
+        $existing = User::findByEmail($email);
+        if ($existing && (int) $existing['id'] !== (int) $userId) {
+            Session::setFlash('error', 'Este e-mail já está em uso por outro usuário.');
+            View::back();
+        }
+
+        $data = ['name' => $name, 'email' => $email];
 
         $signature = $request->post('signature');
         if ($signature !== null) {

@@ -10,6 +10,7 @@
     <meta name="config-app-name" content="<?= e($config['app_name'] ?? 'AtendeFlow') ?>">
     <meta name="config-chat-widget-enabled" content="<?= $config['chat_widget_enabled'] ?? 'true' ?>">
     <meta name="config-proactive-chat-enabled" content="<?= $config['proactive_chat_enabled'] ?? 'true' ?>">
+    <meta name="csrf-token" content="<?= csrf_token() ?>">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
@@ -52,11 +53,13 @@ $userInitial = mb_strtoupper(mb_substr($userName, 0, 1));
                 <i class="fa-solid fa-volume-high"></i>
             </button>
             <div class="topbar-user" id="topbarUser">
-                <div class="avatar avatar-sm"><?= $userInitial ?></div>
-                <div class="topbar-user-info">
-                    <div class="topbar-user-name"><?= e($userName) ?></div>
-                    <div class="topbar-user-role"><?= ucfirst($userRole) ?></div>
-                </div>
+                <a href="<?= url('profile') ?>" class="topbar-profile-link" title="Meu Perfil">
+                    <div class="avatar avatar-sm"><?= $userInitial ?></div>
+                    <div class="topbar-user-info">
+                        <div class="topbar-user-name"><?= e($userName) ?></div>
+                        <div class="topbar-user-role"><?= ucfirst($userRole) ?></div>
+                    </div>
+                </a>
                 <form method="post" action="<?= url('logout') ?>" style="margin:0;display:flex">
                     <button type="submit" class="topbar-logout" title="Sair">
                         <i class="fas fa-sign-out-alt"></i>
@@ -299,7 +302,8 @@ $userInitial = mb_strtoupper(mb_substr($userName, 0, 1));
         if(!o){notifDropdown.classList.add('open');renderDropdown();}
     });
     if(markAllBtn)markAllBtn.addEventListener('click',function(){
-        fetch(baseUrl+'/api/messages/read-all',{method:'POST',headers:{'X-Requested-With':'XMLHttpRequest'}}).then(function(){
+        var fd=new FormData();fd.append('_csrf_token',document.querySelector('meta[name="csrf-token"]')?.content||'');
+        fetch(baseUrl+'/api/messages/read-all',{method:'POST',headers:{'X-Requested-With':'XMLHttpRequest'},body:fd}).then(function(){
             notifList.innerHTML='<div class="notif-empty">Nenhuma notificação no momento</div>';
             if(window.__enhancements&&window.__enhancements.GlobalNotifier){
                 window.__enhancements.GlobalNotifier.lastUnreadConversations=0;
