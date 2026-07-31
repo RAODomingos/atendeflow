@@ -77,6 +77,13 @@ class ConversationService
 
             // Mark as being attended (Em atendimento)
             $data['status'] = 'waiting_customer';
+
+            // Parar fluxo ativo quando atendente responder
+            $flowState = \App\Models\Flow::getActiveFlowState($conversationId);
+            if ($flowState) {
+                \App\Models\Flow::completeFlowState($conversationId);
+                Conversation::addEvent($conversationId, 'flow_stopped', 'Fluxo interrompido por resposta do atendente', $userId);
+            }
         }
 
         Conversation::update($conversationId, $data);
@@ -183,6 +190,13 @@ class ConversationService
             'user_id' => $userId,
         ]);
 
+        // Parar fluxo ativo quando atendente atribuir conversa
+        $flowState = \App\Models\Flow::getActiveFlowState($conversationId);
+        if ($flowState) {
+            \App\Models\Flow::completeFlowState($conversationId);
+            Conversation::addEvent($conversationId, 'flow_stopped', 'Fluxo interrompido por atribuição manual', $assignedBy);
+        }
+
         // Notify the assigned user
         if ($userId !== $assignedBy) {
             Notification::assigned($userId, $conversationId, $assignedBy);
@@ -218,6 +232,13 @@ class ConversationService
 
         Conversation::update($conversationId, $data);
         Conversation::addEvent($conversationId, 'transferred', $description, Auth::id());
+
+        // Parar fluxo ativo quando atendente transferir conversa
+        $flowState = \App\Models\Flow::getActiveFlowState($conversationId);
+        if ($flowState) {
+            \App\Models\Flow::completeFlowState($conversationId);
+            Conversation::addEvent($conversationId, 'flow_stopped', 'Fluxo interrompido por transferência', Auth::id());
+        }
     }
 
     public function changeStatus(int $conversationId, string $status, ?string $reason = null, ?string $description = null): void
@@ -258,6 +279,13 @@ class ConversationService
         Conversation::update($conversationId, $data);
 
         Conversation::addEvent($conversationId, 'status_changed', "Status alterado para: {$status}", Auth::id());
+
+        // Parar fluxo ativo quando atendente mudar status manualmente
+        $flowState = \App\Models\Flow::getActiveFlowState($conversationId);
+        if ($flowState) {
+            \App\Models\Flow::completeFlowState($conversationId);
+            Conversation::addEvent($conversationId, 'flow_stopped', 'Fluxo interrompido por mudança de status manual', Auth::id());
+        }
 
         // Dispara CSAT automático ao resolver (transição para 'resolved')
         if ($status === 'resolved' && $old !== 'resolved') {

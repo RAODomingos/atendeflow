@@ -10,6 +10,23 @@ use App\Models\Department;
 
 class FlowEngineService
 {
+    private function logExecution(int $conversationId, int $flowId, int $nodeId, string $eventType, ?array $data = null): void
+    {
+        Database::getInstance()->insert('flow_execution_logs', [
+            'conversation_id' => $conversationId,
+            'flow_id' => $flowId,
+            'node_id' => $nodeId,
+            'event_type' => $eventType,
+            'event_data' => $data ? json_encode($data, JSON_UNESCAPED_UNICODE) : null,
+        ]);
+    }
+
+    private function getSetting(string $key, string $default = ''): string
+    {
+        $setting = Database::getInstance()->fetch("SELECT value FROM flow_settings WHERE key_name = ?", [$key]);
+        return $setting['value'] ?? $default;
+    }
+
     public function start(int $conversationId, int $flowId): void
     {
         $flow = Flow::find($flowId);
@@ -25,9 +42,13 @@ class FlowEngineService
 
         if (!$startNode) return;
 
-        Flow::saveFlowState($conversationId, $flowId, $startNode['id']);
+        $timeoutMinutes = (int) $this->getSetting('flow_timeout_minutes', '30');
+        $timeoutAt = date('Y-m-d H:i:s', strtotime("+{$timeoutMinutes} minutes"));
+        
+        Flow::saveFlowState($conversationId, $flowId, $startNode['id'], $timeoutAt);
 
         Conversation::addEvent($conversationId, 'flow_started', "Fluxo '{$flow['name']}' iniciado");
+        $this->logExecution($conversationId, $flowId, $startNode['id'], 'flow_started', ['flow_name' => $flow['name']]);
 
         $this->executeNode($conversationId, $startNode);
     }
@@ -36,6 +57,20 @@ class FlowEngineService
     {
         $flowState = Flow::getActiveFlowState($conversationId);
         if (!$flowState) return;
+
+        // Verificar timeout
+        if ($flowState['timeout_at'] && new \DateTime($flowState['timeout_at']) < new \DateTime()) {
+            $this->handleTimeout($conversationId, $flowState);
+            return;
+        }
+
+        // Atualizar atividade
+        Database::getInstance()->update(
+            'conversation_flow_states',
+            ['last_activity_at' => date('Y-m-d H:i:s')],
+            'id = ?',
+            [$flowState['id']]
+        );
 
         $flow = Flow::find($flowState['flow_id']);
         if (!$flow) return;
@@ -237,22 +272,36 @@ class FlowEngineService
             case 'delay':
                 $config = $node['config'] ?? [];
                 $seconds = (int) ($config['seconds'] ?? 2);
-                sleep($seconds);
-                $this->goToNextNode($conversationId, $node);
+                // Implementar delay assíncrono usando timestamp
+                $delayUntil = date('Y-m-d H:i:s', strtotime("+{$seconds} seconds"));
+                Database::getInstance()->update(
+                    'conversation_flow_states',
+                    ['timeout_at' => $delayUntil],
+                    'conversation_id = ? AND is_active = 1',
+                    [$conversationId]
+                );
+                $this->logExecution($conversationId, $node['flow_id'], $node['id'], 'delay_scheduled', ['seconds' => $seconds, 'until' => $delayUntil]);
+                // Não avança imediatamente - será processado por worker
                 break;
 
             case 'condition':
                 $config = $node['config'] ?? [];
                 $variable = $config['variable'] ?? '';
                 $expected = $config['expected'] ?? '';
+                $operator = $config['operator'] ?? 'equals';
                 $matched = false;
 
                 if ($variable && $expected) {
                     $answer = Flow::getLastAnswer($conversationId, $node['id']);
                     $fieldValue = $answer['answer_text'] ?? '';
-                    if (mb_strtolower(trim($fieldValue)) === mb_strtolower(trim($expected))) {
-                        $matched = true;
-                    }
+                    $matched = $this->evaluateCondition($fieldValue, $expected, $operator);
+                    $this->logExecution($conversationId, $node['flow_id'], $node['id'], 'condition_evaluated', [
+                        'variable' => $variable,
+                        'value' => $fieldValue,
+                        'expected' => $expected,
+                        'operator' => $operator,
+                        'matched' => $matched
+                    ]);
                 }
 
                 if ($matched && !empty($node['options'])) {
@@ -315,6 +364,7 @@ class FlowEngineService
                 Conversation::update($conversationId, ['status' => 'new']);
                 Flow::completeFlowState($conversationId);
                 Conversation::addEvent($conversationId, 'flow_completed', 'Fluxo finalizado, encaminhado para atendimento humano');
+                $this->logExecution($conversationId, $node['flow_id'], $node['id'], 'handoff_completed', ['message' => $node['content'] ?? 'default']);
                 break;
 
             case 'end':
@@ -357,25 +407,247 @@ class FlowEngineService
         if ($conv && ($conv['channel_type'] ?? '') === 'whatsapp') {
             try {
                 $service = new WhatsAppService();
-                $service->sendOutbound($conversationId, $messageId, $type, $content);
+                $result = $service->sendOutbound($conversationId, $messageId, $type, $content);
+                
+                if ($result) {
+                    Database::getInstance()->update(
+                        'messages',
+                        ['delivery_status' => 'sent'],
+                        'id = ?',
+                        [$messageId]
+                    );
+                } else {
+                    $this->scheduleRetry($messageId);
+                }
             } catch (\Throwable $e) {
                 error_log("FlowEngine WhatsApp outbound error: " . $e->getMessage());
+                $this->scheduleRetry($messageId);
             }
         }
 
         return $messageId;
     }
 
+    private function scheduleRetry(int $messageId): void
+    {
+        $maxRetries = (int) $this->getSetting('flow_max_retries', '3');
+        $backoffSeconds = (int) $this->getSetting('flow_retry_backoff_seconds', '60');
+        
+        $message = Database::getInstance()->fetch("SELECT retry_count FROM messages WHERE id = ?", [$messageId]);
+        if (!$message) return;
+        
+        $currentRetry = $message['retry_count'] ?? 0;
+        if ($currentRetry >= $maxRetries) {
+            Database::getInstance()->update(
+                'messages',
+                ['delivery_status' => 'failed'],
+                'id = ?',
+                [$messageId]
+            );
+            return;
+        }
+        
+        $newRetryCount = $currentRetry + 1;
+        $delay = $backoffSeconds * pow(2, $currentRetry); // Backoff exponencial
+        $nextRetryAt = date('Y-m-d H:i:s', strtotime("+{$delay} seconds"));
+        
+        Database::getInstance()->update(
+            'messages',
+            [
+                'retry_count' => $newRetryCount,
+                'next_retry_at' => $nextRetryAt,
+                'delivery_status' => 'pending',
+            ],
+            'id = ?',
+            [$messageId]
+        );
+    }
+
+    public function processPendingRetries(): void
+    {
+        $pendingMessages = Database::getInstance()->fetchAll(
+            "SELECT m.*, c.id as conversation_id, c.channel_id
+             FROM messages m
+             JOIN conversations c ON c.id = m.conversation_id
+             WHERE m.delivery_status = 'pending'
+               AND m.next_retry_at IS NOT NULL
+               AND m.next_retry_at <= NOW()
+               AND m.direction = 'outbound'
+               AND m.retry_count < ?
+             LIMIT 50",
+            [(int) $this->getSetting('flow_max_retries', '3')]
+        );
+
+        foreach ($pendingMessages as $msg) {
+            try {
+                $conv = Conversation::find($msg['conversation_id']);
+                if (!$conv) continue;
+                
+                if (($conv['channel_type'] ?? '') === 'whatsapp') {
+                    $service = new WhatsAppService();
+                    $result = $service->sendOutbound($msg['conversation_id'], $msg['id'], $msg['type'], $msg['content']);
+                    
+                    if ($result) {
+                        Database::getInstance()->update(
+                            'messages',
+                            ['delivery_status' => 'sent', 'next_retry_at' => null],
+                            'id = ?',
+                            [$msg['id']]
+                        );
+                    } else {
+                        $this->scheduleRetry($msg['id']);
+                    }
+                }
+            } catch (\Throwable $e) {
+                error_log("Retry outbound error: " . $e->getMessage());
+                $this->scheduleRetry($msg['id']);
+            }
+        }
+    }
+
     private function processTemplate(string $content, array $conversation): string
     {
+        $contact = Contact::find($conversation['contact_id'] ?? 0);
+        
         $replacements = [
-            '{nome}' => $conversation['contact_name'] ?? 'Cliente',
-            '{email}' => $conversation['contact_email'] ?? '',
-            '{telefone}' => $conversation['contact_phone'] ?? '',
+            '{nome}' => $contact['name'] ?? $conversation['contact_name'] ?? 'Cliente',
+            '{email}' => $contact['email'] ?? $conversation['contact_email'] ?? '',
+            '{telefone}' => $contact['phone'] ?? $conversation['contact_phone'] ?? '',
             '{departamento}' => $conversation['department_name'] ?? '',
             '{atendente}' => $conversation['assigned_user_name'] ?? 'Atendente',
+            '{empresa}' => $contact['company'] ?? '',
+            '{documento}' => $contact['document'] ?? '',
+            '{data}' => date('d/m/Y'),
+            '{hora}' => date('H:i'),
+            '{data_hora}' => date('d/m/Y H:i'),
         ];
 
+        // Suporte a condicionais simples: {if:campo}texto{/if}
+        $content = preg_replace_callback('/\{if:([^}]+)\}(.+?)\{\/if\}/s', function($matches) use ($replacements) {
+            $field = trim($matches[1]);
+            $value = $replacements['{' . $field . '}'] ?? '';
+            return !empty($value) ? $matches[2] : '';
+        }, $content);
+
+        // Suporte a else: {if:campo}texto{else}alternativo{/if}
+        $content = preg_replace_callback('/\{if:([^}]+)\}(.+?)\{else\}(.+?)\{\/if\}/s', function($matches) use ($replacements) {
+            $field = trim($matches[1]);
+            $value = $replacements['{' . $field . '}'] ?? '';
+            return !empty($value) ? $matches[2] : $matches[3];
+        }, $content);
+
         return str_replace(array_keys($replacements), array_values($replacements), $content);
+    }
+
+    private function handleTimeout(int $conversationId, array $flowState): void
+    {
+        $this->logExecution($conversationId, $flowState['flow_id'], $flowState['current_node_id'], 'timeout_triggered');
+        
+        $flow = Flow::find($flowState['flow_id']);
+        if (!$flow) {
+            Flow::completeFlowState($conversationId);
+            return;
+        }
+
+        // Encontrar nó de handoff ou end
+        $handoffNode = null;
+        foreach ($flow['nodes'] as $node) {
+            if ($node['node_type'] === 'handoff') {
+                $handoffNode = $node;
+                break;
+            }
+        }
+
+        if ($handoffNode) {
+            $this->executeNode($conversationId, $handoffNode);
+        } else {
+            // Fallback: encaminhar para atendimento humano
+            $this->dispatchOutboundMessage($conversationId, 'text', 'Tempo esgotado. Um atendente irá ajudá-lo em breve.');
+            Conversation::update($conversationId, ['status' => 'new']);
+            Flow::completeFlowState($conversationId);
+            Conversation::addEvent($conversationId, 'flow_timeout', 'Fluxo finalizado por timeout');
+        }
+    }
+
+    public function processPendingDelays(): void
+    {
+        $pendingStates = Database::getInstance()->fetchAll(
+            "SELECT fs.* FROM conversation_flow_states fs
+             WHERE fs.is_active = 1
+               AND fs.timeout_at IS NOT NULL
+               AND fs.timeout_at <= NOW()
+             LIMIT 100"
+        );
+
+        foreach ($pendingStates as $state) {
+            $flow = Flow::find($state['flow_id']);
+            if (!$flow) continue;
+
+            $currentNode = null;
+            foreach ($flow['nodes'] as $node) {
+                if ($node['id'] === $state['current_node_id']) {
+                    $currentNode = $node;
+                    break;
+                }
+            }
+
+            if ($currentNode && $currentNode['node_type'] === 'delay') {
+                $this->logExecution($state['conversation_id'], $flow['id'], $currentNode['id'], 'delay_completed');
+                $this->goToNextNode($state['conversation_id'], $currentNode);
+            }
+        }
+    }
+
+    private function evaluateCondition(string $actual, string $expected, string $operator): bool
+    {
+        $actual = trim($actual);
+        $expected = trim($expected);
+
+        return match ($operator) {
+            'equals' => mb_strtolower($actual) === mb_strtolower($expected),
+            'not_equals' => mb_strtolower($actual) !== mb_strtolower($expected),
+            'contains' => str_contains(mb_strtolower($actual), mb_strtolower($expected)),
+            'not_contains' => !str_contains(mb_strtolower($actual), mb_strtolower($expected)),
+            'starts_with' => str_starts_with(mb_strtolower($actual), mb_strtolower($expected)),
+            'ends_with' => str_ends_with(mb_strtolower($actual), mb_strtolower($expected)),
+            'greater_than' => is_numeric($actual) && is_numeric($expected) && (float)$actual > (float)$expected,
+            'less_than' => is_numeric($actual) && is_numeric($expected) && (float)$actual < (float)$expected,
+            'greater_equal' => is_numeric($actual) && is_numeric($expected) && (float)$actual >= (float)$expected,
+            'less_equal' => is_numeric($actual) && is_numeric($expected) && (float)$actual <= (float)$expected,
+            'regex' => preg_match($expected, $actual) === 1,
+            'in' => in_array(mb_strtolower($actual), array_map('mb_strtolower', explode(',', $expected))),
+            'not_in' => !in_array(mb_strtolower($actual), array_map('mb_strtolower', explode(',', $expected))),
+            'empty' => empty($actual),
+            'not_empty' => !empty($actual),
+            default => mb_strtolower($actual) === mb_strtolower($expected),
+        };
+    }
+
+    public function cleanupOldStates(): void
+    {
+        $cleanupDays = (int) $this->getSetting('flow_cleanup_days', '90');
+        $cutoffDate = date('Y-m-d H:i:s', strtotime("-{$cleanupDays} days"));
+
+        // Limpar estados de fluxo inativos antigos
+        Database::getInstance()->execute(
+            "DELETE FROM conversation_flow_states 
+             WHERE is_active = 0 
+               AND (finished_at IS NULL OR finished_at < ?)",
+            [$cutoffDate]
+        );
+
+        // Limpar logs de execução antigos
+        Database::getInstance()->execute(
+            "DELETE FROM flow_execution_logs 
+             WHERE created_at < ?",
+            [$cutoffDate]
+        );
+
+        // Limpar respostas de fluxo antigas (opcional, manter histórico)
+        Database::getInstance()->execute(
+            "DELETE FROM flow_answers 
+             WHERE created_at < ?",
+            [date('Y-m-d H:i:s', strtotime("-{$cleanupDays * 2} days"))]
+        );
     }
 }

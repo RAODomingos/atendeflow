@@ -190,6 +190,22 @@ class InboxController
         ]);
     }
 
+    public function chatbot(Request $request): void
+    {
+        $conversations = Conversation::getChatbotConversations(Auth::id());
+        View::renderWithLayout('inbox/index', 'main', [
+            'title' => 'Chatbot',
+            'activePage' => 'chatbot',
+            'conversations' => $conversations,
+            'counts' => Conversation::countByStatus(Auth::id()),
+            'unread' => Conversation::getUnreadCount(Auth::id()),
+            'departments' => Department::all(),
+            'activeTab' => 'chatbot',
+            'inboxes' => Inbox::getUserInboxes(Auth::id()),
+            'channels' => \App\Models\Channel::getWhatsapp(),
+        ]);
+    }
+
     public function createPersonal(Request $request): void
     {
         $name = trim((string) $request->post('name'));
@@ -379,6 +395,27 @@ class InboxController
         Conversation::update($id, ['signature_enabled' => $value]);
 
         View::json(['ok' => true, 'value' => $value]);
+    }
+
+    public function updateSubject(Request $request, int $id): void
+    {
+        $subject = $request->post('subject', '');
+        Conversation::update($id, ['subject' => $subject]);
+        View::json(['ok' => true, 'subject' => $subject]);
+    }
+
+    public function updateUnit(Request $request, int $id): void
+    {
+        $unit = $request->post('unit', '');
+        Conversation::update($id, ['unit' => $unit]);
+        View::json(['ok' => true, 'unit' => $unit]);
+    }
+
+    public function updateSubstatus(Request $request, int $id): void
+    {
+        $substatus = $request->post('substatus', '');
+        Conversation::update($id, ['substatus' => $substatus]);
+        View::json(['ok' => true, 'substatus' => $substatus]);
     }
 
     public function assign(Request $request, int $id): void

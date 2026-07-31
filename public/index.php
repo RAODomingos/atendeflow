@@ -17,6 +17,7 @@ ob_start();
  * Configurações do Composer Autoload
  */
 $loader = require __DIR__ . '/../vendor/autoload.php';
+require_once __DIR__ . '/../lib/autoload.php';
 require_once __DIR__ . '/../app/Core/Helper.php';
 
 /*

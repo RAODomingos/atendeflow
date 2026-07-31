@@ -5,7 +5,7 @@ function env(string $key, mixed $default = null): mixed
     static $env = null;
 
     if ($env === null) {
-        $envFile = __DIR__ . '/../../.env';
+        $envFile = __DIR__ . '/../../env/.env';
         if (file_exists($envFile)) {
             $lines = file($envFile, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
             foreach ($lines as $line) {

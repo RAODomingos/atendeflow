@@ -12,9 +12,9 @@ class Conversation
         $conv = Database::getInstance()->fetch(
             "SELECT c.*, ch.type as channel_type, ch.name as channel_name,
                     d.name as department_name, d.color as department_color,
-                    u.name as assigned_user_name, ct.name as contact_name,
-                    ct.email as contact_email, ct.phone as contact_phone,
-                    ct.avatar as contact_avatar
+                     u.name as assigned_user_name, ct.name as contact_name,
+                     ct.email as contact_email, ct.phone as contact_phone,
+                     ct.avatar as contact_avatar, ct.company as contact_company
              FROM conversations c
              JOIN contacts ct ON ct.id = c.contact_id
              LEFT JOIN departments d ON d.id = c.department_id
@@ -49,11 +49,12 @@ class Conversation
         $sql = "SELECT c.*, ch.type as channel_type, ch.name as channel_name,
                        d.name as department_name, d.color as department_color,
                        u.name as assigned_user_name,
-                       ct.name as contact_name, ct.email as contact_email, ct.phone as contact_phone, ct.avatar as contact_avatar,
-                       (SELECT content FROM messages WHERE conversation_id = c.id ORDER BY created_at DESC LIMIT 1) as last_message,
-                       (SELECT created_at FROM messages WHERE conversation_id = c.id ORDER BY created_at DESC LIMIT 1) as last_message_at,
-                       (SELECT COUNT(*) FROM messages WHERE conversation_id = c.id) as message_count,
-                        (SELECT COUNT(*) FROM messages WHERE conversation_id = c.id AND direction = 'inbound' AND is_read = 0" . ($userId ? " AND (user_id != ? OR user_id IS NULL)" : "") . ") as unread_count
+                        ct.name as contact_name, ct.email as contact_email, ct.phone as contact_phone, ct.avatar as contact_avatar, ct.company as contact_company,
+                        (SELECT content FROM messages WHERE conversation_id = c.id ORDER BY created_at DESC LIMIT 1) as last_message,
+                        (SELECT type FROM messages WHERE conversation_id = c.id ORDER BY created_at DESC LIMIT 1) as last_message_type,
+                        (SELECT created_at FROM messages WHERE conversation_id = c.id ORDER BY created_at DESC LIMIT 1) as last_message_at,
+                        (SELECT COUNT(*) FROM messages WHERE conversation_id = c.id) as message_count,
+                         (SELECT COUNT(*) FROM messages WHERE conversation_id = c.id AND direction = 'inbound' AND is_read = 0" . ($userId ? " AND (user_id != ? OR user_id IS NULL)" : "") . ") as unread_count
                  FROM conversations c
                  JOIN contacts ct ON ct.id = c.contact_id
                  LEFT JOIN departments d ON d.id = c.department_id
@@ -137,8 +138,9 @@ class Conversation
         $sql = "SELECT c.*, ch.type as channel_type, ch.name as channel_name,
                         d.name as department_name, d.color as department_color,
                         u.name as assigned_user_name,
-                        ct.name as contact_name, ct.email as contact_email, ct.phone as contact_phone, ct.avatar as contact_avatar,
+                        ct.name as contact_name, ct.email as contact_email, ct.phone as contact_phone, ct.avatar as contact_avatar, ct.company as contact_company,
                         latest_msg.content as last_message,
+                        latest_msg.type as last_message_type,
                         latest_msg.created_at as last_message_at,
                         COALESCE(msg_stats.message_count, 0) as message_count,
                         COALESCE(msg_stats.unread_count, 0) as unread_count
@@ -148,7 +150,7 @@ class Conversation
                 LEFT JOIN users u ON u.id = c.assigned_user_id
                 LEFT JOIN channels ch ON ch.id = c.channel_id
                 LEFT JOIN (
-                    SELECT m1.conversation_id, m1.content, m1.created_at
+                    SELECT m1.conversation_id, m1.content, m1.created_at, m1.type
                     FROM messages m1
                     WHERE m1.id = (
                         SELECT MAX(m2.id) FROM messages m2 WHERE m2.conversation_id = m1.conversation_id
@@ -274,6 +276,41 @@ class Conversation
     }
 
     /**
+     * Conversas com fluxo ativo (chatbot)
+     */
+    public static function getChatbotConversations(?int $userId = null): array
+    {
+        $sql = "SELECT c.*, ch.type as channel_type, ch.name as channel_name,
+                       d.name as department_name, d.color as department_color,
+                       u.name as assigned_user_name, ct.name as contact_name,
+                       ct.email as contact_email, ct.phone as contact_phone,
+                       ct.avatar as contact_avatar,
+                       fs.flow_id, fs.current_node_id, fs.timeout_at
+                FROM conversations c
+                JOIN contacts ct ON ct.id = c.contact_id
+                LEFT JOIN departments d ON d.id = c.department_id
+                LEFT JOIN users u ON u.id = c.assigned_user_id
+                LEFT JOIN channels ch ON ch.id = c.channel_id
+                JOIN conversation_flow_states fs ON fs.conversation_id = c.id AND fs.is_active = 1
+                WHERE c.status NOT IN ('closed', 'resolved', 'spam')";
+
+        $params = [];
+
+        if ($userId) {
+            $inboxes = \App\Models\Inbox::getUserInboxes($userId);
+            $inboxIds = array_column($inboxes, 'id');
+            if (!empty($inboxIds)) {
+                $sql .= " AND (c.inbox_id IN (" . implode(',', array_fill(0, count($inboxIds), '?')) . ") OR c.inbox_id IS NULL)";
+                $params = array_merge($params, $inboxIds);
+            }
+        }
+
+        $sql .= " ORDER BY c.last_message_at DESC";
+
+        return Database::getInstance()->fetchAll($sql, $params);
+    }
+
+    /**
      * Outros tickets do mesmo contato (exceto o informado), usado no painel do atendimento.
      */
     public static function getByContact(int $contactId, ?int $excludeId = null): array
@@ -283,7 +320,8 @@ class Conversation
                        d.name as department_name, d.color as department_color,
                        u.name as assigned_user_name,
                        (SELECT content FROM messages WHERE conversation_id = c.id ORDER BY created_at DESC LIMIT 1) as last_message,
-                       (SELECT created_at FROM messages WHERE conversation_id = c.id ORDER BY created_at DESC LIMIT 1) as last_message_at
+                        (SELECT type FROM messages WHERE conversation_id = c.id ORDER BY created_at DESC LIMIT 1) as last_message_type,
+                        (SELECT created_at FROM messages WHERE conversation_id = c.id ORDER BY created_at DESC LIMIT 1) as last_message_at
                 FROM conversations c
                 JOIN contacts ct ON ct.id = c.contact_id
                 LEFT JOIN departments d ON d.id = c.department_id

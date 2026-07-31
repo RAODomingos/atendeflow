@@ -11,6 +11,7 @@ use App\Models\Department;
 use App\Models\Flow;
 use App\Models\Inbox;
 use App\Models\User;
+use App\Models\Conversation;
 
 class SettingsController
 {
@@ -435,6 +436,110 @@ class SettingsController
             $users = [];
         }
         Inbox::setUsers($inboxId, array_map('intval', $users));
+    }
+
+    public function substatuses(Request $request): void
+    {
+        $substatuses = Database::getInstance()->fetchAll(
+            "SELECT * FROM conversation_substatuses ORDER BY sort_order ASC, name ASC"
+        );
+        View::renderWithLayout('settings/substatuses', 'main', [
+            'title' => 'Sub-status',
+            'activePage' => 'settings',
+            'substatuses' => $substatuses,
+        ]);
+    }
+
+    public function createSubstatus(Request $request): void
+    {
+        $name = $request->post('name', '');
+        $color = $request->post('color', '#6c757d');
+        if (empty($name)) {
+            Session::flash('error', 'Nome é obrigatório.');
+            View::redirect('/settings/substatuses');
+            return;
+        }
+        Database::getInstance()->execute(
+            "INSERT INTO conversation_substatuses (name, color, sort_order) VALUES (?, ?, ?)",
+            [$name, $color, (int) $request->post('sort_order', 0)]
+        );
+        Session::flash('success', 'Sub-status criado com sucesso.');
+        View::redirect('/settings/substatuses');
+    }
+
+    public function updateSubstatus(Request $request, int $id): void
+    {
+        $name = $request->post('name', '');
+        $color = $request->post('color', '#6c757d');
+        if (empty($name)) {
+            Session::flash('error', 'Nome é obrigatório.');
+            View::redirect('/settings/substatuses');
+            return;
+        }
+        Database::getInstance()->execute(
+            "UPDATE conversation_substatuses SET name = ?, color = ?, sort_order = ?, is_active = ? WHERE id = ?",
+            [$name, $color, (int) $request->post('sort_order', 0), (int) $request->post('is_active', 1), $id]
+        );
+        Session::flash('success', 'Sub-status atualizado com sucesso.');
+        View::redirect('/settings/substatuses');
+    }
+
+    public function deleteSubstatus(Request $request, int $id): void
+    {
+        Database::getInstance()->execute("DELETE FROM conversation_substatuses WHERE id = ?", [$id]);
+        Session::flash('success', 'Sub-status removido.');
+        View::redirect('/settings/substatuses');
+    }
+
+    public function subjects(Request $request): void
+    {
+        $subjects = Database::getInstance()->fetchAll(
+            "SELECT * FROM conversation_subjects ORDER BY sort_order ASC, name ASC"
+        );
+        View::renderWithLayout('settings/subjects', 'main', [
+            'title' => 'Assuntos Predefinidos',
+            'activePage' => 'settings',
+            'subjects' => $subjects,
+        ]);
+    }
+
+    public function createSubject(Request $request): void
+    {
+        $name = $request->post('name', '');
+        if (empty($name)) {
+            Session::flash('error', 'Nome é obrigatório.');
+            View::redirect('/settings/subjects');
+            return;
+        }
+        Database::getInstance()->execute(
+            "INSERT INTO conversation_subjects (name, sort_order) VALUES (?, ?)",
+            [$name, (int) $request->post('sort_order', 0)]
+        );
+        Session::flash('success', 'Assunto criado com sucesso.');
+        View::redirect('/settings/subjects');
+    }
+
+    public function updateSubject(Request $request, int $id): void
+    {
+        $name = $request->post('name', '');
+        if (empty($name)) {
+            Session::flash('error', 'Nome é obrigatório.');
+            View::redirect('/settings/subjects');
+            return;
+        }
+        Database::getInstance()->execute(
+            "UPDATE conversation_subjects SET name = ?, sort_order = ?, is_active = ? WHERE id = ?",
+            [$name, (int) $request->post('sort_order', 0), (int) $request->post('is_active', 1), $id]
+        );
+        Session::flash('success', 'Assunto atualizado com sucesso.');
+        View::redirect('/settings/subjects');
+    }
+
+    public function deleteSubject(Request $request, int $id): void
+    {
+        Database::getInstance()->execute("DELETE FROM conversation_subjects WHERE id = ?", [$id]);
+        Session::flash('success', 'Assunto removido.');
+        View::redirect('/settings/subjects');
     }
 
 }

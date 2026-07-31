@@ -1,8 +1,9 @@
 node_modules/
 dist/
 .next/
-.env
-.env.local
+env/.env
+env/.env.local
 *.log
 .turbo/
 coverage/
+lib/
