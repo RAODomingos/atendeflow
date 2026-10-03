@@ -632,6 +632,12 @@ function deleteNode(id) {
         if (!ok) return;
         nodes = nodes.filter(n => n.id !== id);
         connections = connections.filter(c => c.source !== id && c.target !== id);
+        nodes.forEach(n => {
+            if (n.type === 'guild_select' && n.config) {
+                if (String(n.config.no_store_node_id || '') === String(id)) n.config.no_store_node_id = null;
+                if (String(n.config.next_node_id || '') === String(id)) n.config.next_node_id = null;
+            }
+        });
         if (selectedNode === id) selectedNode = null;
         if (connectSource && connectSource.nodeId === id) { connectSource = null; }
         renderAll();
