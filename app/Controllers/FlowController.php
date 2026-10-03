@@ -256,6 +256,31 @@ class FlowController
                 }
             }
         }
+
+        // Refs de saída guardadas no config (ex.: guild_select) também usam
+        // ids do canvas e precisam do mesmo remapeamento.
+        foreach ($nodes as $nodeData) {
+            if (($nodeData['type'] ?? '') !== 'guild_select' || empty($nodeData['id'])) continue;
+            $nodeId = $frontToDb[$nodeData['id']] ?? null;
+            if (!$nodeId) continue;
+            $cfg = $nodeData['config'] ?? [];
+            if (!is_array($cfg)) continue;
+            $changed = false;
+            foreach (['no_store_node_id', 'next_node_id'] as $key) {
+                if (!empty($cfg[$key]) && isset($frontToDb[$cfg[$key]])) {
+                    $cfg[$key] = $frontToDb[$cfg[$key]];
+                    $changed = true;
+                }
+            }
+            if ($changed) {
+                Database::getInstance()->update(
+                    'flow_nodes',
+                    ['config' => json_encode($cfg)],
+                    'id = ?',
+                    [$nodeId]
+                );
+            }
+        }
     }
 
     private function validateNodes(array $nodes): array
