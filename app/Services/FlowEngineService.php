@@ -10,6 +10,14 @@ use App\Models\Department;
 
 class FlowEngineService
 {
+    /**
+     * Seam de teste: subclasses podem devolver um GuildService stubado.
+     */
+    protected function guildService(): GuildService
+    {
+        return new GuildService();
+    }
+
     private function logExecution(int $conversationId, int $flowId, int $nodeId, string $eventType, ?array $data = null): void
     {
         Database::getInstance()->insert('flow_execution_logs', [
@@ -173,6 +181,8 @@ class FlowEngineService
 
         if (in_array($currentNode['node_type'], ['menu', 'button_list', 'list_menu'], true)) {
             $this->handleMenuResponse($conversationId, $currentNode, $messageText, $flow);
+        } elseif ($currentNode['node_type'] === 'guild_select') {
+            $this->handleGuildSelectResponse($conversationId, $currentNode, $messageText, $flow);
         } elseif (in_array($currentNode['node_type'], ['question', 'collect_field'], true)) {
             $this->handleQuestionResponse($conversationId, $currentNode, $messageText, $flow);
         }
@@ -265,6 +275,264 @@ class FlowEngineService
         }
     }
 
+    /**
+     * Nó dinâmico Loja/Unidade Guild: ramifica pelo que o contato tem.
+     * 0 lojas => executa `no_store_node_id`. 1 loja => lista unidades.
+     * N lojas => lista lojas, depois unidades da escolhida.
+     */
+    private function executeGuildSelect(int $conversationId, array $node, array $conv): void
+    {
+        $flowId = (int) ($conv['flow_id'] ?? $node['flow_id']);
+        $contactId = (int) ($conv['contact_id'] ?? 0);
+        $stores = $contactId > 0 ? Contact::getStores($contactId) : [];
+
+        if ($stores === []) {
+            $this->executeGuildNext($conversationId, $flowId, $node, (int) ($node['config']['no_store_node_id'] ?? 0));
+            return;
+        }
+
+        if (count($stores) === 1) {
+            $this->presentGuildUnits($conversationId, $node, $conv, $stores[0]['customer_id'], $stores[0]['network_name']);
+            return;
+        }
+
+        $partial = $this->guildPartial($conversationId, (int) $node['id']);
+        if (!empty($partial['loja'])) {
+            $customerId = (string) preg_replace('/^guild_loja:/', '', (string) $partial['loja']);
+            $networkName = $customerId;
+            foreach ($stores as $s) {
+                if ($s['customer_id'] === $customerId) { $networkName = $s['customer_id'] . ' - ' . $s['network_name']; break; }
+            }
+            $this->presentGuildUnits($conversationId, $node, $conv, $customerId, $networkName);
+            return;
+        }
+
+        $this->presentGuildOptions(
+            $conversationId, $node, $conv,
+            $node['config']['store_prompt'] ?? $node['content'] ?? 'Qual loja deseja atendimento?',
+            array_map(
+                fn($s, $i) => ['label' => $s['customer_id'] . ' - ' . $s['network_name'], 'value' => $s['customer_id'], 'sort_order' => $i],
+                $stores, array_keys($stores)
+            )
+        );
+    }
+
+    /**
+     * Resposta do cliente num nó guild_select: etapa loja ou etapa unidade.
+     */
+    private function handleGuildSelectResponse(int $conversationId, array $node, string $response, array $flow): void
+    {
+        $conv = Conversation::find($conversationId);
+        if (!$conv) return;
+
+        $contactId = (int) ($conv['contact_id'] ?? 0);
+        $stores = $contactId > 0 ? Contact::getStores($contactId) : [];
+        if ($stores === []) {
+            $this->executeGuildNext($conversationId, (int) $flow['id'], $node, (int) ($node['config']['no_store_node_id'] ?? 0));
+            return;
+        }
+
+        $partial = $this->guildPartial($conversationId, (int) $node['id']);
+        if (count($stores) > 1 && empty($partial['loja'])) {
+            $options = array_map(
+                fn($s, $i) => ['label' => $s['customer_id'] . ' - ' . $s['network_name'], 'value' => $s['customer_id'], 'sort_order' => $i],
+                $stores, array_keys($stores)
+            );
+            $hit = $this->guildMatchOption($options, $response);
+            if (!$hit) {
+                $this->guildReprompt($conversationId, $node, $conv);
+                return;
+            }
+            Flow::saveAnswer($conversationId, (int) $node['id'], null, 'guild_loja:' . $hit['value']);
+            $this->presentGuildUnits($conversationId, $node, $conv, $hit['value'], $hit['label']);
+            return;
+        }
+
+        $customerId = count($stores) === 1
+            ? $stores[0]['customer_id']
+            : (string) preg_replace('/^guild_loja:/', '', (string) ($partial['loja'] ?? ''));
+        $this->guildResolveUnit($conversationId, $node, $conv, $flow, $customerId, $response);
+    }
+
+    /**
+     * Confere a unidade contra a lista atual (sempre fresca) e conclui.
+     */
+    private function guildResolveUnit(int $conversationId, array $node, array $conv, array $flow, string $customerId, string $response): void
+    {
+        try {
+            $result = $this->guildService()->getStores($customerId);
+        } catch (GuildException $e) {
+            $this->guildRegisterFailure($conversationId, $node, $flow, $e->getMessage());
+            return;
+        }
+
+        $names = array_column($result['stores'] ?? [], 'name');
+        $options = array_map(
+            fn($n, $i) => ['label' => $n, 'value' => $n, 'sort_order' => $i],
+            $names, array_keys($names)
+        );
+        $hit = $this->guildMatchOption($options, $response);
+        if (!$hit) {
+            $this->guildReprompt($conversationId, $node, $conv);
+            return;
+        }
+
+        Flow::saveAnswer($conversationId, (int) $node['id'], null, (string) $hit['value']);
+        if (($node['config']['save_unit'] ?? true)) {
+            Conversation::update($conversationId, ['unit' => (string) $hit['value']]);
+        }
+        $this->logExecution($conversationId, (int) $flow['id'], (int) $node['id'], 'guild_unit_selected', ['unit' => $hit['value']]);
+        $this->executeGuildNext($conversationId, (int) $flow['id'], $node, (int) ($node['config']['next_node_id'] ?? 0));
+    }
+
+    /**
+     * Apresenta as unidades de uma loja (busca ao vivo).
+     */
+    private function presentGuildUnits(int $conversationId, array $node, array $conv, string $customerId, string $networkName): void
+    {
+        $flowId = (int) ($conv['flow_id'] ?? $node['flow_id']);
+        $flow = Flow::find($flowId) ?: ['id' => $flowId, 'nodes' => []];
+        try {
+            $result = $this->guildService()->getStores($customerId);
+        } catch (GuildException $e) {
+            $this->guildRegisterFailure($conversationId, $node, $flow, $e->getMessage());
+            return;
+        }
+
+        $names = array_column($result['stores'] ?? [], 'name');
+        if ($names === []) {
+            $this->guildRegisterFailure($conversationId, $node, $flow, 'Loja sem unidades.');
+            return;
+        }
+
+        $prompt = $node['config']['unit_prompt'] ?? $node['content'] ?? ('Unidades de ' . $networkName . ':');
+        $this->presentGuildOptions(
+            $conversationId, $node, $conv, $prompt,
+            array_map(
+                fn($n, $i) => ['label' => $n, 'value' => $n, 'sort_order' => $i],
+                $names, array_keys($names)
+            )
+        );
+    }
+
+    /**
+     * Apresenta opções reaproveitando button_list/list_menu/texto por canal.
+     */
+    private function presentGuildOptions(int $conversationId, array $node, array $conv, string $prompt, array $options): void
+    {
+        $presentation = $node['config']['presentation'] ?? 'list_menu';
+        if (!in_array($presentation, ['button_list', 'list_menu', 'menu'], true)) {
+            $presentation = 'list_menu';
+        }
+        $this->dispatchMenuPresentation($conversationId, [
+            'node_type' => $presentation,
+            'content' => $prompt,
+            'options' => $options,
+            'config' => ['list_title' => 'Opções'],
+        ], $conv);
+        Flow::saveFlowState($conversationId, (int) ($conv['flow_id'] ?? $node['flow_id']), (int) $node['id']);
+    }
+
+    /**
+     * Executa o próximo nó configurado (ou finaliza com evento se ausente).
+     */
+    private function executeGuildNext(int $conversationId, int $flowId, array $node, int $nextNodeId): void
+    {
+        if ($nextNodeId > 0) {
+            $flow = Flow::find($flowId);
+            if ($flow) {
+                foreach ($flow['nodes'] as $n) {
+                    if ((int) $n['id'] === $nextNodeId) {
+                        Flow::saveFlowState($conversationId, $flowId, $nextNodeId);
+                        $this->executeNode($conversationId, $n);
+                        return;
+                    }
+                }
+            }
+        }
+        Conversation::addEvent($conversationId, 'flow_completed', 'Etapa Guild concluída');
+        Flow::completeFlowState($conversationId);
+    }
+
+    /**
+     * Casa resposta com opção dinâmica (label, value ou número), como nos menus.
+     */
+    private function guildMatchOption(array $options, string $response): ?array
+    {
+        $resp = mb_strtolower(trim($response));
+        foreach ($options as $i => $option) {
+            $label = mb_strtolower(trim((string) ($option['label'] ?? '')));
+            if ($label !== '' && $label === $resp) return $option;
+            if ((string) ($option['value'] ?? '') !== '' && (string) $option['value'] === trim($response)) return $option;
+            if ((int) ($option['sort_order'] ?? $i) + 1 === (int) $resp && $resp !== '') return $option;
+        }
+        return null;
+    }
+
+    /**
+     * Repete a pergunta atual do nó.
+     */
+    private function guildReprompt(int $conversationId, array $node, array $conv): void
+    {
+        $flowId = (int) ($conv['flow_id'] ?? $node['flow_id']);
+        $stores = Contact::getStores((int) ($conv['contact_id'] ?? 0));
+        $partial = $this->guildPartial($conversationId, (int) $node['id']);
+        if (count($stores) > 1 && empty($partial['loja'])) {
+            $prompt = $node['config']['store_prompt'] ?? $node['content'] ?? 'Qual loja deseja atendimento?';
+        } else {
+            $prompt = $node['config']['unit_prompt'] ?? $node['content'] ?? 'Qual unidade?';
+        }
+        $this->dispatchOutboundMessage(
+            $conversationId, 'text',
+            $node['config']['invalid_message'] ?? 'Opção inválida. Por favor, escolha uma opção válida:'
+        );
+        $this->executeGuildSelect($conversationId, $node, array_merge($conv, ['_reprompt' => $prompt]));
+    }
+
+    /**
+     * Falha da Guild: registra tentativa; na 3ª (max_attempts) vai ao handoff.
+     */
+    private function guildRegisterFailure(int $conversationId, array $node, array $flow, string $reason): void
+    {
+        $flowId = (int) ($flow['id'] ?? $node['flow_id']);
+        Flow::saveAnswer($conversationId, (int) $node['id'], null, 'guild_error');
+        $attempts = 0;
+        foreach (Flow::getAnswers($conversationId, (int) $node['id']) as $a) {
+            if (($a['answer_text'] ?? '') === 'guild_error') $attempts++;
+        }
+        $max = (int) ($node['config']['max_attempts'] ?? 3);
+        $this->logExecution($conversationId, $flowId, (int) $node['id'], 'guild_error', ['reason' => $reason, 'attempt' => $attempts]);
+        if ($attempts >= max(1, $max)) {
+            foreach (($flow['nodes'] ?? []) as $n) {
+                if (($n['node_type'] ?? '') === 'handoff') {
+                    Flow::saveFlowState($conversationId, $flowId, (int) $n['id']);
+                    $this->executeNode($conversationId, $n);
+                    return;
+                }
+            }
+            Conversation::update($conversationId, ['status' => 'new']);
+            Flow::completeFlowState($conversationId);
+            return;
+        }
+        $this->dispatchOutboundMessage(
+            $conversationId, 'text',
+            $node['config']['error_message'] ?? 'Falha ao buscar as opções. Tente novamente.'
+        );
+    }
+
+    /**
+     * Parcial da etapa: ['loja' => 'guild_loja:<customer_id>'] ou [].
+     */
+    private function guildPartial(int $conversationId, int $nodeId): array
+    {
+        $out = [];
+        foreach (Flow::getAnswers($conversationId, $nodeId) as $a) {
+            $t = (string) ($a['answer_text'] ?? '');
+            if (str_starts_with($t, 'guild_loja:')) $out['loja'] = $t;
+        }
+        return $out;
+    }
+
     public function executeNode(int $conversationId, array $node): void
     {
         $conv = Conversation::find($conversationId);
@@ -298,6 +566,10 @@ class FlowEngineService
                 $content = $this->processTemplate($node['content'] ?? '', $conv);
                 $this->dispatchOutboundMessage($conversationId, 'text', $content);
                 Flow::saveFlowState($conversationId, $conv['flow_id'] ?? $node['flow_id'], $node['id']);
+                break;
+
+            case 'guild_select':
+                $this->executeGuildSelect($conversationId, $node, $conv);
                 break;
 
             case 'image':
@@ -825,7 +1097,7 @@ class FlowEngineService
         if (!$currentNode) {
             return;
         }
-        if (!in_array($currentNode['node_type'], ['question', 'menu', 'button_list', 'list_menu', 'collect_field'], true)) {
+        if (!in_array($currentNode['node_type'], ['question', 'menu', 'button_list', 'list_menu', 'collect_field', 'guild_select'], true)) {
             return;
         }
 

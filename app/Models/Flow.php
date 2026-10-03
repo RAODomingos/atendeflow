@@ -420,6 +420,14 @@ class Flow
         );
     }
 
+    public static function getAnswers(int $conversationId, int $nodeId): array
+    {
+        return Database::getInstance()->fetchAll(
+            "SELECT * FROM flow_answers WHERE conversation_id = ? AND flow_node_id = ? ORDER BY id",
+            [$conversationId, $nodeId]
+        );
+    }
+
     public static function duplicate(int $flowId, int $newUserId): ?int
     {
         $flow = self::find($flowId);
