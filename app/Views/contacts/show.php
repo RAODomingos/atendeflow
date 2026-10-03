@@ -6,15 +6,10 @@ $statusLabels = [
     'waiting_customer' => 'Aguardando cliente', 'waiting_internal' => 'Aguardando interno',
     'resolved' => 'Resolvidos', 'closed' => 'Fechados', 'spam' => 'Spam',
 ];
-$statusIcons = [
-    'new' => 'fa-bell', 'open' => 'fa-comments',
-    'waiting_customer' => 'fa-headset', 'waiting_internal' => 'fa-pause',
-    'resolved' => 'fa-check-circle', 'closed' => 'fa-archive', 'spam' => 'fa-ban',
-];
 $statusKeys = ['new', 'open', 'waiting_customer', 'waiting_internal', 'resolved', 'closed', 'spam'];
 $totalCount = (int) ($statusCounts['_total'] ?? count($conversations));
 ?>
-<div class="contact-detail">
+<div class="contact-detail cd-page">
     <div class="page-actions">
         <a href="<?= url('contacts') ?>" class="btn btn-sm btn-outline">
             <i class="fas fa-arrow-left"></i> Voltar
@@ -35,188 +30,159 @@ $totalCount = (int) ($statusCounts['_total'] ?? count($conversations));
         </div>
     </div>
 
-    <div class="contact-profile">
-        <div class="contact-profile-cover"></div>
-        <div class="contact-profile-body">
-            <div class="contact-profile-row">
-                <div class="contact-profile-avatar">
-                    <?php if (!empty($contact['avatar'])): ?>
-                        <img src="<?= e(str_starts_with($contact['avatar'], 'http') ? $contact['avatar'] : upload_url($contact['avatar'])) ?>" alt="<?= e($contact['name']) ?>">
-                    <?php else: ?>
-                        <?= mb_strtoupper(mb_substr($contact['name'], 0, 1)) ?>
-                    <?php endif; ?>
-                </div>
-                <div class="contact-profile-info">
-                    <div class="contact-profile-name">
-                        <?= e($contact['name']) ?>
-                        <?php $isOnline = !empty($contact['last_activity_at']) && (time() - strtotime($contact['last_activity_at']) < 600); ?>
-                        <span class="contact-status-dot <?= $isOnline ? 'online' : 'offline' ?>" title="<?= $isOnline ? 'Online' : 'Offline' ?>"></span>
-                    </div>
-                    <div class="contact-profile-company">
-                        <?php if (!empty($contact['company'])): ?>
-                            <i class="fas fa-building" style="color:var(--brand);font-size:12px"></i>
-                            <?= e($contact['company']) ?>
-                        <?php else: ?>
-                            <span style="color:var(--text-muted)">Sem empresa</span>
-                        <?php endif; ?>
-                    </div>
-                    <div class="contact-profile-meta">
-                        <span><i class="far fa-calendar-alt"></i> Contato desde <?= format_datetime($contact['created_at'] ?? '') ?></span>
-                        <span><i class="far fa-clock"></i> Última atividade: <?= !empty($contact['last_activity_at']) ? time_elapsed($contact['last_activity_at']) : '-' ?></span>
-                    </div>
-                </div>
+    <style>
+    .cd-page{margin:0;padding:2px 26px 32px 30px}
+    .cd-head{display:flex;gap:14px;align-items:flex-start;padding:6px 2px 12px}
+    .cd-avatar{width:44px;height:44px;border-radius:50%;background:var(--brand-soft);color:var(--brand-dark);display:flex;align-items:center;justify-content:center;font-weight:800;font-size:18px;flex-shrink:0;overflow:hidden}
+    .cd-avatar img{width:100%;height:100%;object-fit:cover}
+    .cd-id{flex:1;min-width:0}
+    .cd-name{font-size:17px;font-weight:700;color:var(--text-primary);display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+    .cd-sub{font-size:12.5px;color:var(--text-secondary);margin-top:2px;display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+    .cd-sub i{font-size:11px;color:var(--text-muted)}
+    .cd-tags{display:inline-flex;gap:4px;flex-wrap:wrap}
+    .cd-info{margin:0 0 14px}
+    .cd-info-body{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:4px 20px;padding:6px 18px 14px}
+    .cd-info-item{display:flex;align-items:center;gap:12px;padding:10px 0;min-width:0}
+    .cd-info-icon{width:36px;height:36px;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:14px;flex-shrink:0}
+    .cd-info-text{min-width:0}
+    .cd-info-label{font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.05em}
+    .cd-info-value{font-size:14px;font-weight:600;color:var(--text-primary);overflow:hidden;text-overflow:ellipsis}
+    .cd-info-sub{font-size:12px;color:var(--text-secondary);margin-top:1px}
+    .cd-notes{margin:0 18px 16px;padding:12px 14px;background:var(--bg-panel-alt);border:1px solid var(--border-soft);border-radius:8px;font-size:13px;color:var(--text-secondary);line-height:1.6}
+    .cd-notes strong{display:flex;align-items:center;gap:6px;font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px}
+    .cd-pivots{display:flex;gap:2px;margin:0 0 14px;flex-wrap:wrap;border-bottom:1px solid var(--border-soft)}
+    .cd-pivot{border:none;background:none;font-family:inherit;font-size:13px;font-weight:600;color:var(--text-secondary);padding:9px 10px;cursor:pointer;position:relative;display:inline-flex;align-items:center;text-decoration:none}
+    .cd-pivot:hover{color:var(--text-primary)}
+    .cd-pivot.active{color:var(--brand-dark);font-weight:700}
+    .cd-pivot.active::after{content:'';position:absolute;left:8px;right:8px;bottom:-1px;height:2px;background:var(--brand)}
+    .cd-pivot .cnt{font-size:11px;font-weight:700;background:var(--bg-panel-alt);border:1px solid var(--border-soft);color:var(--text-secondary);border-radius:10px;padding:0 7px;margin-left:7px;font-variant-numeric:tabular-nums}
+    .cd-pivot.active .cnt{background:var(--brand-soft);border-color:transparent;color:var(--brand-dark)}
+    .cd-sec{background:var(--bg-panel);border:1px solid var(--border-soft);border-radius:8px;overflow:hidden}
+    .cd-sec-head{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:14px 18px;border-bottom:1px solid var(--border-soft)}
+    .cd-sec-title{font-size:14px;font-weight:700;display:flex;align-items:center;gap:8px;margin-right:auto}
+    .cd-conv{position:relative}
+    .cd-conv.is-selected{background:var(--brand-soft)}
+    .cd-conv .conv-checkbox{display:none;align-items:center;justify-content:center;padding:0 2px 0 12px;cursor:pointer;background:none;border:none}
+    .cd-chan{width:36px;height:36px;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:15px;flex-shrink:0}
+    .cd-subject{font-size:14px;font-weight:700;color:var(--text-primary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-decoration:none}
+    .cd-subject:hover{color:var(--brand)}
+    .timeline-dept-badge{font-size:11px;font-weight:600;padding:1px 8px;border-radius:10px}
+    .conv-list-close{color:var(--text-muted)}
+    @media(max-width:768px){.cd-page{padding:2px 12px 24px}}
+    </style>
+
+    <div class="cd-head">
+        <div class="cd-avatar">
+            <?php if (!empty($contact['avatar'])): ?>
+                <img src="<?= e(str_starts_with($contact['avatar'], 'http') ? $contact['avatar'] : upload_url($contact['avatar'])) ?>" alt="<?= e($contact['name']) ?>">
+            <?php else: ?>
+                <?= mb_strtoupper(mb_substr($contact['name'], 0, 1)) ?>
+            <?php endif; ?>
+        </div>
+        <div class="cd-id">
+            <div class="cd-name">
+                <?= e($contact['name']) ?>
+                <?php $isOnline = !empty($contact['last_activity_at']) && (time() - strtotime($contact['last_activity_at']) < 600); ?>
+                <span class="contact-status-dot <?= $isOnline ? 'online' : 'offline' ?>" title="<?= $isOnline ? 'Online' : 'Offline' ?>"></span>
                 <?php if (!empty($contact['tags'])): ?>
-                    <div class="contact-profile-tags">
+                    <span class="cd-tags">
                         <?php foreach ($contact['tags'] as $tag): ?>
                             <span class="conv-tag-modern" style="background:<?= e($tag['color'] ?? '#6c757d') ?>;color:<?= e(contrast_color($tag['color'] ?? '#6c757d')) ?>">
                                 <?= e($tag['name']) ?>
                             </span>
                         <?php endforeach; ?>
-                    </div>
+                    </span>
                 <?php endif; ?>
             </div>
+            <div class="cd-sub">
+                <?php if (!empty($contact['company'])): ?>
+                    <span><i class="fas fa-building"></i> <?= e($contact['company']) ?></span>
+                    <span>·</span>
+                <?php endif; ?>
+                <span>Contato desde <?= format_datetime($contact['created_at'] ?? '') ?></span>
+                <span>·</span>
+                <span>Última atividade: <?= !empty($contact['last_activity_at']) ? time_elapsed($contact['last_activity_at']) : '-' ?></span>
+            </div>
         </div>
     </div>
 
-    <div class="contact-stat-row">
-        <div class="contact-stat">
-            <div class="contact-stat-icon" style="background:var(--brand-soft);color:var(--brand)">
-                <i class="fas fa-comments"></i>
-            </div>
-            <div class="contact-stat-body">
-                <div class="contact-stat-value"><?= $totalCount ?></div>
-                <div class="contact-stat-label">Conversas <?= $hasFilters ? 'filtradas' : 'no total' ?></div>
-            </div>
+    <div class="cd-sec cd-info">
+        <div class="cd-sec-head">
+            <span class="cd-sec-title">
+                <i class="fas fa-id-card" style="color:var(--brand)"></i>
+                Informações do contato
+            </span>
+            <button type="button" class="btn btn-sm btn-outline" onclick="openContactDrawer()">
+                <i class="fas fa-edit"></i> Editar
+            </button>
         </div>
-        <?php foreach ($statusKeys as $sk):
-            $count = (int) ($statusCounts[$sk] ?? 0);
-            if ($count === 0 && $hasFilters) continue;
-            $cls = ['new'=>'primary','open'=>'primary','waiting_customer'=>'info','waiting_internal'=>'warning','resolved'=>'success','closed'=>'secondary','spam'=>'danger'][$sk] ?? 'secondary';
-            $bg = ['new'=>'var(--brand-soft)','open'=>'var(--brand-soft)','waiting_customer'=>'var(--info-soft)','waiting_internal'=>'var(--warning-soft)','resolved'=>'var(--success-soft)','closed'=>'var(--bg-panel-alt)','spam'=>'var(--danger-soft)'][$sk] ?? 'var(--bg-panel-alt)';
-            $color = ['new'=>'var(--brand)','open'=>'var(--brand)','waiting_customer'=>'var(--info)','waiting_internal'=>'var(--warning)','resolved'=>'var(--success)','closed'=>'var(--text-muted)','spam'=>'var(--danger)'][$sk] ?? 'var(--text-muted)';
-        ?>
-            <div class="contact-stat">
-                <div class="contact-stat-icon" style="background:<?= $bg ?>;color:<?= $color ?>">
-                    <i class="fas <?= $statusIcons[$sk] ?? 'fa-circle' ?>"></i>
-                </div>
-                <div class="contact-stat-body">
-                    <div class="contact-stat-value"><?= $count ?></div>
-                    <div class="contact-stat-label"><?= $statusLabels[$sk] ?? $sk ?></div>
+        <div class="cd-info-body">
+            <div class="cd-info-item">
+                <span class="cd-info-icon ci-email"><i class="fas fa-envelope"></i></span>
+                <div class="cd-info-text">
+                    <div class="cd-info-label">E-mail</div>
+                    <div class="cd-info-value"><?= !empty($contact['email']) ? e($contact['email']) : '<span class="text-muted">Não informado</span>' ?></div>
+                    <?php if (!empty($contact['emails'])): ?>
+                        <?php foreach (array_filter($contact['emails'], fn($e) => ($e['email'] ?? null) !== ($contact['email'] ?? null)) as $em): ?>
+                            <div class="cd-info-sub"><?= e($em['email']) ?><?= !empty($em['label']) ? ' (' . e($em['label']) . ')' : '' ?></div>
+                        <?php endforeach; ?>
+                    <?php endif; ?>
                 </div>
             </div>
-        <?php endforeach; ?>
-    </div>
-
-    <div class="contact-info-card">
-        <div class="contact-info-header">
-            <i class="fas fa-id-card" style="color:var(--brand)"></i>
-            Informações do Contato
-        </div>
-        <div class="contact-info-body">
-            <div class="contact-info-item">
-                <span class="contact-info-icon ci-email"><i class="fas fa-envelope"></i></span>
-                <div>
-                    <div class="contact-info-label">E-mail</div>
-                    <div class="contact-info-value"><?= !empty($contact['email']) ? e($contact['email']) : '<span class="text-muted">Não informado</span>' ?></div>
+            <div class="cd-info-item">
+                <span class="cd-info-icon ci-phone"><i class="fas fa-phone"></i></span>
+                <div class="cd-info-text">
+                    <div class="cd-info-label">Telefone</div>
+                    <div class="cd-info-value"><?= !empty($contact['phone']) ? e($contact['phone']) : '<span class="text-muted">Não informado</span>' ?></div>
+                    <?php if (!empty($contact['phones'])): ?>
+                        <?php foreach (array_filter($contact['phones'], fn($p) => ($p['phone'] ?? null) !== ($contact['phone'] ?? null)) as $ph): ?>
+                            <div class="cd-info-sub"><?= e($ph['phone']) ?><?= !empty($ph['label']) ? ' (' . e($ph['label']) . ')' : '' ?></div>
+                        <?php endforeach; ?>
+                    <?php endif; ?>
                 </div>
             </div>
-            <div class="contact-info-item">
-                <span class="contact-info-icon ci-phone"><i class="fas fa-phone"></i></span>
-                <div>
-                    <div class="contact-info-label">Telefone</div>
-                    <div class="contact-info-value"><?= !empty($contact['phone']) ? e($contact['phone']) : '<span class="text-muted">Não informado</span>' ?></div>
-                </div>
-            </div>
-            <?php if (!empty($contact['company'])): ?>
-            <div class="contact-info-item">
-                <span class="contact-info-icon ci-building"><i class="fas fa-building"></i></span>
-                <div>
-                    <div class="contact-info-label">Empresa</div>
-                    <div class="contact-info-value"><?= e($contact['company']) ?></div>
-                </div>
-            </div>
-            <?php endif; ?>
             <?php if (!empty($contact['document'])): ?>
-            <div class="contact-info-item">
-                <span class="contact-info-icon ci-document"><i class="fas fa-id-card"></i></span>
-                <div>
-                    <div class="contact-info-label">Documento</div>
-                    <div class="contact-info-value"><?= e($contact['document']) ?></div>
+                <div class="cd-info-item">
+                    <span class="cd-info-icon ci-document"><i class="fas fa-id-card"></i></span>
+                    <div class="cd-info-text">
+                        <div class="cd-info-label">Documento</div>
+                        <div class="cd-info-value"><?= e($contact['document']) ?></div>
+                    </div>
                 </div>
-            </div>
             <?php endif; ?>
-            <div class="contact-info-item">
-                <span class="contact-info-icon ci-calendar"><i class="fas fa-calendar-alt"></i></span>
-                <div>
-                    <div class="contact-info-label">Criado em</div>
-                    <div class="contact-info-value"><?= format_datetime($contact['created_at'] ?? '') ?></div>
-                </div>
-            </div>
-            <div class="contact-info-item">
-                <span class="contact-info-icon ci-clock"><i class="fas fa-history"></i></span>
-                <div>
-                    <div class="contact-info-label">Última atividade</div>
-                    <div class="contact-info-value"><?= !empty($contact['last_activity_at']) ? format_datetime($contact['last_activity_at']) : '-' ?></div>
-                </div>
-            </div>
         </div>
         <?php if (!empty($contact['notes'])): ?>
-            <div class="contact-notes-section">
-                <h4><i class="fas fa-sticky-note" style="color:var(--warning)"></i> Observações</h4>
-                <p><?= nl2br(e($contact['notes'])) ?></p>
+            <div class="cd-notes">
+                <strong><i class="fas fa-sticky-note"></i> Observações</strong>
+                <?= nl2br(e($contact['notes'])) ?>
             </div>
         <?php endif; ?>
     </div>
 
-    <?php
-    $hasExtraPhones = !empty($contact['phones']) && count(array_filter($contact['phones'], fn($p) => ($p['phone'] ?? null) !== ($contact['phone'] ?? null))) > 0;
-    $hasExtraEmails = !empty($contact['emails']) && count(array_filter($contact['emails'], fn($e) => ($e['email'] ?? null) !== ($contact['email'] ?? null))) > 0;
-    if ($hasExtraPhones || $hasExtraEmails): ?>
-    <div class="contact-info-card">
-        <div class="contact-info-header">
-            <i class="fas fa-ellipsis-h" style="color:var(--text-muted)"></i>
-            Informações Adicionais
-        </div>
-        <div class="contact-info-body" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:14px">
-            <?php if ($hasExtraPhones): ?>
-                <div>
-                    <div style="font-size:12px;font-weight:700;text-transform:uppercase;color:var(--text-muted);margin-bottom:8px;letter-spacing:.04em">
-                        <i class="fas fa-phone-alt" style="color:var(--success)"></i> Outros telefones
-                    </div>
-                    <?php foreach (array_filter($contact['phones'], fn($p) => ($p['phone'] ?? null) !== ($contact['phone'] ?? null)) as $ph): ?>
-                        <div class="contact-extra-item">
-                            <i class="fas fa-phone" style="color:var(--success);font-size:12px;width:16px"></i>
-                            <span><?= e($ph['phone']) ?></span>
-                            <?php if (!empty($ph['label'])): ?>
-                                <span class="label"><?= e($ph['label']) ?></span>
-                            <?php endif; ?>
-                        </div>
-                    <?php endforeach; ?>
-                </div>
-            <?php endif; ?>
-            <?php if ($hasExtraEmails): ?>
-                <div>
-                    <div style="font-size:12px;font-weight:700;text-transform:uppercase;color:var(--text-muted);margin-bottom:8px;letter-spacing:.04em">
-                        <i class="fas fa-envelope-open-text" style="color:var(--info)"></i> Outros e-mails
-                    </div>
-                    <?php foreach (array_filter($contact['emails'], fn($e) => ($e['email'] ?? null) !== ($contact['email'] ?? null)) as $em): ?>
-                        <div class="contact-extra-item">
-                            <i class="fas fa-envelope" style="color:var(--info);font-size:12px;width:16px"></i>
-                            <span><?= e($em['email']) ?></span>
-                            <?php if (!empty($em['label'])): ?>
-                                <span class="label"><?= e($em['label']) ?></span>
-                            <?php endif; ?>
-                        </div>
-                    <?php endforeach; ?>
-                </div>
-            <?php endif; ?>
-        </div>
+    <div class="cd-pivots" role="tablist" aria-label="Filtrar por status">
+        <?php
+        $pivotQ = function ($status) use ($filterBase, $filters) {
+            $q = [];
+            if ((int)($filters['year'] ?? 0)) $q['year'] = (int)$filters['year'];
+            if ((int)($filters['month'] ?? 0)) $q['month'] = (int)$filters['month'];
+            if ((int)($filters['department'] ?? 0)) $q['department'] = (int)$filters['department'];
+            if ($status !== '') $q['status'] = $status;
+            return $filterBase . ($q ? '?' . http_build_query($q) : '');
+        };
+        $curStatus = (string)($filters['status'] ?? '');
+        ?>
+        <a href="<?= $pivotQ('') ?>" class="cd-pivot <?= $curStatus === '' ? 'active' : '' ?>">Todos<span class="cnt"><?= $totalCount ?></span></a>
+        <?php foreach ($statusKeys as $sk):
+            $count = (int)($statusCounts[$sk] ?? 0);
+            if ($count === 0 && $curStatus !== $sk) continue;
+        ?>
+            <a href="<?= $pivotQ($sk) ?>" class="cd-pivot <?= $curStatus === $sk ? 'active' : '' ?>"><?= e($statusLabels[$sk] ?? $sk) ?><span class="cnt"><?= $count ?></span></a>
+        <?php endforeach; ?>
     </div>
-    <?php endif; ?>
 
-    <div class="contact-info-card">
-        <div class="contact-info-header" style="flex-wrap:wrap;gap:12px">
-            <span style="display:flex;align-items:center;gap:8px">
+    <div class="cd-sec">
+        <div class="cd-sec-head">
+            <span class="cd-sec-title">
                 <i class="fas fa-comments" style="color:var(--brand)"></i>
                 Histórico de Conversas
                 <span class="badge badge-tag-count"><?= $totalCount ?></span>
@@ -321,23 +287,10 @@ $totalCount = (int) ($statusCounts['_total'] ?? count($conversations));
                     <p><?= $hasFilters ? 'Tente ajustar o mês, ano ou departamento.' : 'Este cliente ainda não possui conversas registradas.' ?></p>
                 </div>
             <?php else: ?>
-                <style>
-                .conv-list-table tbody tr.is-selected td{background:var(--brand-soft)}
-                .conv-list-subject{font-weight:600;color:var(--text-primary);text-decoration:none;display:flex;align-items:center;gap:9px;min-width:0}
-                .conv-list-subject:hover{color:var(--brand)}
-                .conv-list-subject span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-                .conv-list-sub{font-size:12px;color:var(--text-secondary);margin-top:4px;display:flex;gap:10px;flex-wrap:wrap;align-items:center}
-                .conv-list-sub .timeline-dept-badge{font-size:11px;font-weight:600;padding:1px 8px;border-radius:10px}
-                .conv-list-close{color:var(--text-muted)}
-                </style>
-                <div class="table-wrap">
-                <table class="table table-hover conv-list-table">
-                    <thead>
-                        <tr><th style="width:38px"></th><th>Conversa</th><th style="width:170px">Status</th><th style="width:80px">Msgs</th><th style="width:170px">Atendente</th><th style="width:120px">Data</th><th style="width:54px"></th></tr>
-                    </thead>
-                    <tbody id="convTimeline" data-mode="view">
+                <div class="conversation-list" id="convTimeline" data-mode="view">
                     <?php foreach ($conversations as $conv):
                         $chColor = ['whatsapp'=>'#25D366','webchat'=>'var(--brand)','email'=>'#f59e0b','telegram'=>'#0088cc','facebook'=>'#1877f2','instagram'=>'#e1306c','phone'=>'#6c757d'][$conv['channel_type'] ?? ''] ?? 'var(--text-muted)';
+                        $chSoft = ['whatsapp'=>'var(--success-soft)','webchat'=>'var(--brand-soft)','email'=>'var(--warning-soft)','telegram'=>'var(--info-soft)','facebook'=>'var(--info-soft)','instagram'=>'var(--danger-soft)','phone'=>'var(--bg-panel-alt)'][$conv['channel_type'] ?? ''] ?? 'var(--bg-panel-alt)';
                         $convPreview = trim((string) ($conv['subject'] ?? ''));
                         if ($convPreview === '') {
                             $lmType = $conv['last_message_type'] ?? '';
@@ -361,50 +314,48 @@ $totalCount = (int) ($statusCounts['_total'] ?? count($conversations));
                             }
                         }
                     ?>
-                        <tr class="timeline-item-card" data-conv-id="<?= (int) $conv['id'] ?>"
+                        <div class="conversation-item cd-conv" data-conv-id="<?= (int) $conv['id'] ?>"
                             data-conv-name="<?= e($conv['subject'] ?: ('Conversa #' . $conv['id'])) ?>">
-                            <td>
-                                <label class="conv-checkbox" data-role="conv-checkbox" style="display:none">
-                                    <input type="checkbox" data-role="conv-check" value="<?= (int) $conv['id'] ?>" onchange="window.__convExport.onChange()">
-                                </label>
-                            </td>
-                            <td>
-                                <a href="<?= url('inbox') ?>?conv=<?= $conv['id'] ?>" class="conv-list-subject">
-                                    <i class="<?= channel_icon($conv['channel_type'] ?? 'webchat') ?>" style="color:<?= $chColor ?>"></i>
-                                    <span><?= e(truncate($convPreview, 90)) ?></span>
-                                </a>
-                                <div class="conv-list-sub">
-                                    <span><?= e($conv['channel_name'] ?? '') ?></span>
+                            <label class="conv-checkbox" data-role="conv-checkbox" style="display:none">
+                                <input type="checkbox" data-role="conv-check" value="<?= (int) $conv['id'] ?>" onchange="window.__convExport.onChange()">
+                            </label>
+                            <div class="cd-chan" style="background:<?= $chSoft ?>;color:<?= $chColor ?>">
+                                <i class="<?= channel_icon($conv['channel_type'] ?? 'webchat') ?>"></i>
+                            </div>
+                            <div class="convo-info">
+                                <div class="convo-header">
+                                    <a href="<?= url('inbox') ?>?conv=<?= $conv['id'] ?>" class="cd-subject"><?= e(truncate($convPreview, 90)) ?></a>
+                                    <span class="convo-time" title="<?= e(format_datetime($conv['created_at'])) ?>"><?= time_elapsed($conv['created_at']) ?></span>
+                                </div>
+                                <p class="convo-preview">
+                                    <?= e($conv['channel_name'] ?? '') ?>
                                     <?php if (!empty($conv['protocol'])): ?>
-                                        <span title="Protocolo">#<?= e(format_protocol($conv['protocol'])) ?></span>
+                                        · #<?= e(format_protocol($conv['protocol'])) ?>
                                     <?php endif; ?>
+                                    · <?= (int)($conv['message_count'] ?? 0) ?> msgs · <?= e($conv['assigned_user_name'] ?? 'Não atribuído') ?>
+                                </p>
+                                <div class="convo-meta">
+                                    <?= status_badge($conv['status']) ?>
+                                    <?= priority_badge($conv['priority'] ?? 'normal') ?>
                                     <?php if (!empty($conv['department_name'])): ?>
                                         <span class="timeline-dept-badge" style="background:<?= e($conv['department_color'] ?? 'var(--border-soft)') ?>20;color:<?= e($conv['department_color'] ?? 'var(--text-muted)') ?>">
                                             <i class="fas fa-layer-group"></i> <?= e($conv['department_name']) ?>
                                         </span>
                                     <?php endif; ?>
                                     <?php if (!empty($conv['unit'])): ?>
-                                        <span><i class="fas fa-location-dot"></i> <?= e($conv['unit']) ?></span>
+                                        <span class="convo-unit"><i class="fas fa-location-dot"></i> <?= e($conv['unit']) ?></span>
                                     <?php endif; ?>
                                     <?php if (in_array($conv['status'], ['resolved', 'closed']) && (!empty($conv['close_reason']) || !empty($conv['close_description']))): ?>
                                         <span class="conv-list-close" title="<?= e(trim(($conv['close_reason'] ?? '') . (!empty($conv['close_description']) ? ' — ' . $conv['close_description'] : ''))) ?>"><i class="fas fa-flag"></i> <?= e(truncate($conv['close_reason'] ?: $conv['close_description'], 60)) ?></span>
                                     <?php endif; ?>
                                 </div>
-                            </td>
-                            <td style="white-space:nowrap"><?= status_badge($conv['status']) ?> <?= priority_badge($conv['priority'] ?? 'normal') ?></td>
-                            <td><span class="badge badge-secondary"><?= (int)($conv['message_count'] ?? 0) ?></span></td>
-                            <td style="font-size:12.5px"><?= e($conv['assigned_user_name'] ?? 'Não atribuído') ?></td>
-                            <td style="white-space:nowrap;font-size:12.5px;color:var(--text-secondary)" title="<?= e(format_datetime($conv['created_at'])) ?>"><?= time_elapsed($conv['created_at']) ?></td>
-                            <td>
-                                <a href="<?= url('inbox/' . (int) $conv['id'] . '/pdf') ?>" target="_blank"
-                                   class="btn btn-sm btn-outline btn-icon" title="Baixar PDF desta conversa (com mensagens)">
-                                    <i class="fas fa-file-pdf"></i>
-                                </a>
-                            </td>
-                        </tr>
+                            </div>
+                            <a href="<?= url('inbox/' . (int) $conv['id'] . '/pdf') ?>" target="_blank"
+                               class="btn btn-sm btn-outline btn-icon" style="margin-left:auto;flex-shrink:0;align-self:center" title="Baixar PDF desta conversa (com mensagens)">
+                                <i class="fas fa-file-pdf"></i>
+                            </a>
+                        </div>
                     <?php endforeach; ?>
-                    </tbody>
-                </table>
                 </div>
             <?php endif; ?>
         </div>
@@ -541,7 +492,7 @@ window.__convExport = (function() {
         timeline.querySelectorAll('[data-role="conv-checkbox"]').forEach(function (cb) {
             cb.style.display = (mode === 'select') ? 'flex' : 'none';
         });
-        timeline.querySelectorAll('.timeline-item-card').forEach(function (item) {
+        timeline.querySelectorAll('.cd-conv').forEach(function (item) {
             item.classList.toggle('is-selecting', mode === 'select');
             item.classList.toggle('is-selected', !!item.querySelector('[data-role="conv-check"]').checked);
         });
@@ -558,7 +509,7 @@ window.__convExport = (function() {
         selAll = false;
         if (!timeline) return;
         timeline.querySelectorAll('[data-role="conv-check"]').forEach(function (cb) { cb.checked = false; });
-        timeline.querySelectorAll('.timeline-item-card').forEach(function (item) { item.classList.remove('is-selected'); });
+        timeline.querySelectorAll('.cd-conv').forEach(function (item) { item.classList.remove('is-selected'); });
         if (btnSelectAll) btnSelectAll.innerHTML = '<i class="fas fa-check-double"></i> Selecionar todas';
         updateSelectedUI();
     }
@@ -568,7 +519,7 @@ window.__convExport = (function() {
         var checks = timeline.querySelectorAll('[data-role="conv-check"]');
         selAll = true;
         checks.forEach(function (cb) { cb.checked = true; });
-        timeline.querySelectorAll('.timeline-item-card').forEach(function (item) { item.classList.add('is-selected'); });
+        timeline.querySelectorAll('.cd-conv').forEach(function (item) { item.classList.add('is-selected'); });
         if (btnSelectAll) btnSelectAll.innerHTML = '<i class="fas fa-xmark"></i> Limpar todas';
         updateSelectedUI();
     }
@@ -588,7 +539,7 @@ window.__convExport = (function() {
 
     function onChange() {
         if (!timeline) return;
-        timeline.querySelectorAll('.timeline-item-card').forEach(function (item) {
+        timeline.querySelectorAll('.cd-conv').forEach(function (item) {
             var cb = item.querySelector('[data-role="conv-check"]');
             if (cb) item.classList.toggle('is-selected', !!cb.checked);
         });
