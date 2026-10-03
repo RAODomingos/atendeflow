@@ -126,6 +126,14 @@ class SettingsController
 
         // SLA agora fica em /settings/notifications (saveNotifications).
 
+        // Guild (lojas/unidades do contato via painel externo)
+        \App\Models\Setting::set(
+            'guild_api_base',
+            rtrim(trim((string) $request->post('guild_api_base')), '/')
+                ?: 'https://painel.guild.com.br'
+        );
+        \App\Models\Setting::set('guild_api_token', trim((string) $request->post('guild_api_token')));
+
         Session::setFlash('success', 'Configurações salvas.');
         View::redirect('/settings');
     }

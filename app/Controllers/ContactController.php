@@ -71,6 +71,28 @@ class ContactController
         View::json(Contact::search($term));
     }
 
+    /**
+     * Proxy da API Guild (token fica no servidor): lojas/unidades do cliente.
+     * GET /api/guild/stores?customer_id=
+     */
+    public function apiGuildStores(Request $request): void
+    {
+        $customerId = trim((string) $request->get('customer_id', ''));
+        if ($customerId === '') {
+            View::json(['success' => false, 'error' => 'Informe o código da loja.']);
+            return;
+        }
+        try {
+            $result = (new \App\Services\GuildService())->getStores($customerId);
+            View::json(['success' => true] + $result);
+        } catch (\App\Services\GuildException $e) {
+            View::json(['success' => false, 'error' => $e->getMessage()]);
+        } catch (\Throwable $e) {
+            error_log('Erro inesperado no proxy Guild: ' . $e->getMessage());
+            View::json(['success' => false, 'error' => 'Falha ao consultar o painel Guild. Tente novamente.']);
+        }
+    }
+
     public function show(Request $request, int $id): void
     {
         $contact = Contact::find($id);
