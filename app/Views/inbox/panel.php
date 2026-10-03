@@ -230,29 +230,20 @@ $renderReceipts = function (array $msg) {
             </button>
             <input type="text" id="convUnitInput" style="display:none;font-size:12px;padding:4px 8px;border:1px solid var(--brand);border-radius:6px;outline:none;width:160px" value="<?= e($conv['unit'] ?? '') ?>" placeholder="Unidade" onblur="saveUnit(this.value)" onkeydown="if(event.key==='Enter')saveUnit(this.value);if(event.key==='Escape')cancelUnitEdit()">
             <?php
-            $unitGroups = [];
-            foreach (($contact['stores'] ?? []) as $us) { $unitGroups[$us['network_name']][] = $us['store_name']; }
-            ksort($unitGroups);
-            $unitCurNet = '';
-            foreach ($unitGroups as $un => $ul) {
-                if (in_array($conv['unit'] ?? '', $ul, true)) { $unitCurNet = $un; break; }
-            }
-            if ($unitCurNet === '' && $unitGroups !== []) { $unitCurNet = array_key_first($unitGroups); }
+            $unitNets = [];
+            foreach (($contact['stores'] ?? []) as $us) { $unitNets[$us['network_name']] = $us['customer_id']; }
+            ksort($unitNets);
             ?>
-            <?php if ($unitGroups): ?>
-            <span id="convUnitSelects" style="display:none;align-items:center;gap:6px">
+            <?php if ($unitNets): ?>
+            <span id="convUnitSelects" style="display:none;align-items:center;gap:6px" data-current-unit="<?= e($conv['unit'] ?? '') ?>">
                 <select id="convUnitNetwork" onchange="unitNetworkChanged()" style="font-size:12px;padding:4px 8px;border:1px solid var(--brand);border-radius:6px;outline:none;background:var(--bg-panel);color:var(--text-primary);max-width:160px">
-                    <?php foreach ($unitGroups as $un => $ul): ?>
-                        <option value="<?= e($un) ?>" <?= $un === $unitCurNet ? 'selected' : '' ?>><?= e($un) ?></option>
+                    <?php foreach ($unitNets as $un => $uc): ?>
+                        <option value="<?= e($un) ?>" data-customer="<?= e($uc) ?>"><?= e($un) ?></option>
                     <?php endforeach; ?>
                 </select>
                 <select id="convUnitStore" onchange="saveUnit(this.value)" onkeydown="if(event.key==='Escape')cancelUnitEdit()" style="font-size:12px;padding:4px 8px;border:1px solid var(--brand);border-radius:6px;outline:none;background:var(--bg-panel);color:var(--text-primary);max-width:180px">
-                    <?php foreach (($unitGroups[$unitCurNet] ?? []) as $uName): ?>
-                        <option value="<?= e($uName) ?>" <?= ($conv['unit'] ?? '') === $uName ? 'selected' : '' ?>><?= e($uName) ?></option>
-                    <?php endforeach; ?>
                 </select>
             </span>
-            <script>var UNIT_GROUPS = <?= json_encode($unitGroups, JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP) ?>;</script>
             <?php endif; ?>
         </div>
         <div class="chat-header-right">
@@ -578,13 +569,13 @@ $renderReceipts = function (array $msg) {
                         <?php endif; ?>
                         <?php
                         $panelNets = [];
-                        foreach (($contact['stores'] ?? []) as $ps) { $panelNets[$ps['network_name']][] = $ps['store_name']; }
+                        foreach (($contact['stores'] ?? []) as $ps) { $panelNets[$ps['network_name']] = true; }
                         ?>
                         <?php if ($panelNets): ?>
-                            <?php foreach ($panelNets as $pNet => $pUnits): ?>
+                            <?php foreach (array_keys($panelNets) as $pNet): ?>
                                 <div class="client-field-item">
                                     <span class="field-icon icon-building"><i class="fas fa-store"></i></span>
-                                    <span><?= e($pNet) ?> <small>(<?= e(implode(', ', $pUnits)) ?>)</small></span>
+                                    <span><?= e($pNet) ?></span>
                                 </div>
                             <?php endforeach; ?>
                         <?php elseif (!empty($contact['company'])): ?>
@@ -1458,27 +1449,56 @@ function editUnit(e) {
     d.style.display = 'none';
     if (sel) {
         sel.style.display = 'inline-flex';
-        var st = document.getElementById('convUnitStore');
-        if (st) st.focus();
         if (i) i.style.display = 'none';
+        unitLoadStores(true);
     } else if (i) {
         i.style.display = 'inline-block';
         i.focus();
         i.select();
     }
 }
-function unitNetworkChanged() {
+function unitLoadStores(focus) {
     var net = document.getElementById('convUnitNetwork');
     var st = document.getElementById('convUnitStore');
-    if (!net || !st || typeof UNIT_GROUPS === 'undefined') return;
-    var list = UNIT_GROUPS[net.value] || [];
+    var sel = document.getElementById('convUnitSelects');
+    if (!net || !st || !sel) return;
+    var code = net.options[net.selectedIndex]?.dataset?.customer || '';
+    var current = sel.dataset.currentUnit || '';
     st.innerHTML = '';
-    list.forEach(function(name){
-        var o = document.createElement('option');
-        o.value = name; o.textContent = name;
-        st.appendChild(o);
-    });
-    if (list.length) saveUnit(list[0]);
+    var loading = document.createElement('option');
+    loading.textContent = 'Buscando unidades...';
+    st.appendChild(loading);
+    if (focus) st.focus();
+    if (!code) { unitFallbackText(); return; }
+    var base = (typeof BASE !== 'undefined' && BASE) ? BASE : (document.querySelector('meta[name="base-url"]')?.content || '');
+    fetch(base + '/api/guild/stores?customer_id=' + encodeURIComponent(code), {headers:{'X-Requested-With':'XMLHttpRequest'}})
+        .then(function(r){ return r.json(); })
+        .then(function(j){
+            if (!j.success || !j.stores || !j.stores.length) throw new Error(j.error || 'empty');
+            st.innerHTML = '';
+            j.stores.forEach(function(s){
+                var o = document.createElement('option');
+                o.value = s.name; o.textContent = s.name;
+                if (s.name === current) o.selected = true;
+                st.appendChild(o);
+            });
+            if (focus) st.focus();
+        })
+        .catch(function(){
+            toast('Falha ao buscar unidades. Use o campo de texto.');
+            unitFallbackText();
+        });
+}
+function unitFallbackText() {
+    var sel = document.getElementById('convUnitSelects');
+    var i = document.getElementById('convUnitInput');
+    if (sel) sel.style.display = 'none';
+    if (i) { i.style.display = 'inline-block'; i.focus(); i.select(); }
+}
+function unitNetworkChanged() {
+    var sel = document.getElementById('convUnitSelects');
+    if (sel) sel.dataset.currentUnit = '';
+    unitLoadStores(false);
 }
 function saveUnit(val) {
     var d = document.getElementById('convUnitDisplay');

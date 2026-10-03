@@ -70,6 +70,7 @@ $totalCount = (int) ($statusCounts['_total'] ?? count($conversations));
     .conv-list-close{color:var(--text-muted)}
     .guild-group{border:1px solid var(--border-soft);border-radius:8px;padding:10px 12px;margin-top:8px;background:var(--bg-panel-alt)}
     .guild-group-title{font-size:12px;font-weight:700;margin-bottom:6px}
+    .guild-units{font-size:12px;color:var(--text-secondary);margin:0 0 6px}
     .guild-opt{display:flex;align-items:center;gap:8px;font-size:13px;padding:3px 0;cursor:pointer}
     .guild-opt input{accent-color:var(--brand)}
     .guild-err{font-size:12.5px;color:var(--danger);margin-top:8px}
@@ -137,9 +138,6 @@ $totalCount = (int) ($statusCounts['_total'] ?? count($conversations));
                     <?php if ($cdNetworks): ?>
                         <?php foreach ($cdNetworks as $net): ?>
                             <div class="cd-info-value"><?= e($net) ?></div>
-                            <?php foreach (array_filter(($contact['stores'] ?? []), fn($s) => $s['network_name'] === $net) as $su): ?>
-                                <div class="cd-info-sub"><?= e($su['store_name']) ?></div>
-                            <?php endforeach; ?>
                         <?php endforeach; ?>
                     <?php elseif (!empty($contact['company'])): ?>
                         <div class="cd-info-value"><?= e($contact['company']) ?></div>
@@ -415,20 +413,10 @@ $totalCount = (int) ($statusCounts['_total'] ?? count($conversations));
                     <button type="button" class="btn btn-outline btn-sm" onclick="guildBuscar('D')">Buscar</button>
                 </div>
                 <div id="guildResultD">
-                    <?php
-                    $guildGroupsD = [];
-                    foreach (($contact['stores'] ?? []) as $gs) {
-                        $guildGroupsD[$gs['network_name']]['network_name'] = $gs['network_name'];
-                        $guildGroupsD[$gs['network_name']]['customer_id'] = $gs['customer_id'];
-                        $guildGroupsD[$gs['network_name']]['stores'][] = $gs;
-                    }
-                    ?>
-                    <?php foreach ($guildGroupsD as $g): ?>
-                        <div class="guild-group" data-network="<?= e($g['network_name']) ?>" data-customer="<?= e($g['customer_id']) ?>">
-                            <div class="guild-group-title"><?= e($g['network_name']) ?> <span class="text-muted">(<?= e($g['customer_id']) ?>)</span></div>
-                            <?php foreach ($g['stores'] as $s): ?>
-                                <label class="guild-opt"><input type="checkbox" data-sid="<?= (int) $s['store_id'] ?>" data-sname="<?= e($s['store_name']) ?>" checked> <?= e($s['store_name']) ?></label>
-                            <?php endforeach; ?>
+                    <?php foreach (($contact['stores'] ?? []) as $gs): ?>
+                        <div class="guild-group" data-network="<?= e($gs['network_name']) ?>" data-customer="<?= e($gs['customer_id']) ?>">
+                            <div class="guild-group-title"><?= e($gs['network_name']) ?> <span class="text-muted">(<?= e($gs['customer_id']) ?>)</span></div>
+                            <label class="guild-opt"><input type="checkbox" checked> Vincular esta loja</label>
                         </div>
                     <?php endforeach; ?>
                 </div>
@@ -531,7 +519,7 @@ function guildBuscar(sfx){
             var dup = false;
             box.querySelectorAll('.guild-group').forEach(function(g){ if (g.dataset.network === j.network_name) dup = true; });
             if (dup) return;
-            guildRenderGroup(box, {customer_id: code, network_name: j.network_name, stores: j.stores.map(function(st){ return {store_id: st.id, store_name: st.name}; })});
+            guildRenderGroup(box, {customer_id: code, network_name: j.network_name, units: j.stores.map(function(st){ return st.name; })});
         })
         .catch(function(){ tmp.remove(); guildErr(box, 'Falha ao consultar o painel Guild. Tente novamente.'); });
 }
@@ -544,16 +532,19 @@ function guildRenderGroup(box, g){
     title.className = 'guild-group-title';
     title.textContent = g.network_name + ' (' + g.customer_id + ')';
     div.appendChild(title);
-    g.stores.forEach(function(st){
-        var lab = document.createElement('label');
-        lab.className = 'guild-opt';
-        var cb = document.createElement('input');
-        cb.type = 'checkbox'; cb.checked = true;
-        cb.dataset.sid = st.store_id; cb.dataset.sname = st.store_name;
-        lab.appendChild(cb);
-        lab.appendChild(document.createTextNode(' ' + st.store_name));
-        div.appendChild(lab);
-    });
+    if (g.units && g.units.length) {
+        var u = document.createElement('div');
+        u.className = 'guild-units';
+        u.textContent = g.units.length + ' unidades: ' + g.units.join(', ');
+        div.appendChild(u);
+    }
+    var lab = document.createElement('label');
+    lab.className = 'guild-opt';
+    var cb = document.createElement('input');
+    cb.type = 'checkbox'; cb.checked = true;
+    lab.appendChild(cb);
+    lab.appendChild(document.createTextNode(' Vincular esta loja'));
+    div.appendChild(lab);
     box.appendChild(div);
 }
 function guildCollect(sfx){
@@ -562,9 +553,9 @@ function guildCollect(sfx){
     var stores = [], nets = [];
     box.querySelectorAll('.guild-group').forEach(function(g){
         nets.push(g.dataset.network);
-        g.querySelectorAll('input[type="checkbox"]:checked').forEach(function(cb){
-            stores.push({customer_id: g.dataset.customer, network_name: g.dataset.network, store_id: parseInt(cb.dataset.sid, 10), store_name: cb.dataset.sname});
-        });
+        if (g.querySelector('input[type="checkbox"]:checked')) {
+            stores.push({customer_id: g.dataset.customer, network_name: g.dataset.network});
+        }
     });
     document.getElementById('guildJson' + sfx).value = JSON.stringify(stores);
     document.getElementById('guildNet' + sfx).value = JSON.stringify(nets);

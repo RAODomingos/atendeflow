@@ -156,6 +156,7 @@ $newToday = $stats['new_today'] ?? 0;
         .contact-table tbody tr:hover { background:var(--bg-content); }
         .guild-group{border:1px solid var(--border-soft);border-radius:8px;padding:10px 12px;margin-top:8px;background:var(--bg-panel-alt)}
         .guild-group-title{font-size:12px;font-weight:700;margin-bottom:6px}
+        .guild-units{font-size:12px;color:var(--text-secondary);margin:0 0 6px}
         .guild-opt{display:flex;align-items:center;gap:8px;font-size:13px;padding:3px 0;cursor:pointer}
         .guild-opt input{accent-color:var(--brand)}
         .guild-err{font-size:12.5px;color:var(--danger);margin-top:8px}
@@ -364,29 +365,28 @@ $newToday = $stats['new_today'] ?? 0;
     };
 
     window.guildRenderGroups = function(box, groups) {
-        var byNet = {};
-        groups.forEach(function(s){
-            (byNet[s.network_name] = byNet[s.network_name] || {network_name: s.network_name, customer_id: s.customer_id, stores: []}).stores.push(s);
-        });
-        Object.keys(byNet).forEach(function(net){
-            var g = byNet[net];
+        groups.forEach(function(g){
             var div = document.createElement('div');
             div.className = 'guild-group';
             div.dataset.network = g.network_name;
             div.dataset.customer = g.customer_id;
-            var h = '<div class="guild-group-title"></div>';
-            div.innerHTML = h;
-            div.querySelector('.guild-group-title').textContent = g.network_name + ' (' + g.customer_id + ')';
-            g.stores.forEach(function(st){
-                var lab = document.createElement('label');
-                lab.className = 'guild-opt';
-                var cb = document.createElement('input');
-                cb.type = 'checkbox'; cb.checked = true;
-                cb.dataset.sid = st.store_id; cb.dataset.sname = st.store_name;
-                lab.appendChild(cb);
-                lab.appendChild(document.createTextNode(' ' + st.store_name));
-                div.appendChild(lab);
-            });
+            var title = document.createElement('div');
+            title.className = 'guild-group-title';
+            title.textContent = g.network_name + ' (' + g.customer_id + ')';
+            div.appendChild(title);
+            if (g.units && g.units.length) {
+                var u = document.createElement('div');
+                u.className = 'guild-units';
+                u.textContent = g.units.length + ' unidades: ' + g.units.join(', ');
+                div.appendChild(u);
+            }
+            var lab = document.createElement('label');
+            lab.className = 'guild-opt';
+            var cb = document.createElement('input');
+            cb.type = 'checkbox'; cb.checked = true;
+            lab.appendChild(cb);
+            lab.appendChild(document.createTextNode(' Vincular esta loja'));
+            div.appendChild(lab);
             box.appendChild(div);
         });
     };
@@ -406,7 +406,7 @@ $newToday = $stats['new_today'] ?? 0;
                 var exists = false;
                 box.querySelectorAll('.guild-group').forEach(function(g){ if (g.dataset.network === j.network_name) exists = true; });
                 if (exists) return;
-                guildRenderGroups(box, j.stores.map(function(st){ return {customer_id: code, network_name: j.network_name, store_id: st.id, store_name: st.name}; }));
+                guildRenderGroups(box, [{customer_id: code, network_name: j.network_name, units: j.stores.map(function(st){ return st.name; })}]);
             })
             .catch(function(){ box.querySelector('[data-tmp]')?.remove(); box.insertAdjacentHTML('beforeend', '<p class="guild-err">Falha ao consultar o painel Guild. Tente novamente.</p>'); });
     };
@@ -417,9 +417,9 @@ $newToday = $stats['new_today'] ?? 0;
         var stores = [], nets = [];
         box.querySelectorAll('.guild-group').forEach(function(g){
             nets.push(g.dataset.network);
-            g.querySelectorAll('input[type="checkbox"]:checked').forEach(function(cb){
-                stores.push({customer_id: g.dataset.customer, network_name: g.dataset.network, store_id: parseInt(cb.dataset.sid, 10), store_name: cb.dataset.sname});
-            });
+            if (g.querySelector('input[type="checkbox"]:checked')) {
+                stores.push({customer_id: g.dataset.customer, network_name: g.dataset.network});
+            }
         });
         document.getElementById('guildJson' + sfx).value = JSON.stringify(stores);
         document.getElementById('guildNet' + sfx).value = JSON.stringify(nets);
