@@ -999,7 +999,11 @@ class FlowEngineService
             [$conversation['id']]
         );
 
+        $hour = (int) date('H');
+        $saudacao = $hour >= 5 && $hour < 12 ? 'Bom dia' : ($hour < 18 ? 'Boa tarde' : 'Boa noite');
+
         $replacements = [
+            '{saudacao}' => $saudacao,
             '{nome}' => $contact['name'] ?? $conversation['contact_name'] ?? 'Cliente',
             '{email}' => $contact['email'] ?? $conversation['contact_email'] ?? '',
             '{telefone}' => $contact['phone'] ?? $conversation['contact_phone'] ?? '',
