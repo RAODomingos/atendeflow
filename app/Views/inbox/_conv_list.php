@@ -63,12 +63,9 @@
             </div>
             <div class="conv-body">
                 <div class="conv-top">
-                    <span class="conv-name"><?= e($conv['contact_name']) ?><?php if (!empty($conv['contact_company'])): ?> <span style="font-weight:400;color:var(--text-muted);font-size:12px">— <?= e($conv['contact_company']) ?></span><?php endif; ?></span>
+                    <span class="conv-name"><?= e($conv['contact_name']) ?><?php if (!empty($conv['protocol'])): ?> <span style="font-weight:400;color:var(--text-muted);font-size:12px;font-variant-numeric:tabular-nums" title="Protocolo do atendimento">#<?= e(format_protocol($conv['protocol'])) ?></span><?php endif; ?></span>
                     <span class="conv-time"><?= time_elapsed($conv['last_message_at'] ?? $conv['created_at']) ?></span>
                 </div>
-                <?php if (!empty($conv['protocol'])): ?>
-                    <div class="conv-protocol" title="Protocolo do atendimento">#<?= e(format_protocol($conv['protocol'])) ?></div>
-                <?php endif; ?>
                 <div class="conv-preview">
                     <?php if (!empty($conv['subject'])): ?>
                         <strong><?= e($conv['subject']) ?></strong> —
