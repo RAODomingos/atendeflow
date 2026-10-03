@@ -1646,6 +1646,15 @@ table tr:hover td{background:var(--bg-panel-alt);}
   display:none;width:36px;height:36px;border-radius:11px;align-items:center;justify-content:center;background:transparent;border:none;color:var(--text-secondary);cursor:pointer;flex-shrink:0;
 }
 @media(max-width:768px){.chat-header-back{display:flex}}
+@media(max-width:768px){
+  .chat-header{flex-wrap:wrap;row-gap:8px;padding:10px 12px;}
+  .chat-header-left{flex:1 1 100%;}
+  .chat-header-right{flex:1 1 100%;flex-wrap:wrap;justify-content:flex-start;row-gap:6px;}
+  .chat-header-right .header-chip{max-width:170px;}
+  .chat-header-right .header-chip .chip-text{max-width:120px;}
+  .chat-header-right .header-chip select{max-width:120px;}
+  .conv-quick-actions{margin-left:auto;}
+}
 .chat-header-back:hover{background:var(--brand-soft);color:var(--brand-2)}
 .chat-title-meta{display:flex;align-items:center;gap:6px;flex-wrap:wrap;font-size:11.5px;color:var(--text-secondary)}
 .chat-title-meta .meta-sep{opacity:.5}
