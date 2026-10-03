@@ -251,10 +251,10 @@ $renderReceipts = function (array $msg) {
             foreach (($contact['stores'] ?? []) as $us) { $unitNets[$us['network_name']] = $us['customer_id']; }
             ksort($unitNets);
             ?>
-            <?php if ($unitNets): ?>
             <label class="header-chip header-chip-select" title="Loja">
                 <i class="fas fa-store"></i>
                 <select id="convUnitNetwork" onchange="unitNetworkChanged(this)" aria-label="Loja">
+                    <?php if (!$unitNets): ?><option value="">Loja…</option><?php endif; ?>
                     <?php foreach ($unitNets as $un => $uc): ?>
                         <option value="<?= e($un) ?>" data-customer="<?= e($uc) ?>"><?= e($uc) ?> - <?= e($un) ?></option>
                     <?php endforeach; ?>
@@ -264,11 +264,11 @@ $renderReceipts = function (array $msg) {
             </label>
             <label class="header-chip header-chip-select" title="Unidade">
                 <i class="fas fa-tag"></i>
-                <select id="convUnitStore" onchange="saveUnit(this.value)" aria-label="Unidade" data-current-unit="<?= e($conv['unit'] ?? '') ?>">
+                <select id="convUnitStore" onchange="saveUnit(this.value)" aria-label="Unidade" data-current-unit="<?= e($conv['unit'] ?? '') ?>" <?= $unitNets ? '' : 'disabled' ?>>
+                    <?php if (!$unitNets): ?><option value="">Unidade…</option><?php endif; ?>
                 </select>
                 <i class="fas fa-chevron-down" style="font-size:9px;opacity:.5"></i>
             </label>
-            <?php endif; ?>
             <div class="modal" id="newStoreModal" style="display:none">
                 <div class="modal-overlay" onclick="closeNewStoreModal()"></div>
                 <div class="modal-content">
@@ -1494,7 +1494,15 @@ function unitLoadStores(searchSaved) {
     loading.textContent = 'Buscando unidades...';
     st.appendChild(loading);
     st.disabled = true;
-    if (!opts.length) { st.disabled = false; return; }
+    if (!opts.length) {
+        st.innerHTML = '';
+        var ph = document.createElement('option');
+        ph.value = '';
+        ph.textContent = 'Unidade…';
+        st.appendChild(ph);
+        st.disabled = true;
+        return;
+    }
     function fill(names, selectName) {
         st.innerHTML = '';
         names.forEach(function(name){
@@ -1566,6 +1574,7 @@ function unitNetworkChanged(sel) {
     sel = sel || document.getElementById('convUnitNetwork');
     if (!sel) return;
     if (sel.value === '__new') { openNewStoreModal(); return; }
+    if (!sel.value) return;
     sel.dataset.prev = sel.value;
     var st = document.getElementById('convUnitStore');
     if (st) st.dataset.currentUnit = '';
@@ -1591,7 +1600,10 @@ function closeNewStoreModal(restore){
     if (m) { m.style.display = 'none'; }
     if (restore !== false) {
         var net = document.getElementById('convUnitNetwork');
-        if (net && PREV_NETWORK) net.value = PREV_NETWORK;
+        if (net) {
+            if (PREV_NETWORK) net.value = PREV_NETWORK;
+            else net.selectedIndex = 0;
+        }
     }
 }
 function newStoreBuscar(){
