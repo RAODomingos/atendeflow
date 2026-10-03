@@ -1645,15 +1645,19 @@ table tr:hover td{background:var(--bg-panel-alt);}
 .chat-header-back{
   display:none;width:36px;height:36px;border-radius:11px;align-items:center;justify-content:center;background:transparent;border:none;color:var(--text-secondary);cursor:pointer;flex-shrink:0;
 }
-@media(max-width:768px){.chat-header-back{display:flex}}
+@media(max-width:992px){.chat-header-back{display:flex}}
 @media(max-width:768px){
   .chat-header{flex-wrap:wrap;row-gap:8px;padding:10px 12px;}
   .chat-header-left{flex:1 1 100%;}
-  .chat-header-right{flex:1 1 100%;flex-wrap:wrap;justify-content:flex-start;row-gap:6px;}
-  .chat-header-right .header-chip{max-width:170px;}
+  .chat-header-right{flex:1 1 100%;flex-wrap:nowrap;justify-content:flex-start;overflow-x:auto;scrollbar-width:none;padding-bottom:2px;}
+  .chat-header-right::-webkit-scrollbar{display:none;}
+  .chat-header-right .header-chip{max-width:170px;flex-shrink:0;}
   .chat-header-right .header-chip .chip-text{max-width:120px;}
   .chat-header-right .header-chip select{max-width:120px;}
+  .chat-header-right .conv-quick-actions{flex-shrink:0;}
   .conv-quick-actions{margin-left:auto;}
+  .app.app-inbox .conv-list{padding:6px 0 12px;}
+  .app.app-inbox .conv-item{border-radius:0;border-left:none;border-right:none;}
 }
 .chat-header-back:hover{background:var(--brand-soft);color:var(--brand-2)}
 .chat-title-meta{display:flex;align-items:center;gap:6px;flex-wrap:wrap;font-size:11.5px;color:var(--text-secondary)}
