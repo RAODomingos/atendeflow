@@ -1503,6 +1503,7 @@ function unitLoadStores() {
                 if (s.name === current) o.selected = true;
                 st.appendChild(o);
             });
+            if (!current && j.stores.length === 1) saveUnit(j.stores[0].name, true);
         })
         .catch(function(){
             st.disabled = false;
@@ -1620,7 +1621,7 @@ function newStoreVincular(){
         })
         .finally(function(){ if (btn) btn.disabled = false; });
 }
-function saveUnit(val) {
+function saveUnit(val, quiet) {
     var d = document.getElementById('convUnitDisplay');
     if (d) {
         d.textContent = '';
@@ -1651,7 +1652,7 @@ function saveUnit(val) {
         if (!r.ok) throw new Error('http ' + r.status);
         return r.json();
     }).then(function(j){
-        if (j && (j.ok === true || j.success === true)) toast('Unidade salva com sucesso.');
+        if (j && (j.ok === true || j.success === true)) { if (!quiet) toast('Unidade salva com sucesso.'); }
         else throw new Error('nok');
     }).catch(function(){ toast('Falha ao salvar a unidade. Tente novamente.'); });
 }
