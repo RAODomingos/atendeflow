@@ -3,16 +3,15 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title><?= e($title ?? 'OminiDesk') ?> - OminiDesk</title>
+    <title><?= e($title ?? 'Atendeflow') ?> - Atendeflow</title>
     <meta name="base-url" content="<?= rtrim(base_url(), '/') ?>">
     <meta name="user-name" content="<?= e(\App\Core\Session::get('user_name')) ?>">
     <meta name="user-role" content="<?= e(\App\Core\Session::get('user_role')) ?>">
-    <meta name="config-app-name" content="<?= e($config['app_name'] ?? 'OminiDesk') ?>">
+    <meta name="config-app-name" content="<?= e($config['app_name'] ?? 'Atendeflow') ?>">
     <meta name="config-chat-widget-enabled" content="<?= $config['chat_widget_enabled'] ?? 'true' ?>">
     <meta name="config-proactive-chat-enabled" content="<?= $config['proactive_chat_enabled'] ?? 'true' ?>">
     <meta name="csrf-token" content="<?= csrf_token() ?>">
     <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
     <link rel="stylesheet" href="<?= asset('assets/css/app.css') ?>">
     <script>
@@ -55,7 +54,7 @@ try {
                     <span class="waffle-grid"><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></span>
                 </button>
                 <div class="waffle-menu" id="waffleMenu">
-                    <div class="waffle-menu-title">Aplicativos OminiDesk</div>
+                    <div class="waffle-menu-title">Aplicativos Atendeflow</div>
                     <div class="waffle-grid-items">
                         <a href="<?= route('dashboard') ?>" class="waffle-app"><span class="waffle-app-icon"><i class="fa-solid fa-chart-pie"></i></span>Dashboard</a>
                         <a href="<?= route('inbox') ?>" class="waffle-app"><span class="waffle-app-icon"><i class="fa-solid fa-inbox"></i></span>Caixa de Entrada</a>
@@ -123,9 +122,9 @@ try {
         </div>
     </header>
     <aside class="sidebar">
-        <a href="<?= route('dashboard') ?>" class="sidebar-brand" title="OminiDesk">
+        <a href="<?= route('dashboard') ?>" class="sidebar-brand" title="Atendeflow">
             <span class="sidebar-brand-icon"><i class="fas fa-headset"></i></span>
-            <span class="sidebar-brand-name">OminiDesk</span>
+            <span class="sidebar-brand-name">Atendeflow</span>
         </a>
         <div class="nav-section" style="margin-top:0">
             <a href="<?= route('dashboard') ?>" class="nav-item <?= $activePage === 'dashboard' ? 'active' : '' ?>">

@@ -3,8 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Login - OminiDesk</title>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <title>Login - Atendeflow</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
     <link rel="stylesheet" href="<?= asset('assets/css/app.css') ?>">
 </head>
@@ -14,7 +13,7 @@
             <div class="login-hero-inner">
                 <a href="<?= base_url('login') ?>" class="login-brand">
                     <span class="login-brand-mark"><i class="fas fa-headset"></i></span>
-                    OminiDesk
+                    Atendeflow
                 </a>
                 <h1>Central de atendimento omnichannel</h1>
                 <p>Gerencie conversas de WhatsApp, e-mail e chat em um só lugar, com sua equipe.</p>
@@ -33,7 +32,7 @@
                         <i class="fas fa-headset"></i>
                     </div>
                     <h1>Entrar</h1>
-                    <p>Use sua conta OminiDesk para continuar</p>
+                    <p>Use sua conta Atendeflow para continuar</p>
                 </div>
 
                 <?php $error = \App\Core\Session::getFlash('error'); ?>
