@@ -1644,14 +1644,13 @@ function saveUnit(val) {
     }
     var cv = document.getElementById('convView');
     var id = cv ? cv.dataset.conv : 0;
-    if (id) {
-        var fd = csrfForm();
-        fd.append('unit', val);
-        fetch(BASE + '/inbox/' + id + '/unit', { method: 'POST', headers: { 'X-Requested-With': 'XMLHttpRequest' }, body: fd }).then(function(r){
-            if (!r.ok) toast('Falha ao salvar a unidade. Tente novamente.');
-            else toast('Unidade salva com sucesso.');
-        }).catch(function(){ toast('Falha ao salvar a unidade. Tente novamente.'); });
-    }
+    if (!id) { toast('Falha ao salvar a unidade: conversa não identificada.'); return; }
+    var fd = csrfForm();
+    fd.append('unit', val);
+    fetch(BASE + '/inbox/' + id + '/unit', { method: 'POST', headers: { 'X-Requested-With': 'XMLHttpRequest' }, body: fd }).then(function(r){
+        if (!r.ok) toast('Falha ao salvar a unidade. Tente novamente.');
+        else toast('Unidade salva com sucesso.');
+    }).catch(function(){ toast('Falha ao salvar a unidade. Tente novamente.'); });
 }
 function cancelUnitEdit() {
     var d = document.getElementById('convUnitDisplay');
