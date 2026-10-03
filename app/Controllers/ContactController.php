@@ -297,8 +297,10 @@ class ContactController
     {
         $stores = json_decode((string) $request->post('guild_stores_json', '[]'), true);
         $networks = json_decode((string) $request->post('guild_networks_json', '[]'), true);
-        if (!is_array($stores) || $stores === []) return;
+        if (!is_array($stores)) $stores = [];
         if (!is_array($networks)) $networks = [];
+        // Sem bloco Guild no formulário: nada a fazer (nunca apaga às cegas).
+        if ($stores === [] && $networks === []) return;
         Contact::syncStores($contactId, $stores, array_values(array_filter(array_map('strval', $networks))));
     }
 

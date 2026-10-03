@@ -184,7 +184,13 @@ $renderReceipts = function (array $msg) {
                 <div class="chat-title-group">
                     <div class="chat-title">
                         <?= e($contact['name'] ?? 'Contato') ?>
-                        <?php if (!empty($contact['company'])): ?>
+                        <?php
+                        $panelNet = '';
+                        foreach (($contact['stores'] ?? []) as $ps) { $panelNet = $ps['network_name']; break; }
+                        ?>
+                        <?php if ($panelNet !== ''): ?>
+                            <span style="font-weight:400;color:var(--text-muted);font-size:13px">— <?= e($panelNet) ?></span>
+                        <?php elseif (!empty($contact['company'])): ?>
                             <span style="font-weight:400;color:var(--text-muted);font-size:13px">— <?= e($contact['company']) ?></span>
                         <?php endif; ?>
                     </div>
@@ -223,6 +229,31 @@ $renderReceipts = function (array $msg) {
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="color:var(--text-muted);flex-shrink:0;margin-left:6px"><path d="M9 18l6-6-6-6"/></svg>
             </button>
             <input type="text" id="convUnitInput" style="display:none;font-size:12px;padding:4px 8px;border:1px solid var(--brand);border-radius:6px;outline:none;width:160px" value="<?= e($conv['unit'] ?? '') ?>" placeholder="Unidade" onblur="saveUnit(this.value)" onkeydown="if(event.key==='Enter')saveUnit(this.value);if(event.key==='Escape')cancelUnitEdit()">
+            <?php
+            $unitGroups = [];
+            foreach (($contact['stores'] ?? []) as $us) { $unitGroups[$us['network_name']][] = $us['store_name']; }
+            ksort($unitGroups);
+            $unitCurNet = '';
+            foreach ($unitGroups as $un => $ul) {
+                if (in_array($conv['unit'] ?? '', $ul, true)) { $unitCurNet = $un; break; }
+            }
+            if ($unitCurNet === '' && $unitGroups !== []) { $unitCurNet = array_key_first($unitGroups); }
+            ?>
+            <?php if ($unitGroups): ?>
+            <span id="convUnitSelects" style="display:none;align-items:center;gap:6px">
+                <select id="convUnitNetwork" onchange="unitNetworkChanged()" style="font-size:12px;padding:4px 8px;border:1px solid var(--brand);border-radius:6px;outline:none;background:var(--bg-panel);color:var(--text-primary);max-width:160px">
+                    <?php foreach ($unitGroups as $un => $ul): ?>
+                        <option value="<?= e($un) ?>" <?= $un === $unitCurNet ? 'selected' : '' ?>><?= e($un) ?></option>
+                    <?php endforeach; ?>
+                </select>
+                <select id="convUnitStore" onchange="saveUnit(this.value)" onkeydown="if(event.key==='Escape')cancelUnitEdit()" style="font-size:12px;padding:4px 8px;border:1px solid var(--brand);border-radius:6px;outline:none;background:var(--bg-panel);color:var(--text-primary);max-width:180px">
+                    <?php foreach (($unitGroups[$unitCurNet] ?? []) as $uName): ?>
+                        <option value="<?= e($uName) ?>" <?= ($conv['unit'] ?? '') === $uName ? 'selected' : '' ?>><?= e($uName) ?></option>
+                    <?php endforeach; ?>
+                </select>
+            </span>
+            <script>var UNIT_GROUPS = <?= json_encode($unitGroups, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?>;</script>
+            <?php endif; ?>
         </div>
         <div class="chat-header-right">
             <?php
@@ -545,7 +576,18 @@ $renderReceipts = function (array $msg) {
                                 <span><?= e($contact['phone']) ?></span>
                             </div>
                         <?php endif; ?>
-                        <?php if (!empty($contact['company'])): ?>
+                        <?php
+                        $panelNets = [];
+                        foreach (($contact['stores'] ?? []) as $ps) { $panelNets[$ps['network_name']][] = $ps['store_name']; }
+                        ?>
+                        <?php if ($panelNets): ?>
+                            <?php foreach ($panelNets as $pNet => $pUnits): ?>
+                                <div class="client-field-item">
+                                    <span class="field-icon icon-building"><i class="fas fa-store"></i></span>
+                                    <span><?= e($pNet) ?> <small>(<?= e(implode(', ', $pUnits)) ?>)</small></span>
+                                </div>
+                            <?php endforeach; ?>
+                        <?php elseif (!empty($contact['company'])): ?>
                             <div class="client-field-item">
                                 <span class="field-icon icon-building"><i class="fas fa-building"></i></span>
                                 <span><?= e($contact['company']) ?></span>
@@ -1065,7 +1107,7 @@ $renderReceipts = function (array $msg) {
                     <input type="text" name="document" class="form-control" value="<?= e($contact['document'] ?? '') ?>">
                 </div>
                 <div class="form-group">
-                    <label><i class="fas fa-building"></i> Empresa</label>
+                    <label><i class="fas fa-building"></i> Loja</label>
                     <input type="text" name="company" class="form-control" value="<?= e($contact['company'] ?? '') ?>">
                 </div>
             </div>
@@ -1410,18 +1452,41 @@ function updateHeaderChip(kind, val) {
 function editUnit(e) {
     if (e) e.stopPropagation();
     var d = document.getElementById('convUnitDisplay');
+    var sel = document.getElementById('convUnitSelects');
     var i = document.getElementById('convUnitInput');
-    if (!d || !i) return;
+    if (!d) return;
     d.style.display = 'none';
-    i.style.display = 'inline-block';
-    i.focus();
-    i.select();
+    if (sel) {
+        sel.style.display = 'inline-flex';
+        var st = document.getElementById('convUnitStore');
+        if (st) st.focus();
+        if (i) i.style.display = 'none';
+    } else if (i) {
+        i.style.display = 'inline-block';
+        i.focus();
+        i.select();
+    }
+}
+function unitNetworkChanged() {
+    var net = document.getElementById('convUnitNetwork');
+    var st = document.getElementById('convUnitStore');
+    if (!net || !st || typeof UNIT_GROUPS === 'undefined') return;
+    var list = UNIT_GROUPS[net.value] || [];
+    st.innerHTML = '';
+    list.forEach(function(name){
+        var o = document.createElement('option');
+        o.value = name; o.textContent = name;
+        st.appendChild(o);
+    });
+    if (list.length) saveUnit(list[0]);
 }
 function saveUnit(val) {
     var d = document.getElementById('convUnitDisplay');
+    var sel = document.getElementById('convUnitSelects');
     var i = document.getElementById('convUnitInput');
-    if (!d || !i) return;
-    i.style.display = 'none';
+    if (!d) return;
+    if (sel) sel.style.display = 'none';
+    if (i) i.style.display = 'none';
     d.style.display = 'inline-block';
     var cv = document.getElementById('convView');
     var id = cv ? cv.dataset.conv : 0;
@@ -1437,9 +1502,11 @@ function saveUnit(val) {
 }
 function cancelUnitEdit() {
     var d = document.getElementById('convUnitDisplay');
+    var sel = document.getElementById('convUnitSelects');
     var i = document.getElementById('convUnitInput');
-    if (!d || !i) return;
-    i.style.display = 'none';
+    if (!d) return;
+    if (sel) sel.style.display = 'none';
+    if (i) i.style.display = 'none';
     d.style.display = 'inline-block';
 }
 function submitContactEdit(e) {
