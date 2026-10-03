@@ -1,12 +1,5 @@
 <div class="flows-page">
-    <div class="page-toolbar">
-        <div>
-            <h2 class="page-title" style="margin:0">
-                <i class="fas fa-diagram-project" style="color:var(--primary)"></i>
-                Fluxos de Atendimento
-            </h2>
-            <p style="margin:4px 0 0;font-size:13px;color:var(--text-muted)">Automatize a triagem dos seus clientes</p>
-        </div>
+    <div class="page-actions">
         <a href="<?= url('flows/create') ?>" class="btn btn-primary btn-sm" style="padding:8px 18px;border-radius:10px">
             <i class="fas fa-plus"></i> Novo Fluxo
         </a>
@@ -72,7 +65,7 @@
                                     </button>
                                 </form>
                                 <form action="<?= url('flows/') ?><?= $flow['id'] ?>/delete" method="POST" style="display:inline"
-                                      onsubmit="return confirm('Excluir este fluxo?')">
+                                      data-confirm="Excluir este fluxo?">
                                     <?= csrf_field() ?>
                                     <button type="submit" class="btn btn-sm btn-danger" title="Excluir">
                                         <i class="fas fa-trash"></i>

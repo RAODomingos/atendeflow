@@ -15,15 +15,49 @@ class ContactController
     public function index(Request $request): void
     {
         $search = $request->get('search');
-        $contacts = Contact::all(['search' => $search]);
+        $page = max(1, (int) $request->get('page', 1));
+        $perPage = 24;
 
-        $tags = Database::getInstance()->fetchAll("SELECT * FROM tags ORDER BY name");
+        $filters = ['search' => $search];
+        $total = Contact::count($filters);
+        $pages = max(1, (int) ceil($total / $perPage));
+        $page = min($page, $pages);
+        $contacts = Contact::all($filters + [
+            'limit' => $perPage,
+            'offset' => ($page - 1) * $perPage,
+        ]);
+
+        $db = Database::getInstance();
+        $totalContacts = (int) ($db->fetch("SELECT COUNT(*) as t FROM contacts")['t'] ?? 0);
+        $withConvs = (int) ($db->fetch(
+            "SELECT COUNT(DISTINCT contact_id) as t FROM conversations WHERE contact_id IS NOT NULL"
+        )['t'] ?? 0);
+        $todayStart = date('Y-m-d 00:00:00');
+        $newToday = (int) ($db->fetch(
+            "SELECT COUNT(*) as t FROM contacts WHERE created_at >= ?", [$todayStart]
+        )['t'] ?? 0);
+        $withoutConvs = max(0, $totalContacts - $withConvs);
+
+        $tags = $db->fetchAll("SELECT * FROM tags ORDER BY name");
 
         View::renderWithLayout('contacts/index', 'main', [
             'title' => 'Contatos',
             'activePage' => 'contacts',
             'contacts' => $contacts,
             'tags' => $tags,
+            'stats' => [
+                'total' => $totalContacts,
+                'with_conversations' => $withConvs,
+                'without_conversations' => $withoutConvs,
+                'new_today' => $newToday,
+            ],
+            'search' => $search,
+            'pagination' => [
+                'page' => $page,
+                'pages' => $pages,
+                'per_page' => $perPage,
+                'total' => $total,
+            ],
         ]);
     }
 
@@ -45,20 +79,17 @@ class ContactController
             View::redirect('/contacts');
         }
 
-        $conversations = Database::getInstance()->fetchAll(
-            "SELECT c.*, ch.type as channel_type, ch.name as channel_name,
-                    d.name as department_name, d.color as department_color,
-                    u.name as assigned_user_name,
-                    (SELECT content FROM messages WHERE conversation_id = c.id ORDER BY created_at DESC LIMIT 1) as last_message,
-                    (SELECT COUNT(*) FROM messages WHERE conversation_id = c.id) as message_count
-             FROM conversations c
-             LEFT JOIN channels ch ON ch.id = c.channel_id
-             LEFT JOIN departments d ON d.id = c.department_id
-             LEFT JOIN users u ON u.id = c.assigned_user_id
-             WHERE c.contact_id = ?
-             ORDER BY c.created_at DESC",
-            [$id]
-        );
+        $filters = [
+            'year'       => (int) $request->get('year', 0),
+            'month'      => (int) $request->get('month', 0),
+            'department' => (int) $request->get('department', 0),
+            'status'     => trim((string) $request->get('status', '')) ?: null,
+        ];
+
+        $conversations = Contact::getConversations($id, $filters);
+        $statusCounts  = Contact::countConversationsByStatus($id, $filters);
+        $availableMonths = Contact::getAvailableMonths($id);
+        $availableDepartments = Contact::getAvailableDepartments($id);
 
         $tags = Database::getInstance()->fetchAll("SELECT * FROM tags ORDER BY name");
 
@@ -67,6 +98,10 @@ class ContactController
             'activePage' => 'contacts',
             'contact' => $contact,
             'conversations' => $conversations,
+            'statusCounts' => $statusCounts,
+            'availableMonths' => $availableMonths,
+            'availableDepartments' => $availableDepartments,
+            'filters' => $filters,
             'tags' => $tags,
         ]);
     }
@@ -251,26 +286,32 @@ class ContactController
             View::redirect('/contacts');
         }
 
-        $conversations = Database::getInstance()->fetchAll(
-            "SELECT c.*, ch.type as channel_type, ch.name as channel_name,
-                    d.name as department_name, d.color as department_color,
-                    u.name as assigned_user_name,
-                    (SELECT COUNT(*) FROM messages WHERE conversation_id = c.id) as message_count
-             FROM conversations c
-             LEFT JOIN channels ch ON ch.id = c.channel_id
-             LEFT JOIN departments d ON d.id = c.department_id
-             LEFT JOIN users u ON u.id = c.assigned_user_id
-             WHERE c.contact_id = ?
-             ORDER BY c.created_at DESC",
-            [$id]
-        );
+        $conversations = $this->resolveConversationsForPdf($id, $request);
+
+        if (empty($conversations)) {
+            Session::setFlash('error', 'Nenhuma conversa encontrada para os filtros selecionados.');
+            View::redirect("/contacts/{$id}");
+        }
 
         $allTags = Database::getInstance()->fetchAll("SELECT * FROM tags ORDER BY name");
 
-        $html = View::renderBuffer('contacts/pdf', [
+        // Carrega conteúdo completo (mensagens, eventos, CSAT, tags) para cada conversa.
+        $conversationsData = [];
+        foreach ($conversations as $conv) {
+            $cid = (int) $conv['id'];
+            $conversationsData[] = [
+                'conversation' => $this->enrichConversationForPdf($conv),
+                'messages'     => \App\Models\Conversation::getMessages($cid),
+                'events'       => \App\Models\Conversation::getEvents($cid),
+                'csat'         => \App\Models\Conversation::getCsat($cid),
+            ];
+        }
+
+        $html = View::renderBuffer('contacts/pdf_full', [
             'contact' => $contact,
-            'conversations' => $conversations,
+            'conversationsData' => $conversationsData,
             'allTags' => $allTags,
+            'pdfScope' => $this->pdfScopeLabel($request, count($conversations)),
         ]);
 
         $dompdf = new \Dompdf\Dompdf();
@@ -285,6 +326,130 @@ class ContactController
         $filename = 'contato-' . slugify($contact['name']) . '-' . $id . '.pdf';
         $dompdf->stream($filename, ['Attachment' => true]);
         exit;
+    }
+
+    /**
+     * Enriquece a linha crua da conversa (vinda de Contact::getConversations
+     * ou da query por IDs) com as tags do contato e demais campos esperados
+     * pelo template PDF.
+     */
+    private function enrichConversationForPdf(array $conv): array
+    {
+        $db = Database::getInstance();
+        // Tags
+        $tags = $db->fetchAll(
+            "SELECT t.* FROM tags t
+             INNER JOIN conversation_tags ct ON ct.tag_id = t.id
+             WHERE ct.conversation_id = ?",
+            [$conv['id']]
+        );
+        $conv['tags'] = $tags;
+        return $conv;
+    }
+
+    /**
+     * Resolve a lista de conversas a exportar com base em `?ids=1,2,3` ou nos
+     * filtros `?year=&month=&department=&status=`. Sem nenhum filtro, devolve
+     * todas as conversas do contato (ordenadas por criação desc).
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    private function resolveConversationsForPdf(int $contactId, Request $request): array
+    {
+        $idsRaw = trim((string) $request->get('ids', ''));
+        if ($idsRaw !== '') {
+            $ids = array_values(array_filter(array_map('intval', explode(',', $idsRaw)), fn($v) => $v > 0));
+            if (empty($ids)) {
+                return [];
+            }
+            $placeholders = implode(',', array_fill(0, count($ids), '?'));
+            $params = array_merge([$contactId], $ids);
+            return Database::getInstance()->fetchAll(
+                "SELECT c.*, ch.type as channel_type, ch.name as channel_name,
+                        d.name as department_name, d.color as department_color,
+                        u.name as assigned_user_name,
+                        (SELECT COUNT(*) FROM messages WHERE conversation_id = c.id) as message_count
+                 FROM conversations c
+                 LEFT JOIN channels ch ON ch.id = c.channel_id
+                 LEFT JOIN departments d ON d.id = c.department_id
+                 LEFT JOIN users u ON u.id = c.assigned_user_id
+                 WHERE c.contact_id = ? AND c.id IN ($placeholders)
+                 ORDER BY c.created_at DESC",
+                $params
+            );
+        }
+
+        $filters = [
+            'year'       => (int) $request->get('year', 0),
+            'month'      => (int) $request->get('month', 0),
+            'department' => (int) $request->get('department', 0),
+            'status'     => trim((string) $request->get('status', '')) ?: null,
+        ];
+        // Se nenhum filtro veio, exporta todas (comportamento legado).
+        $hasFilter = $filters['year'] || $filters['month'] || $filters['department'] || $filters['status'];
+        if (!$hasFilter) {
+            return Database::getInstance()->fetchAll(
+                "SELECT c.*, ch.type as channel_type, ch.name as channel_name,
+                        d.name as department_name, d.color as department_color,
+                        u.name as assigned_user_name,
+                        (SELECT COUNT(*) FROM messages WHERE conversation_id = c.id) as message_count
+                 FROM conversations c
+                 LEFT JOIN channels ch ON ch.id = c.channel_id
+                 LEFT JOIN departments d ON d.id = c.department_id
+                 LEFT JOIN users u ON u.id = c.assigned_user_id
+                 WHERE c.contact_id = ?
+                 ORDER BY c.created_at DESC",
+                [$contactId]
+            );
+        }
+
+        return Contact::getConversations($contactId, $filters);
+    }
+
+    private function pdfScopeLabel(Request $request, int $count = 0): string
+    {
+        if (trim((string) $request->get('ids', '')) !== '') {
+            $ids = array_filter(explode(',', $request->get('ids', '')));
+            $idsCount = count($ids);
+            $label = $idsCount > 0 ? $idsCount . ' conversa(s) selecionada(s)' : 'Conversa selecionada';
+            if ($count > 0 && $count !== $idsCount) {
+                $label .= ' — ' . $count . ' encontrada(s)';
+            }
+            return $label;
+        }
+        $filters = [
+            'year'       => (int) $request->get('year', 0),
+            'month'      => (int) $request->get('month', 0),
+            'department' => (int) $request->get('department', 0),
+            'status'     => trim((string) $request->get('status', '')),
+        ];
+        $parts = [];
+        $monthNames = [1 => 'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
+                       'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
+        if ($filters['month']) {
+            $parts[] = $monthNames[$filters['month']] ?? $filters['month'];
+        }
+        if ($filters['year']) {
+            $parts[] = $filters['year'];
+        }
+        if ($filters['status']) {
+            $statusLabels = ['new' => 'Novos', 'open' => 'Abertos',
+                             'waiting_customer' => 'Aguardando cliente', 'waiting_internal' => 'Aguardando interno',
+                             'resolved' => 'Resolvidos', 'closed' => 'Fechados', 'spam' => 'Spam'];
+            $parts[] = $statusLabels[$filters['status']] ?? $filters['status'];
+        }
+        if ($filters['department']) {
+            $dept = Database::getInstance()->fetch(
+                "SELECT name FROM departments WHERE id = ?", [$filters['department']]
+            );
+            if ($dept) {
+                $parts[] = 'Setor: ' . $dept['name'];
+            }
+        }
+        if ($parts) {
+            return 'Filtro: ' . implode(' · ', $parts) . ' — ' . $count . ' conversa(s)';
+        }
+        return 'Todas as conversas — ' . $count . ' encontrada(s)';
     }
 
     public function merge(Request $request, int $id): void

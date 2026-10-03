@@ -26,7 +26,9 @@ class UnreadSummaryController
             'unread_messages' => $unreadMessages,
             'unread_notifications' => $unreadNotifications,
             'unread_conversations' => $unreadConversations,
-            'total' => $unreadMessages + $unreadNotifications,
+            // Badge por conversa (antes somava mensagens+notificações e contava
+            // o mesmo inbound 2x: 1 mensagem + 1 notificação).
+            'total' => $unreadConversations,
         ]);
     }
 }

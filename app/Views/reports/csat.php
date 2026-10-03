@@ -4,11 +4,6 @@
             <a href="<?= url('reports') ?>" class="reports-back" title="Voltar">
                 <i class="fa-solid fa-arrow-left"></i>
             </a>
-            <div class="reports-header-icon reports-header-icon--warning"><i class="fas fa-star"></i></div>
-            <div>
-                <h1 class="reports-title">CSAT</h1>
-                <p class="reports-subtitle">Satisfação do cliente com o atendimento</p>
-            </div>
         </div>
         <form method="GET" class="reports-period-form">
             <label class="reports-period-label">Período:</label>

@@ -1,6 +1,5 @@
 <div class="page-form">
-    <div class="page-toolbar">
-        <h2 class="page-title"><i class="fas fa-plus-circle"></i> Novo Atendimento</h2>
+    <div class="page-actions">
         <a href="<?= url('inbox') ?>" class="btn btn-outline btn-sm"><i class="fas fa-arrow-left"></i> Voltar</a>
     </div>
     <div class="card">

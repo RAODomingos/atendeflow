@@ -34,10 +34,12 @@ class Setting
     public static function set(string $key, $value): void
     {
         $db = Database::getInstance();
-        $affected = $db->update('settings', ['value' => $value], '`key` = ?', [$key]);
-        if ($affected === 0) {
-            $db->insert('settings', ['key' => $key, 'value' => $value]);
-        }
+        // INSERT ... ON DUPLICATE KEY UPDATE — evita o problema do
+        // rowCount()=0 quando o valor já é igual ao existente, que levava
+        // a um INSERT duplicado e erro 500 ("Duplicate entry ... for key 'key'").
+        $sql = "INSERT INTO settings (`key`, value) VALUES (?, ?)
+                ON DUPLICATE KEY UPDATE value = VALUES(value)";
+        $db->execute($sql, [$key, (string) $value]);
         self::$cache = null;
     }
 }

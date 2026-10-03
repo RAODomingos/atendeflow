@@ -1,0 +1,403 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Guild Tech — Central de Ajuda</title>
+
+  <!-- Fontes -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preload" href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=Plus+Jakarta+Sans:wght@300;400;500;600;700&display=swap" as="style" onload="this.onload=null;this.rel='stylesheet'" />
+  <noscript>
+    <link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=Plus+Jakarta+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
+  </noscript>
+
+  <!-- Estilos -->
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+
+<!-- ═══════════════════════════════════════════
+     NAVEGAÇÃO
+═══════════════════════════════════════════ -->
+<nav class="nav" role="navigation" aria-label="Navegação principal">
+  <div class="nav-inner">
+
+    <!-- Logo -->
+    <a class="nav-logo" onclick="navigate('home')" aria-label="Guild Tech - Página inicial">
+      <div class="nav-logo-icon" loading="lazy">
+     <svg
+   version="1.0"
+   width="118.70947pt"
+   height="156pt"
+   viewBox="0 0 118.70947 156"
+   preserveAspectRatio="xMidYMid meet"
+   id="svg10"
+   sodipodi:docname="82b9aa7de7677a2079200e003451394c.svg"
+   xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
+   xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd"
+   xmlns="http://www.w3.org/2000/svg"
+   xmlns:svg="http://www.w3.org/2000/svg">
+  <defs
+     id="defs14" />
+  <sodipodi:namedview
+     id="namedview12"
+     pagecolor="#ffffff"
+     bordercolor="#666666"
+     borderopacity="1.0"
+     inkscape:pageshadow="2"
+     inkscape:pageopacity="0.0"
+     inkscape:pagecheckerboard="0"
+     inkscape:document-units="pt" />
+  <g
+     transform="matrix(0.1,0,0,-0.1,-36.645269,174)"
+     fill="#000000"
+     stroke="none"
+     id="g8">
+    <path
+       d="M 880,1730 C 719,1680 564,1557 501,1430 430,1289 422,1158 474,980 516,836 523,792 517,705 514,647 506,613 489,582 466,540 415,488 375,464 c -17,-9 -12,-17 46,-77 87,-91 215,-167 281,-167 39,0 50,4 63,24 20,30 32,182 37,451 l 3,210 -90,5 c -140,8 -187,47 -193,160 -3,55 0,70 20,99 42,63 73,73 234,79 l 144,5 v 243 c 0,134 -3,244 -7,243 -5,0 -19,-4 -33,-9 z"
+       id="path2" />
+    <path
+       d="m 1000,1497 v -244 l 143,-5 c 152,-5 181,-13 227,-63 20,-21 25,-39 28,-96 4,-60 1,-74 -19,-103 -37,-55 -73,-70 -174,-76 l -90,-5 3,-210 c 5,-269 17,-421 37,-451 13,-20 24,-24 63,-24 66,0 194,76 281,167 58,60 63,68 46,77 -40,23 -91,76 -114,118 -18,32 -25,64 -28,123 -5,88 2,132 43,275 36,123 43,259 18,340 -41,133 -116,237 -226,311 -60,41 -162,90 -210,103 l -28,6 z"
+       id="path4" />
+    <path
+       d="m 653,1189 c -74,-22 -104,-107 -62,-175 25,-41 65,-54 174,-54 44,0 86,-4 92,-8 10,-6 13,-99 15,-388 3,-370 3,-379 23,-382 20,-3 20,2 15,395 l -5,397 -25,13 c -15,8 -64,13 -121,13 -91,0 -98,2 -123,26 -32,33 -33,65 -2,101 l 24,28 h 300 300 l 26,-24 c 33,-32 34,-71 1,-104 -24,-23 -34,-26 -134,-29 -73,-2 -113,-8 -124,-17 -15,-12 -17,-53 -17,-407 0,-387 0,-394 20,-394 20,0 20,7 20,384 0,341 2,385 16,390 9,3 54,6 100,6 113,0 149,15 175,75 20,45 20,47 2,82 -10,20 -31,46 -46,57 -27,20 -43,21 -320,23 -161,1 -306,-2 -324,-8 z"
+       id="path6" />
+  </g>
+</svg>
+      </div>
+      <span class="nav-logo-name">Guild <span>Tech</span></span>
+    </a>
+
+    <!-- Links desktop -->
+    <div class="nav-links" role="menubar">
+      <a class="nav-link" href="https://touchpay.market/#/" target="_blank" aria-label="Painel TouchPay">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+             stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/>
+          <rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/>
+        </svg>
+        Painel TouchPay
+      </a>
+      <a class="nav-link" href="https://guild.com.br/" target="_blank" aria-label="Guild">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+             stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+        </svg>
+        Guild
+      </a>
+      
+      <!-- Dropdown menu para contato -->
+      <div class="nav-dropdown">
+        <button class="nav-link nav-dropdown-toggle" id="contactDropdown" onclick="toggleContactDropdown()" 
+                aria-expanded="false" aria-controls="contactDropdownMenu" aria-haspopup="true">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+               stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+          </svg>
+          Falar conosco
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+               stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="dropdown-arrow">
+            <polyline points="6 9 12 15 18 9"/>
+          </svg>
+        </button>
+        
+        <div class="nav-dropdown-menu" id="contactDropdownMenu" role="menu">
+          <a class="nav-dropdown-item" href="https://wa.me/552139006600" target="_blank" aria-label="Falar com o suporte">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                 stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+            </svg>
+            Suporte
+          </a>
+          <a class="nav-dropdown-item" href="https://wa.me/552135134397" target="_blank" aria-label="Falar com a implantação">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                 stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <rect width="14" height="20" x="5" y="2" rx="2" ry="2"/><path d="M12 18h.01"/>
+            </svg>
+            Implantação
+          </a>
+          <a class="nav-dropdown-item" href="https://wa.me/5522988030003" target="_blank" aria-label="Falar com o Financeiro">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                 stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <line x1="12" x2="12" y1="2" y2="22"/>
+              <path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/>
+            </svg>
+            Financeiro
+          </a>
+        </div>
+      </div>
+    </div>
+
+    <!-- Busca -->
+    <div class="nav-search-mini">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+           stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <circle cx="11" cy="11" r="8"/>
+        <path d="m21 21-4.35-4.35"/>
+      </svg>
+      <input id="navSearch" type="text" placeholder="Buscar artigos…"
+             aria-label="Buscar artigos" 
+             oninput="handleNavSearch(this.value)"
+             onkeydown="if(event.key==='Enter') doSearch(this.value)" />
+    </div>
+
+    <!-- Hamburger (mobile) -->
+    <button class="nav-hamburger" id="navHamburger" onclick="toggleMobileMenu()"
+            aria-label="Abrir menu de navegação" aria-expanded="false" aria-controls="navMobileMenu">
+      <span></span><span></span><span></span>
+    </button>
+
+  </div>
+
+  <!-- Menu mobile -->
+  <div class="nav-mobile-menu" id="navMobileMenu" role="menu">
+    <a class="nav-mobile-link" href="https://touchpay.market/#/" target="_blank" aria-label="Painel TouchPay">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+           stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/>
+        <rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/>
+      </svg>
+      Painel
+    </a>
+    <a class="nav-mobile-link" href="https://guild.com.br/" target="_blank" aria-label="Guild">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+           stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+      </svg>
+      Guild
+    </a>
+    
+    <!-- Opções de contato mobile -->
+    <a class="nav-mobile-link" href="https://wa.me/552139006600" target="_blank" aria-label="Falar com o suporte">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+           stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+      </svg>
+      Falar com o suporte
+    </a>
+    <a class="nav-mobile-link" href="https://wa.me/552135134397" target="_blank" aria-label="Falar com a implantação">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+           stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <rect width="14" height="20" x="5" y="2" rx="2" ry="2"/><path d="M12 18h.01"/>
+      </svg>
+      Falar com a implantação
+    </a>
+    <a class="nav-mobile-link" href="https://wa.me/5522988030003" target="_blank" aria-label="Falar com o Financeiro">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+           stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <line x1="12" x2="12" y1="2" y2="22"/>
+        <path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/>
+      </svg>
+      Falar com o Financeiro
+    </a>
+  </div>
+</nav>
+
+
+<!-- ═══════════════════════════════════════════
+     VIEW: HOME
+═══════════════════════════════════════════ -->
+<div id="view-home" class="view active">
+
+  <!-- Hero -->
+  <section class="hero">
+    <div class="hero-badge">
+      <svg viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="10"/></svg>
+      Central de Ajuda
+    </div>
+    <h1 class="fade-up">Como podemos te ajudar?</h1>
+    <p class="fade-up-2"><strong>Primeiro modelo de loja autônoma do Brasil sem uso de aplicativo. 100% baseado em biometria facial</strong></p>
+
+    <div class="hero-search fade-up-3">
+      <div class="hero-search-icon">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+             stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="11" cy="11" r="8"/>
+          <path d="m21 21-4.35-4.35"/>
+        </svg>
+      </div>
+      <input id="heroSearch" type="text"
+             placeholder="Ex: Como ativar meu plano, configurar painel…"
+             onkeydown="if(event.key==='Enter') doSearch(this.value)" />
+      <button onclick="doSearch(document.getElementById('heroSearch').value)">Buscar</button>
+    </div>
+
+    <div class="hero-stats fade-up-4" id="hero-stats"></div>
+    <div class="hero-stats fade-up-4">
+      <div class="hero-stat"><strong>+ 1000 </strong> dispositivos ativos </div>
+      <div class="hero-stat"><strong>+ 7 Milhões </strong> de Acesso registrado</div>
+      <div class="hero-stat"><strong>1º </strong> Controle de Acesso sem App</div>
+    </div>
+  </section>
+
+  <!-- Conteúdo principal -->
+  <main class="main">
+    <div class="section-header fade-up">
+      <h2>Explorar por categoria</h2>
+      <p>Selecione uma área para encontrar os artigos mais relevantes</p>
+    </div>
+
+    <div class="categories" id="home-categories"></div>
+
+    <!-- Artigos em destaque -->
+    <div class="section-header">
+      <h2>Artigos em destaque</h2>
+      <p>Os conteúdos mais acessados pelos nossos clientes</p>
+    </div>
+    <div class="article-grid" id="featured-articles"></div>
+  </main>
+
+  <!-- Footer -->
+  <footer class="footer">
+    <div class="footer-inner">
+      <div class="footer-top">
+        <div class="footer-brand">
+          <div class="nav-logo">
+            <div class="nav-logo-icon">
+              <svg
+   version="1.0"
+   width="118.70947pt"
+   height="156pt"
+   viewBox="0 0 118.70947 156"
+   preserveAspectRatio="xMidYMid meet"
+   id="svg10"
+   sodipodi:docname="82b9aa7de7677a2079200e003451394c.svg"
+   xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
+   xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd"
+   xmlns="http://www.w3.org/2000/svg"
+   xmlns:svg="http://www.w3.org/2000/svg">
+  <defs
+     id="defs14" />
+  <sodipodi:namedview
+     id="namedview12"
+     pagecolor="#ffffff"
+     bordercolor="#666666"
+     borderopacity="1.0"
+     inkscape:pageshadow="2"
+     inkscape:pageopacity="0.0"
+     inkscape:pagecheckerboard="0"
+     inkscape:document-units="pt" />
+  <g
+     transform="matrix(0.1,0,0,-0.1,-36.645269,174)"
+     fill="#000000"
+     stroke="none"
+     id="g8">
+    <path
+       d="M 880,1730 C 719,1680 564,1557 501,1430 430,1289 422,1158 474,980 516,836 523,792 517,705 514,647 506,613 489,582 466,540 415,488 375,464 c -17,-9 -12,-17 46,-77 87,-91 215,-167 281,-167 39,0 50,4 63,24 20,30 32,182 37,451 l 3,210 -90,5 c -140,8 -187,47 -193,160 -3,55 0,70 20,99 42,63 73,73 234,79 l 144,5 v 243 c 0,134 -3,244 -7,243 -5,0 -19,-4 -33,-9 z"
+       id="path2" />
+    <path
+       d="m 1000,1497 v -244 l 143,-5 c 152,-5 181,-13 227,-63 20,-21 25,-39 28,-96 4,-60 1,-74 -19,-103 -37,-55 -73,-70 -174,-76 l -90,-5 3,-210 c 5,-269 17,-421 37,-451 13,-20 24,-24 63,-24 66,0 194,76 281,167 58,60 63,68 46,77 -40,23 -91,76 -114,118 -18,32 -25,64 -28,123 -5,88 2,132 43,275 36,123 43,259 18,340 -41,133 -116,237 -226,311 -60,41 -162,90 -210,103 l -28,6 z"
+       id="path4" />
+    <path
+       d="m 653,1189 c -74,-22 -104,-107 -62,-175 25,-41 65,-54 174,-54 44,0 86,-4 92,-8 10,-6 13,-99 15,-388 3,-370 3,-379 23,-382 20,-3 20,2 15,395 l -5,397 -25,13 c -15,8 -64,13 -121,13 -91,0 -98,2 -123,26 -32,33 -33,65 -2,101 l 24,28 h 300 300 l 26,-24 c 33,-32 34,-71 1,-104 -24,-23 -34,-26 -134,-29 -73,-2 -113,-8 -124,-17 -15,-12 -17,-53 -17,-407 0,-387 0,-394 20,-394 20,0 20,7 20,384 0,341 2,385 16,390 9,3 54,6 100,6 113,0 149,15 175,75 20,45 20,47 2,82 -10,20 -31,46 -46,57 -27,20 -43,21 -320,23 -161,1 -306,-2 -324,-8 z"
+       id="path6" />
+  </g>
+</svg>
+            </div>
+            <span class="nav-logo-name">Guild <span>Tech</span></span>
+          </div>
+          <p>Sua central de ajuda completa para tirar o máximo do seu Guild Control.</p>
+        </div>
+
+        <div class="footer-links">
+          <h4>Categorias</h4>
+          <a onclick="navigate('cat','comece-aqui')">Comece aqui</a>
+          <a onclick="navigate('cat','conhecendo-painel')">Conhecendo o painel</a>
+          <a onclick="navigate('cat','ativar-guild')">Como ativar seu Guild Control</a>
+        </div>
+
+        <div class="footer-links">
+          <h4>Suporte</h4>
+          <a href="https://wa.me/552139006600" target="_blank">Falar com suporte</a>
+          <a href="https://wa.me/552135134397" target="_blank">Falar com implantação</a>
+          <a href="https://wa.me/5522988030003" target="_blank">Falar com Financeiro</a>
+        </div>
+      </div>
+
+      <div class="footer-bottom">
+        <span>© 2026 Guild Tech. Todos os direitos reservados.</span>
+        <span>Precisa de mais ajuda?
+          <a href="#" style="color:var(--green-accent)">Fale conosco</a>
+        </span>
+      </div>
+    </div>
+  </footer>
+
+</div><!-- /view-home -->
+
+
+<!-- ═══════════════════════════════════════════
+     VIEW: RESULTADOS DE BUSCA
+═══════════════════════════════════════════ -->
+<div id="view-search" class="view">
+  <main class="main">
+    <div class="search-results-header">
+      <div>
+        <h2 id="searchResultsTitle">Resultados</h2>
+        <span id="searchResultsCount"></span>
+      </div>
+      <button class="search-back" onclick="navigate('home')">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+             stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M19 12H5M12 19l-7-7 7-7"/>
+        </svg>
+        Voltar ao início
+      </button>
+    </div>
+    <div id="searchResultsList" class="article-grid"></div>
+  </main>
+</div>
+
+
+<!-- ═══════════════════════════════════════════
+     VIEW: CATEGORIA
+═══════════════════════════════════════════ -->
+<div id="view-cat" class="view">
+  <main class="cat-page">
+    <nav class="breadcrumb">
+      <a onclick="navigate('home')">Início</a>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+           stroke-linecap="round" stroke-linejoin="round">
+        <path d="M9 18l6-6-6-6"/>
+      </svg>
+      <span id="catBreadcrumb"></span>
+    </nav>
+
+    <div class="cat-page-header">
+      <div class="cat-page-icon" id="catPageIcon"></div>
+      <div>
+        <h1 id="catPageTitle"></h1>
+        <p id="catPageDesc"></p>
+      </div>
+    </div>
+
+    <div class="article-grid" id="catArticleList"></div>
+  </main>
+</div>
+
+
+<!-- ═══════════════════════════════════════════
+     VIEW: ARTIGO
+═══════════════════════════════════════════ -->
+<div id="view-article" class="view">
+  <div class="article-layout">
+    <aside class="article-sidebar" id="articleSidebar"></aside>
+    <article class="article-content" id="articleContent"></article>
+  </div>
+</div>
+
+
+
+
+<!-- Scripts (ordem importa: data → render → módulos → app) -->
+<script src="js/data.js"></script>
+<script src="js/render.js"></script>
+<script src="js/router.js"></script>
+<script src="js/search.js"></script>
+<script src="js/ui.js"></script>
+<script src="js/share.js"></script>
+<script src="js/app.js"></script>
+
+</body>
+</html>

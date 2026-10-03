@@ -1,4 +1,4 @@
-# Guia de Instalação do AtendeFlow
+# Guia de Instalação do OminiDesk
 
 ## Requisitos
 

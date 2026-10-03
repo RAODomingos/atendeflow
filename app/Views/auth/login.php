@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Login - AtendeFlow</title>
+    <title>Login - OminiDesk</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
     <link rel="stylesheet" href="<?= asset('assets/css/app.css') ?>">
@@ -12,8 +12,9 @@
     <div class="login-split">
         <aside class="login-hero">
             <div class="login-hero-inner">
-                <a href="#" class="login-brand">
-                    <i class="fas fa-headset"></i> AtendeFlow
+                <a href="<?= base_url('login') ?>" class="login-brand">
+                    <span class="login-brand-mark"><i class="fas fa-headset"></i></span>
+                    OminiDesk
                 </a>
                 <h1>Central de atendimento omnichannel</h1>
                 <p>Gerencie conversas de WhatsApp, e-mail e chat em um só lugar, com sua equipe.</p>
@@ -32,12 +33,12 @@
                         <i class="fas fa-headset"></i>
                     </div>
                     <h1>Entrar</h1>
-                    <p>Acesse sua conta para continuar</p>
+                    <p>Use sua conta OminiDesk para continuar</p>
                 </div>
 
                 <?php $error = \App\Core\Session::getFlash('error'); ?>
                 <?php if ($error): ?>
-                    <div class="alert alert-error">
+                    <div class="login-alert">
                         <i class="fas fa-exclamation-circle"></i>
                         <?= e($error) ?>
                     </div>
@@ -103,18 +104,19 @@
                 });
             }
 
-            // Animated background particles
+            // Partículas flutuantes no hero (versão antiga)
             var hero = document.querySelector('.login-hero');
             if (hero) {
-                for (var i = 0; i < 8; i++) {
+                for (var i = 0; i < 9; i++) {
                     var dot = document.createElement('div');
-                    var size = 4 + Math.random() * 8;
-                    dot.style.cssText = 'position:absolute;border-radius:50%;background:rgba(255,255,255,0.08);width:' + size + 'px;height:' + size + 'px;left:' + (Math.random() * 100) + '%;top:' + (Math.random() * 100) + '%;animation:floatDot ' + (6 + Math.random() * 8) + 's ease-in-out infinite;animation-delay:' + (Math.random() * 4) + 's';
+                    var size = 5 + Math.random() * 9;
+                    dot.className = 'login-hero-dot';
+                    dot.style.cssText = 'width:' + size + 'px;height:' + size + 'px;left:' +
+                        (Math.random() * 100) + '%;top:' + (Math.random() * 100) + '%;' +
+                        'animation-duration:' + (6 + Math.random() * 7) + 's;' +
+                        'animation-delay:' + (Math.random() * 5) + 's;';
                     hero.appendChild(dot);
                 }
-                var style = document.createElement('style');
-                style.textContent = '@keyframes floatDot { 0%,100% { transform: translateY(0) scale(1); } 50% { transform: translateY(-20px) scale(1.2); } }';
-                document.head.appendChild(style);
             }
 
             // Input focus effects

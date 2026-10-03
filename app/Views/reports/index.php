@@ -4,11 +4,6 @@
             <a href="<?= url('reports') ?>" class="reports-back" title="Voltar">
                 <i class="fa-solid fa-arrow-left"></i>
             </a>
-            <div class="reports-header-icon reports-header-icon--primary"><i class="fas fa-chart-bar"></i></div>
-            <div>
-                <h1 class="reports-title">Relatórios</h1>
-                <p class="reports-subtitle">Visão geral do período</p>
-            </div>
         </div>
         <form method="GET" class="reports-period-form">
             <label class="reports-period-label">Período:</label>
@@ -132,6 +127,11 @@
 
     <!-- Sub-report navigation -->
     <div class="reports-sub-nav">
+        <a href="<?= url('reports/timeline') ?>" class="report-nav-card">
+            <div class="report-nav-icon report-nav-icon--primary"><i class="fas fa-stream"></i></div>
+            <strong>Linha do Tempo</strong>
+            <span>Conversas por dia, semana, mês ou ano</span>
+        </a>
         <a href="<?= url('reports/conversations') ?>" class="report-nav-card">
             <div class="report-nav-icon report-nav-icon--info"><i class="fas fa-comments"></i></div>
             <strong>Conversas</strong>

@@ -6,6 +6,7 @@ use App\Core\Auth;
 use App\Core\Database;
 use App\Core\Request;
 use App\Core\View;
+use App\Models\Conversation;
 
 class ReportsController
 {
@@ -228,50 +229,598 @@ class ReportsController
         $valid = ['7' => 7, '30' => 30, '90' => 90, 'all' => null];
         $days = $valid[$period] ?? 30;
 
-        $where = '';
-        $params = [];
-        if ($days !== null) {
-            $where = 'WHERE cc.created_at >= DATE_SUB(NOW(), INTERVAL ? DAY)';
-            $params[] = $days;
-        }
-
-        $db = Database::getInstance();
-
-        $total = (int) ($db->fetch("SELECT COUNT(*) AS c FROM conversation_csats cc {$where}", $params)['c'] ?? 0);
-        $avg = $db->fetch("SELECT AVG(rating) AS a FROM conversation_csats cc {$where}", $params)['a'] ?? null;
-        $average = $avg !== null ? round((float) $avg, 2) : null;
-
-        $distRows = $db->fetchAll(
-            "SELECT rating, COUNT(*) AS c FROM conversation_csats cc {$where} GROUP BY rating ORDER BY rating DESC",
-            $params
-        );
-        $distribution = [1 => 0, 2 => 0, 3 => 0, 4 => 0, 5 => 0];
-        foreach ($distRows as $row) {
-            $distribution[(int) $row['rating']] = (int) $row['c'];
-        }
-
-        $recent = $db->fetchAll(
-            "SELECT cc.*, conv.id AS conversation_id, conv.public_id, c.name AS contact_name,
-                    ch.type AS channel_type, d.name AS department_name
-             FROM conversation_csats cc
-             JOIN conversations conv ON conv.id = cc.conversation_id
-             LEFT JOIN contacts c ON c.id = conv.contact_id
-             LEFT JOIN channels ch ON ch.id = conv.channel_id
-             LEFT JOIN departments d ON d.id = conv.department_id
-             {$where}
-             ORDER BY cc.created_at DESC
-             LIMIT 25",
-            $params
-        );
+        $summary = Conversation::csatSummary($days);
 
         View::renderWithLayout('reports/csat', 'main', [
             'title' => 'Relatório de CSAT',
             'activePage' => 'reports_csat',
             'period' => $period,
-            'total' => $total,
-            'average' => $average,
-            'distribution' => $distribution,
-            'recent' => $recent,
+            'total' => $summary['total'],
+            'average' => $summary['average'],
+            'distribution' => Conversation::csatDistribution($days),
+            'recent' => Conversation::csatRecent($days),
         ]);
+    }
+
+    /**
+     * GET /reports/timeline - Listagem de conversas agrupadas por dia/semana/mês/ano.
+     * Inclui filtros, comparação entre períodos e heatmap de horários.
+     */
+    public function timeline(Request $request): void
+    {
+        $db = Database::getInstance();
+        $timeline = $this->resolveTimelineParams($request);
+
+        $whereC = $timeline['where'];
+        $paramsC = $timeline['params'];
+
+        // Carrega todas as conversas do período (limit razoável, ordenado desc).
+        $rows = $db->fetchAll(
+            "SELECT c.id, c.contact_id, c.department_id, c.assigned_user_id, c.channel_id,
+                    c.status, c.priority, c.subject, c.created_at, c.last_message_at,
+                    c.closed_at, c.close_reason, c.message_count_cache,
+                    ct.name AS contact_name, ct.email AS contact_email, ct.phone AS contact_phone,
+                    d.name AS department_name, d.color AS department_color,
+                    u.name AS assigned_user_name,
+                    ch.name AS channel_name, ch.type AS channel_type
+             FROM conversations c
+             LEFT JOIN contacts ct ON ct.id = c.contact_id
+             LEFT JOIN departments d ON d.id = c.department_id
+             LEFT JOIN users u ON u.id = c.assigned_user_id
+             LEFT JOIN channels ch ON ch.id = c.channel_id
+             {$whereC}
+             ORDER BY c.created_at DESC
+             LIMIT 2000",
+            $paramsC
+        );
+
+        $groups = $this->groupByTimeline($rows, $timeline['granularity']);
+        $stats = $this->computeTimelineStats($rows);
+        $comparison = $this->computeComparison($db, $timeline);
+        $heatmap = $this->computeHeatmap($rows);
+        $peakHour = $this->findPeakHour($heatmap);
+
+        // Opções para selects
+        $channels = $db->fetchAll("SELECT id, name, type FROM channels WHERE is_active = 1 ORDER BY name");
+        $departments = $db->fetchAll("SELECT id, name, color FROM departments ORDER BY name");
+
+        View::renderWithLayout('reports/timeline', 'main', [
+            'title' => 'Linha do Tempo de Conversas',
+            'activePage' => 'reports_timeline',
+            'timeline' => $timeline,
+            'groups' => $groups,
+            'stats' => $stats,
+            'comparison' => $comparison,
+            'heatmap' => $heatmap,
+            'peakHour' => $peakHour,
+            'channels' => $channels,
+            'departments' => $departments,
+        ]);
+    }
+
+    /**
+     * GET /reports/timeline/pdf - Exporta conversas do timeline (filtradas ou selecionadas) em PDF.
+     */
+    public function timelinePdf(Request $request): void
+    {
+        $db = Database::getInstance();
+        $timeline = $this->resolveTimelineParams($request);
+
+        $ids = $this->extractIds($request);
+        if (!empty($ids)) {
+            $placeholders = implode(',', array_fill(0, count($ids), '?'));
+            $params = $ids;
+            $whereC = "WHERE c.id IN ($placeholders)";
+        } else {
+            $whereC = $timeline['where'];
+            $params = $timeline['params'];
+        }
+
+        $rows = $db->fetchAll(
+            "SELECT c.*, ch.type as channel_type, ch.name as channel_name,
+                    ct.name AS contact_name, ct.email AS contact_email, ct.phone AS contact_phone,
+                    d.name AS department_name, d.color AS department_color,
+                    u.name AS assigned_user_name
+             FROM conversations c
+             LEFT JOIN channels ch ON ch.id = c.channel_id
+             LEFT JOIN contacts ct ON ct.id = c.contact_id
+             LEFT JOIN departments d ON d.id = c.department_id
+             LEFT JOIN users u ON u.id = c.assigned_user_id
+             {$whereC}
+             ORDER BY c.created_at DESC
+             LIMIT 500",
+            $params
+        );
+
+        if (empty($rows)) {
+            \App\Core\Session::setFlash('error', 'Nenhuma conversa encontrada para os filtros selecionados.');
+            \App\Core\View::redirect('/reports/timeline');
+        }
+
+        $allTags = $db->fetchAll("SELECT * FROM tags ORDER BY name");
+        $conversationsData = [];
+        foreach ($rows as $conv) {
+            $cid = (int) $conv['id'];
+            $tags = $db->fetchAll(
+                "SELECT t.* FROM tags t
+                 INNER JOIN conversation_tags ct ON ct.tag_id = t.id
+                 WHERE ct.conversation_id = ?",
+                [$cid]
+            );
+            $conv['tags'] = $tags;
+            $conversationsData[] = [
+                'conversation' => $conv,
+                'messages'     => \App\Models\Conversation::getMessages($cid),
+                'events'       => \App\Models\Conversation::getEvents($cid),
+                'csat'         => \App\Models\Conversation::getCsat($cid),
+            ];
+        }
+
+        $html = \App\Core\View::renderBuffer('reports/timeline_pdf', [
+            'timeline' => $timeline,
+            'conversationsData' => $conversationsData,
+            'allTags' => $allTags,
+            'isSelection' => !empty($ids),
+            'selectedCount' => count($ids),
+        ]);
+
+        $dompdf = new \Dompdf\Dompdf();
+        $dompdf->setPaper('A4');
+        $dompdf->loadHtml($html);
+        $dompdf->render();
+
+        while (ob_get_level()) { ob_end_clean(); }
+
+        $filename = 'relatorio-conversas-' . date('Y-m-d') . '.pdf';
+        $dompdf->stream($filename, ['Attachment' => true]);
+        exit;
+    }
+
+    /**
+     * GET /reports/timeline/csv - Exporta conversas do timeline (filtradas ou selecionadas) em CSV.
+     */
+    public function timelineCsv(Request $request): void
+    {
+        $db = Database::getInstance();
+        $timeline = $this->resolveTimelineParams($request);
+
+        $ids = $this->extractIds($request);
+        if (!empty($ids)) {
+            $placeholders = implode(',', array_fill(0, count($ids), '?'));
+            $params = $ids;
+            $whereC = "WHERE c.id IN ($placeholders)";
+        } else {
+            $whereC = $timeline['where'];
+            $params = $timeline['params'];
+        }
+
+        $rows = $db->fetchAll(
+            "SELECT c.id, c.created_at, c.last_message_at, c.closed_at, c.status, c.priority,
+                    c.subject, c.message_count_cache,
+                    ct.name AS contact_name, ct.email AS contact_email, ct.phone AS contact_phone,
+                    d.name AS department_name, d.color AS department_color,
+                    u.name AS assigned_user_name,
+                    ch.name AS channel_name, ch.type AS channel_type
+             FROM conversations c
+             LEFT JOIN channels ch ON ch.id = c.channel_id
+             LEFT JOIN contacts ct ON ct.id = c.contact_id
+             LEFT JOIN departments d ON d.id = c.department_id
+             LEFT JOIN users u ON u.id = c.assigned_user_id
+             {$whereC}
+             ORDER BY c.created_at DESC
+             LIMIT 5000",
+            $params
+        );
+
+        if (empty($rows)) {
+            \App\Core\Session::setFlash('error', 'Nenhuma conversa encontrada para os filtros selecionados.');
+            \App\Core\View::redirect('/reports/timeline');
+        }
+
+        $statusLabels = [
+            'new' => 'Novo', 'open' => 'Aberto',
+            'waiting_customer' => 'Aguardando cliente', 'waiting_internal' => 'Aguardando interno',
+            'resolved' => 'Resolvido', 'closed' => 'Fechado', 'spam' => 'Spam',
+        ];
+        $priorityLabels = ['low' => 'Baixa', 'normal' => 'Normal', 'high' => 'Alta', 'urgent' => 'Urgente'];
+
+        $delim = function ($v) { return "\"".str_replace(["\r", "\n", '"'], [' ', ' ', '""'], (string) $v)."\""; };
+        $col = function ($v) use ($delim) {
+            // Fórmulas potencialmente perigosas (p. ex. =SUM(...)) são prefixadas para evitar injeção de fórmulas.
+            $s = (string) $v;
+            if ($s !== '' && in_array($s[0], ['=', '+', '-', '@'], true)) {
+                return $delim("'\t" . $s);
+            }
+            return $delim($s);
+        };
+
+        // BOM UTF-8 para compatibilidade com Excel
+        $out = "\xEF\xBB\xBF";
+        $out .= implode(',', array_map($col, [
+            '#', 'Data criação', 'Status', 'Prioridade', 'Contato', 'E-mail', 'Telefone',
+            'Departamento', 'Atendente', 'Canal', 'Assunto', 'Mensagens', 'Data último msg', 'Data fechamento',
+        ])) . "\r\n";
+
+        foreach ($rows as $r) {
+            $out .= implode(',', array_map($col, [
+                $r['id'],
+                $r['created_at'],
+                $statusLabels[$r['status']] ?? $r['status'],
+                $priorityLabels[$r['priority']] ?? $r['priority'],
+                $r['contact_name'],
+                $r['contact_email'],
+                $r['contact_phone'],
+                $r['department_name'],
+                $r['assigned_user_name'],
+                $r['channel_name'],
+                $r['subject'],
+                $r['message_count_cache'],
+                $r['last_message_at'],
+                $r['closed_at'],
+            ])) . "\r\n";
+        }
+
+        while (ob_get_level()) { ob_end_clean(); }
+
+        header('Content-Type: text/csv; charset=UTF-8');
+        header('Content-Disposition: attachment; filename="conversas-' . date('Y-m-d') . '.csv"');
+        header('Cache-Control: max-age=0');
+        echo $out;
+        exit;
+    }
+
+    /**
+     * Resolve e valida os parâmetros de filtro/granularidade do timeline.
+     * Retorna {granularity, from, to, where, params, whereSql, paramsC, label}.
+     */
+    private function resolveTimelineParams(Request $request): array
+    {
+        $granularity = $request->get('granularity', 'day');
+        if (!in_array($granularity, ['day', 'week', 'month', 'year'], true)) {
+            $granularity = 'day';
+        }
+
+        // Defaults de período por granularidade
+        $defaults = [
+            'day'   => 14,
+            'week'  => 84,   // 12 semanas
+            'month' => 365,  // 12 meses
+            'year'  => 1825, // 5 anos
+        ];
+        $defaultDays = $defaults[$granularity];
+
+        $from = trim((string) $request->get('from', ''));
+        $to   = trim((string) $request->get('to', ''));
+
+        if (!$from || !$to) {
+            $toDate = date('Y-m-d');
+            $fromDate = date('Y-m-d', strtotime("-{$defaultDays} days"));
+            $from = $from ?: $fromDate;
+            $to   = $to   ?: $toDate;
+        }
+        // Validação simples
+        if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $from)) $from = date('Y-m-d', strtotime("-{$defaultDays} days"));
+        if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $to))   $to   = date('Y-m-d');
+
+        $whereParts = ['DATE(c.created_at) >= ?', 'DATE(c.created_at) <= ?'];
+        $params = [$from, $to];
+
+        $status = trim((string) $request->get('status', ''));
+        if ($status !== '') {
+            $whereParts[] = 'c.status = ?';
+            $params[] = $status;
+        }
+        $channelId = (int) $request->get('channel_id', 0);
+        if ($channelId > 0) {
+            $whereParts[] = 'c.channel_id = ?';
+            $params[] = $channelId;
+        }
+        $departmentId = (int) $request->get('department_id', 0);
+        if ($departmentId > 0) {
+            $whereParts[] = 'c.department_id = ?';
+            $params[] = $departmentId;
+        }
+        $contactId = (int) $request->get('contact_id', 0);
+        if ($contactId > 0) {
+            $whereParts[] = 'c.contact_id = ?';
+            $params[] = $contactId;
+        }
+
+        $where = 'WHERE ' . implode(' AND ', $whereParts);
+
+        return [
+            'granularity' => $granularity,
+            'from' => $from,
+            'to' => $to,
+            'where' => $where,
+            'params' => $params,
+            'status' => $status,
+            'channel_id' => $channelId,
+            'department_id' => $departmentId,
+            'contact_id' => $contactId,
+        ];
+    }
+
+    /**
+     * Extrai e valida lista de IDs (?ids=1,2,3).
+     * @return int[]
+     */
+    private function extractIds(Request $request): array
+    {
+        $raw = trim((string) $request->get('ids', ''));
+        if ($raw === '') return [];
+        $ids = array_values(array_filter(array_map('intval', explode(',', $raw)), fn($v) => $v > 0));
+        return $ids;
+    }
+
+    /**
+     * Agrupa as conversas por período de acordo com a granularidade.
+     * @return array<int, array{key:string,label:string,from:string,to:string,total:int,open:int,closed:int,conversations:array}>
+     */
+    private function groupByTimeline(array $rows, string $granularity): array
+    {
+        $buckets = [];
+        $monthNames = [1 => 'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
+                       'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
+        $weekdayNames = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
+
+        foreach ($rows as $r) {
+            $created = strtotime($r['created_at']);
+            $key = '';
+            $label = '';
+            $from = '';
+            $to = '';
+            switch ($granularity) {
+                case 'day':
+                    $key = date('Y-m-d', $created);
+                    $label = date('d/m/Y', $created) . ' (' . $weekdayNames[date('w', $created)] . ')';
+                    $from = $key;
+                    $to = $key;
+                    break;
+                case 'week':
+                    // Semana ISO começando na segunda
+                    $dow = (int) date('N', $created); // 1=Seg, 7=Dom
+                    $monday = strtotime('-' . ($dow - 1) . ' days', $created);
+                    $key = date('Y-m-d', $monday);
+                    $label = 'Semana de ' . date('d/m', $monday) . ' a ' . date('d/m', strtotime('+6 days', $monday));
+                    $from = date('Y-m-d', $monday);
+                    $to = date('Y-m-d', strtotime('+6 days', $monday));
+                    break;
+                case 'month':
+                    $key = date('Y-m', $created);
+                    $label = $monthNames[(int) date('n', $created)] . ' / ' . date('Y', $created);
+                    $from = date('Y-m-01', $created);
+                    $to = date('Y-m-t', $created);
+                    break;
+                case 'year':
+                    $key = date('Y', $created);
+                    $label = $key;
+                    $from = $key . '-01-01';
+                    $to = $key . '-12-31';
+                    break;
+            }
+
+            if (!isset($buckets[$key])) {
+                $buckets[$key] = [
+                    'key' => $key,
+                    'label' => $label,
+                    'from' => $from,
+                    'to' => $to,
+                    'total' => 0,
+                    'open' => 0,
+                    'closed' => 0,
+                    'spam' => 0,
+                    'resolved' => 0,
+                    'avg_response_min' => null,
+                    'csat_avg' => null,
+                    'top_agent' => null,
+                    'top_channel' => null,
+                    'conversations' => [],
+                ];
+            }
+            $buckets[$key]['total']++;
+            $buckets[$key]['conversations'][] = $r;
+            $status = $r['status'] ?? '';
+            if (in_array($status, ['new', 'open', 'waiting_customer', 'waiting_internal'], true)) {
+                $buckets[$key]['open']++;
+            } elseif (in_array($status, ['resolved', 'closed'], true)) {
+                $buckets[$key]['closed']++;
+                if ($status === 'resolved') $buckets[$key]['resolved']++;
+            } elseif ($status === 'spam') {
+                $buckets[$key]['spam']++;
+            }
+        }
+
+        // Ordena do mais recente para o mais antigo
+        krsort($buckets);
+
+        // Pós-processa cada bucket: top agent, top channel, CSAT, tempo médio
+        $db = Database::getInstance();
+        foreach ($buckets as &$b) {
+            // Top agent
+            $agents = [];
+            $channels = [];
+            foreach ($b['conversations'] as $c) {
+                $a = $c['assigned_user_name'] ?? 'Não atribuído';
+                $agents[$a] = ($agents[$a] ?? 0) + 1;
+                $ch = $c['channel_name'] ?? $c['channel_type'] ?? '-';
+                $channels[$ch] = ($channels[$ch] ?? 0) + 1;
+            }
+            arsort($agents);
+            arsort($channels);
+            $b['top_agent'] = $agents ? array_key_first($agents) . ' (' . current($agents) . ')' : '—';
+            $b['top_channel'] = $channels ? array_key_first($channels) . ' (' . current($channels) . ')' : '—';
+
+            // CSAT médio e tempo médio de resposta (1 query por bucket)
+            $ids = array_column($b['conversations'], 'id');
+            if (!empty($ids)) {
+                $ph = implode(',', array_fill(0, count($ids), '?'));
+                $csatAvg = $db->fetch(
+                    "SELECT AVG(rating) as a FROM conversation_csats WHERE conversation_id IN ($ph)",
+                    $ids
+                );
+                $b['csat_avg'] = $csatAvg && $csatAvg['a'] !== null ? round((float) $csatAvg['a'], 2) : null;
+
+                // Tempo médio de resposta (em min) — primeira resposta outbound após mensagem inbound
+                // Compatível com ONLY_FULL_GROUP_BY: agrega MIN(outbound) por conversa
+                // primeiro, depois busca o último inbound anterior a esse timestamp.
+                $resp = $db->fetch(
+                    "SELECT ROUND(AVG(diff_min), 0) as avg_min FROM (
+                        SELECT TIMESTAMPDIFF(MINUTE, in_t, out_t) as diff_min
+                        FROM (
+                            SELECT o.conversation_id, o.out_t,
+                                   (SELECT MAX(m2.created_at) FROM messages m2
+                                    WHERE m2.conversation_id = o.conversation_id
+                                      AND m2.direction = 'inbound' AND m2.created_at < o.out_t) as in_t
+                            FROM (
+                                SELECT m1.conversation_id, MIN(m1.created_at) as out_t
+                                FROM messages m1
+                                WHERE m1.direction = 'outbound'
+                                  AND m1.conversation_id IN ($ph)
+                                GROUP BY m1.conversation_id
+                            ) o
+                        ) t
+                        WHERE in_t IS NOT NULL AND out_t > in_t
+                     ) x",
+                    $ids
+                );
+                $b['avg_response_min'] = $resp && $resp['avg_min'] !== null ? (int) $resp['avg_min'] : null;
+            }
+        }
+        unset($b);
+
+        return array_values($buckets);
+    }
+
+    private function computeTimelineStats(array $rows): array
+    {
+        $total = count($rows);
+        $open = $closed = $spam = $resolved = 0;
+        $byChannel = [];
+        $byStatus = [];
+        $byDepartment = [];
+        $byAgent = [];
+        $messagesTotal = 0;
+        foreach ($rows as $r) {
+            $messagesTotal += (int) ($r['message_count_cache'] ?? 0);
+            $status = $r['status'] ?? '';
+            if (in_array($status, ['new', 'open', 'waiting_customer', 'waiting_internal'], true)) $open++;
+            elseif (in_array($status, ['resolved', 'closed'], true)) { $closed++; if ($status === 'resolved') $resolved++; }
+            elseif ($status === 'spam') $spam++;
+            $byStatus[$status] = ($byStatus[$status] ?? 0) + 1;
+            $ch = $r['channel_name'] ?? $r['channel_type'] ?? '-';
+            $byChannel[$ch] = ($byChannel[$ch] ?? 0) + 1;
+            $dp = $r['department_name'] ?? 'Sem departamento';
+            $byDepartment[$dp] = ($byDepartment[$dp] ?? 0) + 1;
+            $ag = $r['assigned_user_name'] ?? 'Não atribuído';
+            $byAgent[$ag] = ($byAgent[$ag] ?? 0) + 1;
+        }
+        arsort($byChannel); arsort($byStatus); arsort($byDepartment); arsort($byAgent);
+        return [
+            'total' => $total,
+            'open' => $open,
+            'closed' => $closed,
+            'spam' => $spam,
+            'resolved' => $resolved,
+            'messages_total' => $messagesTotal,
+            'avg_per_day' => $total > 0 ? round($messagesTotal / max(1, $total), 1) : 0,
+            'by_channel' => array_slice($byChannel, 0, 6, true),
+            'by_status' => $byStatus,
+            'by_department' => array_slice($byDepartment, 0, 6, true),
+            'by_agent' => array_slice($byAgent, 0, 5, true),
+        ];
+    }
+
+    /**
+     * Compara o período atual com o período anterior de mesma duração.
+     * Retorna array com deltas por métrica.
+     */
+    private function computeComparison(Database $db, array $timeline): array
+    {
+        $from = strtotime($timeline['from']);
+        $to   = strtotime($timeline['to']);
+        if (!$from || !$to || $to <= $from) return [];
+        $days = (int) floor(($to - $from) / 86400) + 1;
+        $prevTo = date('Y-m-d', strtotime('-1 day', $from));
+        $prevFrom = date('Y-m-d', strtotime("-{$days} days", strtotime($prevTo)));
+
+        $current = $this->countConversations($db, $timeline['from'], $timeline['to']);
+        $previous = $this->countConversations($db, $prevFrom, $prevTo);
+
+        $delta = function ($c, $p) {
+            if (!$p) return $c > 0 ? 'new' : 0;
+            $diff = round(($c - $p) / max(1, $p) * 100);
+            return $diff;
+        };
+        return [
+            'current_from' => $timeline['from'],
+            'current_to' => $timeline['to'],
+            'previous_from' => $prevFrom,
+            'previous_to' => $prevTo,
+            'current' => $current,
+            'previous' => $previous,
+            'delta_total' => $delta($current['total'], $previous['total']),
+            'delta_open' => $delta($current['open'], $previous['open']),
+            'delta_closed' => $delta($current['closed'], $previous['closed']),
+        ];
+    }
+
+    private function countConversations(Database $db, string $from, string $to): array
+    {
+        $row = $db->fetch(
+            "SELECT
+                COUNT(*) as total,
+                SUM(CASE WHEN status IN ('new','open','waiting_customer','waiting_internal') THEN 1 ELSE 0 END) as open,
+                SUM(CASE WHEN status IN ('resolved','closed') THEN 1 ELSE 0 END) as closed
+             FROM conversations
+             WHERE DATE(created_at) >= ? AND DATE(created_at) <= ?",
+            [$from, $to]
+        );
+        return [
+            'total' => (int) ($row['total'] ?? 0),
+            'open' => (int) ($row['open'] ?? 0),
+            'closed' => (int) ($row['closed'] ?? 0),
+        ];
+    }
+
+    /**
+     * Heatmap de conversas por dia da semana × hora do dia.
+     * Retorna [dow][hour] = count, max value, labels.
+     */
+    private function computeHeatmap(array $rows): array
+    {
+        $grid = [];
+        for ($d = 0; $d < 7; $d++) {
+            for ($h = 0; $h < 24; $h++) {
+                $grid[$d][$h] = 0;
+            }
+        }
+        foreach ($rows as $r) {
+            $created = strtotime($r['created_at']);
+            $dow = (int) date('w', $created);
+            $hour = (int) date('G', $created);
+            $grid[$dow][$hour]++;
+        }
+        $max = 0;
+        foreach ($grid as $d => $hours) {
+            foreach ($hours as $h => $c) {
+                if ($c > $max) $max = $c;
+            }
+        }
+        return ['grid' => $grid, 'max' => $max];
+    }
+
+    private function findPeakHour(array $heatmap): ?array
+    {
+        if (empty($heatmap['grid']) || empty($heatmap['max'])) return null;
+        $best = null;
+        foreach ($heatmap['grid'] as $d => $hours) {
+            foreach ($hours as $h => $c) {
+                if ($best === null || $c > $best['count']) {
+                    $best = ['dow' => $d, 'hour' => $h, 'count' => $c];
+                }
+            }
+        }
+        return $best;
     }
 }

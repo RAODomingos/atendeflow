@@ -28,16 +28,10 @@ $online = !empty($contact['last_activity_at']) && (time() - strtotime($contact['
 $csat = $conversation['csat'] ?? null;
 
 $convSubjects = [];
-$substatuses = [];
 $closeReasons = [];
 try {
     $convSubjects = \App\Core\Database::getInstance()->fetchAll(
         "SELECT * FROM conversation_subjects WHERE is_active = 1 ORDER BY sort_order ASC, name ASC"
-    );
-} catch (\Throwable $e) {}
-try {
-    $substatuses = \App\Core\Database::getInstance()->fetchAll(
-        "SELECT * FROM conversation_substatuses WHERE is_active = 1 ORDER BY sort_order ASC, name ASC"
     );
 } catch (\Throwable $e) {}
 try {
@@ -107,25 +101,31 @@ $renderMessageContent = function (array $msg) use ($contact, &$renderMessageCont
         $url = $meta['url'] ?? '';
         $name = $meta['name'] ?? 'arquivo';
         $size = !empty($meta['size']) ? format_bytes((int) $meta['size']) : '';
+        $caption = (string) ($meta['caption'] ?? '');
+        $captionHtml = '';
+        if ($caption !== '') {
+            // Mesma formatação do texto puro: detecta links e preserva quebras de linha.
+            $captionHtml = '<div class="message-caption">' . linkify_br($caption) . '</div>';
+        }
         if ($mediaType === 'image' || $mediaType === 'sticker') {
             return '<div class="message-content"><a href="' . e($url) . '" target="_blank" rel="noopener" class="msg-lightbox">'
                  . '<img class="msg-img" src="' . e($url) . '" alt="' . e($name) . '" loading="lazy">'
-                 . '</a></div>';
+                 . '</a>' . $captionHtml . '</div>';
         }
         if ($mediaType === 'audio') {
-            return '<div class="message-content"><audio controls preload="metadata" src="' . e($url) . '"></audio></div>';
+            return '<div class="message-content"><audio controls preload="metadata" src="' . e($url) . '"></audio>' . $captionHtml . '</div>';
         }
         if ($mediaType === 'video') {
             return '<div class="message-content"><a href="' . e($url) . '" target="_blank" rel="noopener" class="msg-lightbox">'
                  . '<video controls preload="metadata" src="' . e($url) . '" class="msg-video" data-alt="' . e($name) . '"></video>'
-                 . '</a></div>';
+                 . '</a>' . $captionHtml . '</div>';
         }
         return '<div class="message-content">'
              . '<a class="msg-file" href="' . e($url) . '" target="_blank" rel="noopener" download>'
              . '<i class="fas fa-file-download"></i>'
              . '<span class="msg-file-name">' . e($name) . '</span>'
              . ($size ? '<span class="msg-file-size">' . e($size) . '</span>' : '')
-             . '</a></div>';
+             . '</a>' . $captionHtml . '</div>';
     }
 
     // Texto puro: detecta JSON escapado, links e formata quebras de linha
@@ -133,9 +133,7 @@ $renderMessageContent = function (array $msg) use ($contact, &$renderMessageCont
     if (is_array($parsed) && isset($parsed['text']) && is_string($parsed['text'])) {
         $raw = $parsed['text'];
     }
-    $body = e($raw);
-    $body = preg_replace('@(https?://[^\s<]+)@', '<a href="$1" target="_blank" rel="noopener">$1</a>', $body);
-    $body = nl2br($body);
+    $body = linkify_br($raw);
     return '<div class="message-content">' . $body . '</div>';
 };
 
@@ -144,6 +142,10 @@ $renderMessageContent = function (array $msg) use ($contact, &$renderMessageCont
  */
 $renderReceipts = function (array $msg) {
     if ($msg['direction'] !== 'outbound') return '';
+    if (($msg['delivery_status'] ?? '') === 'failed') {
+        return '<span class="msg-receipts failed" title="Não entregue ao WhatsApp"><i class="fas fa-exclamation-circle"></i></span>'
+            . '<button type="button" class="msg-retry" title="Tentar de novo" onclick="retrySend(' . (int) $msg['id'] . ', this)"><i class="fas fa-redo"></i> Tentar de novo</button>';
+    }
     $isRead = !empty($msg['read_at']);
     $isDelivered = !$isRead && !empty($msg['delivered_at']);
     $cls = $isRead ? 'msg-receipts read' : 'msg-receipts delivered';
@@ -152,6 +154,7 @@ $renderReceipts = function (array $msg) {
 };
 ?>
 <div class="conversation-view" id="convView" data-conv="<?= $conv['id'] ?>">
+    <script src="<?= url('assets/js/audio_recorder.js') ?>"></script>
     <script>
     (function(){
         try { window.__viewingConvId = '<?= (int)$conv['id'] ?>'; } catch(e) {}
@@ -163,6 +166,7 @@ $renderReceipts = function (array $msg) {
         }
     })();
     </script>
+    <div class="conv-main">
     <div class="chat-header">
         <div class="chat-header-left">
             <button type="button" class="chat-header-back" onclick="window.__convBack && window.__convBack()" title="Voltar para a lista">
@@ -186,6 +190,12 @@ $renderReceipts = function (array $msg) {
                     </div>
                     <div class="chat-title-meta">
                         <span class="meta-tag"><i class="<?= channel_icon($conv['channel_type'] ?? 'webchat') ?>" style="font-size:11px"></i> <?= e($conv['channel_name'] ?? '') ?></span>
+                        <?php if (!empty($conv['protocol'])): ?>
+                            <span class="meta-sep">·</span>
+                            <span class="meta-tag" title="Protocolo do atendimento" style="font-weight:700">
+                                <i class="fas fa-hashtag" style="font-size:10px"></i> <?= e(format_protocol($conv['protocol'])) ?>
+                            </span>
+                        <?php endif; ?>
                         <?php if (!empty($conv['department_name'])): ?>
                             <span class="meta-sep">·</span>
                             <span class="meta-tag" style="color:<?= e($conv['department_color'] ?? '#666') ?>;font-weight:700">
@@ -207,10 +217,6 @@ $renderReceipts = function (array $msg) {
                             <span class="meta-tag" onclick="editUnit(event)" style="cursor:pointer;opacity:.6" title="Adicionar unidade">
                                 <i class="fas fa-plus" style="font-size:9px"></i> <span id="convUnitDisplay" style="font-style:italic">unidade</span>
                             </span>
-                        <?php endif; ?>
-                        <?php if (!empty($conv['substatus'])): ?>
-                            <span class="meta-sep">·</span>
-                            <span class="meta-tag" style="background:var(--bg-panel-alt);padding:1px 6px;border-radius:8px;font-size:11px"><?= e($conv['substatus']) ?></span>
                         <?php endif; ?>
                     </div>
                 </div>
@@ -239,13 +245,6 @@ $renderReceipts = function (array $msg) {
                 <span class="chip-text"><?= ['low'=>'Baixa','normal'=>'Normal','high'=>'Alta','urgent'=>'Urgente'][$conv['priority'] ?? 'normal'] ?></span>
                 <i class="fas fa-chevron-down" style="font-size:9px;opacity:.5;margin-left:auto"></i>
             </button>
-            <?php if (!empty($substatuses)): ?>
-            <button type="button" class="header-chip header-chip-substatus <?= empty($conv['substatus']) ? 'is-empty' : '' ?>" onclick="openSubstatusModal()" title="Clique para selecionar o sub-status">
-                <i class="fas fa-bookmark"></i>
-                <span class="chip-text"><?= !empty($conv['substatus']) ? e($conv['substatus']) : 'Sub-status' ?></span>
-                <i class="fas fa-chevron-down" style="font-size:9px;opacity:.5;margin-left:auto"></i>
-            </button>
-            <?php endif; ?>
             <div class="conv-quick-actions">
                 <button class="icon-btn" onclick="toggleMsgSearch()" title="Buscar na conversa"><i class="fas fa-search"></i></button>
                 <button class="icon-btn" id="convSnoozeBtn" onclick="openSnoozeModal()" title="Agendar"><i class="fas fa-clock"></i></button>
@@ -370,6 +369,9 @@ $renderReceipts = function (array $msg) {
             <div class="<?= $msgClasses ?>" data-mid="<?= $msg['id'] ?>" data-text="<?= e($textForSearch) ?>">
                 <div class="msg-avatar msg-avatar-<?= $sender ?>"><?= $av ?></div>
                 <div class="message-body <?= $isDeleted ? 'is-deleted' : '' ?>">
+                    <?php if (($msg['direction'] ?? '') === 'inbound' && (!empty($msg['sender_name']) || !empty($msg['sender_phone']))): ?>
+                    <div class="msg-group-sender" style="font-size:12px;font-weight:600;color:#0b57d0;margin-bottom:2px"><i class="fas fa-user"></i> <?= e($msg['sender_name'] ?: $msg['sender_phone']) ?><?php if (!empty($msg['sender_name']) && !empty($msg['sender_phone'])): ?> <small style="opacity:.65;font-weight:400"><?= e($msg['sender_phone']) ?></small><?php endif; ?></div>
+                    <?php endif; ?>
                     <?php if (!empty($msg['reply_to_data'])): ?>
                     <div class="msg-quote" onclick="scrollToMessage(<?= (int) $msg['reply_to_data']['id'] ?>)">
                         <div class="msg-quote-content">
@@ -447,8 +449,12 @@ $renderReceipts = function (array $msg) {
                     <input type="file" name="file" id="attachInput"
                            accept="image/*,audio/*,video/*,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.zip" hidden <?= $panelFinished ? 'disabled' : '' ?>>
                 </label>
+                <button type="button" class="icon-btn" id="micToggle" title="Gravar áudio" <?= $panelFinished ? 'disabled' : '' ?>>
+                    <i class="fas fa-microphone"></i>
+                </button>
                 <button type="button" class="icon-btn" title="Resposta pronta" onclick="openCannedModal()" <?= $panelFinished ? 'disabled' : '' ?>><i class="fas fa-bookmark"></i></button>
                 <button type="button" class="icon-btn" title="Macro" onclick="openMacroModal()" <?= $panelFinished ? 'disabled' : '' ?>><i class="fas fa-bolt"></i></button>
+                <button type="button" class="icon-btn" title="Sugerir artigo da Wiki (envia o link do portal do cliente)" onclick="openWikiModal()" <?= $panelFinished ? 'disabled' : '' ?>><i class="fas fa-book-open"></i></button>
                 <div style="flex:1"></div>
                 <button type="button" class="icon-btn" id="emojiToggle" title="Emoji" <?= $panelFinished ? 'disabled' : '' ?>><i class="fas fa-smile"></i></button>
                 <button type="button" class="icon-btn" id="internalToggle"
@@ -483,10 +489,22 @@ $renderReceipts = function (array $msg) {
                 <i class="fas fa-file"></i> <span id="composerFileName"></span>
                 <button type="button" class="composer-file-x" id="composerFileX" title="Remover">&times;</button>
             </div>
+            <div class="composer-record" id="composerRecord" style="display:none">
+                <span class="rec-indicator" id="recIndicator"></span>
+                <span class="rec-timer" id="recTimer">00:00</span>
+                <button type="button" class="rec-btn rec-cancel" id="recCancel" title="Cancelar">
+                    <i class="fas fa-trash"></i>
+                </button>
+                <button type="button" class="rec-btn rec-stop" id="recStop" title="Parar e enviar">
+                    <i class="fas fa-stop"></i>
+                </button>
+            </div>
             <div class="emoji-popover" id="emojiPopover" style="display:none"></div>
         </form>
     </div>
+    </div><!-- /.conv-main -->
 
+    <div class="conv-drawer-backdrop" id="clientDrawerBackdrop" onclick="toggleClientDrawer(false)"></div>
     <div class="conv-drawer" id="clientDrawer">
         <div class="conv-drawer-header">
             <h4><i class="fas fa-user"></i> Cliente</h4>
@@ -567,10 +585,41 @@ $renderReceipts = function (array $msg) {
             </div>
 
             <div class="card">
-                <div class="card-header"><h4><i class="fas fa-ticket-alt"></i> Outros Tickets</h4></div>
+                <div class="card-header"><h4><i class="fas fa-lock"></i> Observações Internas <span class="badge badge-tag-count"><?= count($internalNotes ?? []) ?></span></h4></div>
+                <div class="card-body">
+                    <form onsubmit="return submitInternalNote(event)">
+                        <?= csrf_field() ?>
+                        <textarea id="internalNoteInput" rows="3" class="form-control" placeholder="Adicionar observação interna (visível só para a equipe)..."></textarea>
+                        <button type="submit" class="btn btn-sm btn-outline" id="internalNoteBtn" style="margin-top:8px"><i class="fas fa-save"></i> Salvar observação</button>
+                    </form>
+                    <div class="history-list-modern" id="internalNotesList" style="margin-top:12px">
+                        <?php if (empty($internalNotes)): ?>
+                            <p class="tag-empty-msg" id="internalNotesEmpty">Nenhuma observação registrada.</p>
+                        <?php else: ?>
+                            <?php foreach ($internalNotes as $note): ?>
+                                <div class="history-item-modern">
+                                    <div class="history-icon-modern" style="color:var(--warning)">
+                                        <i class="fas fa-lock"></i>
+                                    </div>
+                                    <div class="history-content">
+                                        <p style="font-size:13px;margin:0"><?= nl2br(e($note['content'])) ?></p>
+                                        <span class="history-time" style="font-size:11px">
+                                            <?= format_datetime($note['created_at']) ?>
+                                            <?php if (!empty($note['user_name'])): ?> &middot; <?= e($note['user_name']) ?><?php endif; ?>
+                                        </span>
+                                    </div>
+                                </div>
+                            <?php endforeach; ?>
+                        <?php endif; ?>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card">
+                <div class="card-header"><h4><i class="fas fa-ticket-alt"></i> Atendimentos</h4></div>
                 <div class="card-body p-0">
                     <?php if (empty($otherConversations)): ?>
-                        <div class="empty-state" style="padding: 20px;"><p>Nenhum outro ticket deste cliente.</p></div>
+                        <div class="empty-state" style="padding: 20px;"><p>Nenhum outro atendimento deste cliente.</p></div>
                     <?php else: ?>
                         <div class="other-tickets-list">
                             <?php foreach ($otherConversations as $oc): ?>
@@ -790,43 +839,6 @@ $renderReceipts = function (array $msg) {
     </div>
 </div>
 
-<?php if (!empty($substatuses)): ?>
-<div class="modal-overlay" id="substatusModal" style="display:none" onclick="if(event.target===this)closeSubstatusModal()">
-    <div class="modal-container" style="max-width:480px">
-        <div class="modal-header">
-            <h3><i class="fas fa-bookmark"></i> Selecionar sub-status</h3>
-            <button class="modal-close" onclick="closeSubstatusModal()">&times;</button>
-        </div>
-        <div class="modal-body" style="padding:14px">
-            <div class="option-list">
-                <button type="button" class="option-item <?= empty($conv['substatus']) ? 'is-active' : '' ?>" data-substatus="" onclick="pickSubstatus('')">
-                    <span class="option-icon" style="background:var(--bg-panel-alt);color:var(--text-muted)"><i class="fas fa-ban"></i></span>
-                    <span class="option-content">
-                        <span class="option-title">Sem sub-status</span>
-                        <span class="option-desc">Remover o sub-status atual.</span>
-                    </span>
-                    <?php if (empty($conv['substatus'])): ?>
-                    <i class="fas fa-check option-check"></i>
-                    <?php endif; ?>
-                </button>
-                <?php foreach ($substatuses as $ss): ?>
-                <button type="button" class="option-item <?= ($conv['substatus'] ?? '') === $ss['name'] ? 'is-active' : '' ?>" data-substatus="<?= e($ss['name']) ?>" onclick="pickSubstatus('<?= e($ss['name']) ?>')">
-                    <span class="option-icon" style="background:<?= e($ss['color'] ?? '#6c757d') ?>20;color:<?= e($ss['color'] ?? '#6c757d') ?>"><i class="fas fa-bookmark"></i></span>
-                    <span class="option-content">
-                        <span class="option-title"><?= e($ss['name']) ?></span>
-                        <span class="option-desc">Sub-status predefinido.</span>
-                    </span>
-                    <?php if (($conv['substatus'] ?? '') === $ss['name']): ?>
-                    <i class="fas fa-check option-check"></i>
-                    <?php endif; ?>
-                </button>
-                <?php endforeach; ?>
-            </div>
-        </div>
-    </div>
-</div>
-<?php endif; ?>
-
 <div class="modal-overlay" id="cannedModal" style="display:none" onclick="if(event.target===this)closeCannedModal()">
     <div class="modal-container" style="max-width:480px">
         <div class="modal-header"><h3>Respostas Prontas</h3><button class="modal-close" onclick="closeCannedModal()">&times;</button></div>
@@ -842,12 +854,25 @@ $renderReceipts = function (array $msg) {
 <div class="modal-overlay" id="macroModal" style="display:none" onclick="if(event.target===this)closeMacroModal()">
     <div class="modal-container" style="max-width:480px">
         <div class="modal-header"><h3>Macros</h3><button class="modal-close" onclick="closeMacroModal()">&times;</button></div>
+    <div class="modal-body">
+        <div class="form-group">
+            <input type="text" id="macroSearch" class="form-control" placeholder="Buscar macro..." onkeyup="filterMacros()">
+        </div>
+        <div id="macroList" class="canned-list"></div>
+        <p class="text-muted" style="margin-top:12px"><a href="<?= url('macros') ?>" target="_blank">Gerenciar macros</a></p>
+    </div>
+</div>
+</div>
+
+<div class="modal-overlay" id="wikiModal" style="display:none" onclick="if(event.target===this)closeWikiModal()">
+    <div class="modal-container" style="max-width:480px">
+        <div class="modal-header"><h3><i class="fas fa-book-open"></i> Sugerir artigo da Wiki</h3><button class="modal-close" onclick="closeWikiModal()">&times;</button></div>
         <div class="modal-body">
             <div class="form-group">
-                <input type="text" id="macroSearch" class="form-control" placeholder="Buscar macro..." onkeyup="filterMacros()">
+                <input type="text" id="wikiSearch" class="form-control" placeholder="Buscar artigo..." onkeyup="filterWikiSuggest()">
             </div>
-            <div id="macroList" class="canned-list"></div>
-            <p class="text-muted" style="margin-top:12px"><a href="<?= url('macros') ?>" target="_blank">Gerenciar macros</a></p>
+            <div id="wikiList" class="canned-list"></div>
+            <p class="text-muted" style="margin-top:12px">Insere no campo de mensagem o <strong>link do portal do cliente</strong>.</p>
         </div>
     </div>
 </div>
@@ -862,7 +887,12 @@ $renderReceipts = function (array $msg) {
             <?= csrf_field() ?>
             <input type="hidden" name="status" id="statusValue" value="<?= e($conv['status']) ?>">
             <div class="modal-body" style="padding:14px">
+                <?php $isGroupConv = !empty($conv['group_id']); ?>
+                <?php if ($isGroupConv): ?>
+                <p class="text-muted" style="margin:0 0 12px;font-size:12.5px"><i class="fas fa-users"></i> Conversa de grupo: fica sempre aberta, não pode ser encerrada.</p>
+                <?php else: ?>
                 <p class="text-muted" style="margin:0 0 12px;font-size:12.5px">Defina o estado atual desta conversa na fila.</p>
+                <?php endif; ?>
                 <div class="option-list">
                     <?php
                     $statuses = [
@@ -873,6 +903,9 @@ $renderReceipts = function (array $msg) {
                         'closed' => ['label' => 'Fechado', 'desc' => 'Conversa encerrada sem solução.', 'icon' => 'fa-archive', 'cls' => 'option-status-closed'],
                         'spam' => ['label' => 'Spam', 'desc' => 'Marcada como lixo eletrônico.', 'icon' => 'fa-ban', 'cls' => 'option-status-spam'],
                     ];
+                    if ($isGroupConv) {
+                        unset($statuses['resolved'], $statuses['closed'], $statuses['spam']);
+                    }
                     foreach ($statuses as $sval => $sinfo): ?>
                     <button type="button" class="option-item <?= $sinfo['cls'] ?> <?= $conv['status'] === $sval ? 'is-active' : '' ?>" data-status="<?= $sval ?>" onclick="pickStatus('<?= $sval ?>')">
                         <span class="option-icon"><i class="fas <?= $sinfo['icon'] ?>"></i></span>
@@ -1064,8 +1097,48 @@ function postJson(url, body) {
         .then(r => r.json()).catch(() => ({ success: false }));
 }
 
-function toggleClientDrawer() {
-    document.querySelector('.conversation-view')?.classList.toggle('drawer-open');
+function toggleClientDrawer(force) {
+    var view = document.querySelector('.conversation-view');
+    if (!view) return;
+    var open = (typeof force === 'boolean') ? force : !view.classList.contains('drawer-open');
+    view.classList.toggle('drawer-open', open);
+}
+function closeClientDrawer() { toggleClientDrawer(false); }
+
+function submitInternalNote(e) {
+    if (e) e.preventDefault();
+    var ta = document.getElementById('internalNoteInput');
+    var btn = document.getElementById('internalNoteBtn');
+    var content = ta ? ta.value.trim() : '';
+    if (!content) { toast('Digite a observação antes de salvar'); return false; }
+    if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Salvando...'; }
+    postJson('/inbox/' + CONV_ID + '/notes', { content: content }).then(function(resp) {
+        if (resp && resp.success !== false) {
+            if (ta) ta.value = '';
+            var empty = document.getElementById('internalNotesEmpty');
+            if (empty) empty.remove();
+            var list = document.getElementById('internalNotesList');
+            if (list && resp.note) {
+                var div = document.createElement('div');
+                div.className = 'history-item-modern';
+                var d = document.createElement('div'); d.textContent = resp.note.content || content;
+                var html = '<div class="history-icon-modern" style="color:var(--warning)"><i class="fas fa-lock"></i></div>'
+                    + '<div class="history-content"><p style="font-size:13px;margin:0"></p>'
+                    + '<span class="history-time" style="font-size:11px">agora'
+                    + (resp.note.user_name ? ' &middot; ' + resp.note.user_name.replace(/</g, '') : '')
+                    + '</span></div>';
+                div.innerHTML = html;
+                div.querySelector('p').textContent = resp.note.content || content;
+                list.insertBefore(div, list.firstChild);
+            }
+            toast('Observação salva');
+        } else {
+            toast('Erro ao salvar observação');
+        }
+    }).finally(function() {
+        if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fas fa-save"></i> Salvar observação'; }
+    });
+    return false;
 }
 
 /* ---------- Tag Manager ---------- */
@@ -1297,28 +1370,6 @@ function pickSubject(val) {
         }).catch(function(){ if (btn) { btn.disabled = false; btn.style.opacity = '1'; } });
 }
 
-function openSubstatusModal() {
-    var m = document.getElementById('substatusModal');
-    if (!m) return;
-    m.style.display = 'flex';
-}
-function closeSubstatusModal() { var m = document.getElementById('substatusModal'); if (m) m.style.display = 'none'; }
-function pickSubstatus(val) {
-    var fd = csrfForm();
-    fd.append('substatus', val);
-    fetch(BASE + '/inbox/' + CONV_ID + '/substatus', { method: 'POST', headers: { 'X-Requested-With': 'XMLHttpRequest' }, body: fd })
-        .then(function(r){ return r.json(); })
-        .then(function(resp) {
-            if (resp && resp.ok !== false) {
-                updateHeaderChip('substatus', val);
-                closeSubstatusModal();
-                toast(val ? 'Sub-status atualizado' : 'Sub-status removido');
-            } else {
-                toast('Erro ao atualizar sub-status');
-            }
-        }).catch(function(){ toast('Erro de rede'); });
-}
-
 function pickPriority(val) {
     var fd = csrfForm();
     fd.append('priority', val);
@@ -1345,12 +1396,6 @@ function updateHeaderChip(kind, val) {
         if (!btn) return;
         var txt = btn.querySelector('.chip-text');
         if (txt) txt.textContent = val || 'Assunto';
-        btn.classList.toggle('is-empty', !val);
-    } else if (kind === 'substatus') {
-        var btn = document.querySelector('.header-chip-substatus');
-        if (!btn) return;
-        var txt = btn.querySelector('.chip-text');
-        if (txt) txt.textContent = val || 'Sub-status';
         btn.classList.toggle('is-empty', !val);
     } else if (kind === 'priority') {
         var btn = document.querySelector('.header-chip-priority');
@@ -1397,7 +1442,6 @@ function cancelUnitEdit() {
     i.style.display = 'none';
     d.style.display = 'inline-block';
 }
-function saveSubstatus(val) { pickSubstatus(val); }
 function submitContactEdit(e) {
     e.preventDefault();
     var form = document.getElementById('contactEditForm');
@@ -1429,6 +1473,7 @@ document.querySelectorAll('.modal-overlay').forEach(function(m) {
 document.addEventListener('keydown', function(e) {
     if (e.key === 'Escape') {
         document.querySelectorAll('.modal-overlay').forEach(function(m) { m.style.display = 'none'; });
+        toggleClientDrawer(false);
     }
 });
 
@@ -1467,24 +1512,75 @@ function insertCanned(id) {
     closeCannedModal();
 }
 
+var wikiSuggest = [];
+var wikiSuggestTimer = null;
+function openWikiModal() { document.getElementById('wikiModal').style.display = 'flex'; document.getElementById('wikiSearch').value = ''; loadWikiSuggest(''); setTimeout(function() { document.getElementById('wikiSearch').focus(); }, 50); }
+function closeWikiModal() { document.getElementById('wikiModal').style.display = 'none'; }
+function filterWikiSuggest() {
+    clearTimeout(wikiSuggestTimer);
+    wikiSuggestTimer = setTimeout(function() { loadWikiSuggest(document.getElementById('wikiSearch').value); }, 250);
+}
+function loadWikiSuggest(q) {
+    var box = document.getElementById('wikiList');
+    box.innerHTML = '<p class="text-muted">Buscando...</p>';
+    fetch(API + '/wiki/suggest?q=' + encodeURIComponent(q || '')).then(function(r) { return r.json(); }).then(function(list) {
+        wikiSuggest = list || []; renderWikiSuggest();
+    }).catch(function() { wikiSuggest = []; box.innerHTML = '<p class="text-muted">Falha ao buscar artigos.</p>'; });
+}
+function renderWikiSuggest() {
+    var box = document.getElementById('wikiList'); var html = '';
+    wikiSuggest.forEach(function(a, i) {
+        html += '<div class="canned-item" onclick="insertWikiArticle(' + i + ')"><div class="canned-title"><i class="fas fa-book-open"></i> ' + (a.title || '').replace(/</g, '') + '</div><div class="canned-content">' + ((a.description || a.url || '').replace(/</g, '')).substring(0, 120) + '</div></div>';
+    });
+    if (!html) html = '<p class="text-muted">Nenhum artigo encontrado.</p>';
+    box.innerHTML = html;
+}
+function insertWikiArticle(i) {
+    var a = wikiSuggest[i]; if (!a) return;
+    var ta = document.getElementById('messageInput');
+    if (ta) { ta.value = (ta.value ? ta.value + '\n\n' : '') + a.title + '\n' + a.url; ta.focus(); }
+    closeWikiModal();
+}
+
 var macros = [];
 function loadMacros() {
     fetch(API + '/macros?department_id=' + DEPT_ID).then(function(r) { return r.json(); }).then(function(list) {
         macros = list || []; renderMacros('');
     }).catch(function() { macros = []; renderMacros(''); });
 }
+function macroPreview(m) {
+    if (m.items_summary) return m.items_summary;
+    var items = m.items || [];
+    if (!items.length) return (m.content || '').substring(0, 120);
+    var icons = { text: '💬', image: '🖼️', video: '🎬', audio: '🎙️', file: '📎' };
+    return items.map(function(it) {
+        var t = it.type || 'text';
+        var label = icons[t] || '💬';
+        if (t === 'text') return label + ' ' + (it.content || '').substring(0, 60);
+        return label + ' ' + ((it.content || '') ? (it.content || '').substring(0, 30) + ' + ' : '') + (it.media_name || t);
+    }).join(' • ').substring(0, 160);
+}
 function renderMacros(q) {
     var box = document.getElementById('macroList'); q = (q || '').toLowerCase(); var html = '';
     macros.forEach(function(m) {
-        if (q && (m.title + ' ' + (m.content || '')).toLowerCase().indexOf(q) === -1) return;
-        html += '<div class="canned-item" onclick="applyMacro(' + m.id + ')"><div class="canned-title"><i class="fas fa-bolt"></i> ' + (m.title || '').replace(/</g, '') + '</div><div class="canned-content">' + ((m.content || '').replace(/</g, '')).substring(0, 120) + '</div></div>';
+        var hay = (m.title + ' ' + (m.content || '') + ' ' + macroPreview(m)).toLowerCase();
+        if (q && hay.indexOf(q) === -1) return;
+        html += '<div class="canned-item" onclick="applyMacro(' + m.id + ')"><div class="canned-title"><i class="fas fa-bolt"></i> ' + (m.title || '').replace(/</g, '') + '</div><div class="canned-content">' + macroPreview(m).replace(/</g, '') + '</div></div>';
     });
     if (!html) html = '<p class="text-muted">Nenhuma macro encontrada.</p>';
     box.innerHTML = html;
 }
 function filterMacros() { renderMacros(document.getElementById('macroSearch').value); }
 function applyMacro(id) {
-    postJson('/inbox/' + CONV_ID + '/macro', { macro_id: id }).then(function() { location.reload(); });
+    var m = null;
+    for (var i = 0; i < macros.length; i++) { if (macros[i].id == id) { m = macros[i]; break; } }
+    var label = m ? macroPreview(m) : '';
+    var msg = 'Aplicar macro' + (m ? ' "' + (m.title || '') + '"' : '') + (label ? '\n\n' + label : '') + '?';
+    if (!confirm(msg)) return;
+    postJson('/inbox/' + CONV_ID + '/macro', { macro_id: id }).then(function(r) {
+        if (r && r.success === false) { alert('Falha ao aplicar macro.'); return; }
+        location.reload();
+    }).catch(function() { location.reload(); });
 }
 
 /* ---------- Composer ---------- */
@@ -1577,7 +1673,12 @@ function saveEdit() {
     });
 }
 function deleteMessage(id) {
-    if (!confirm('Excluir esta mensagem?')) return;
+    OminiConfirm('Excluir esta mensagem?').then(function(ok) {
+        if (!ok) return;
+        deleteMessageConfirmed(id);
+    });
+}
+function deleteMessageConfirmed(id) {
     postJson('/inbox/' + CONV_ID + '/messages/' + id + '/delete', {}).then(function(r) {
         if (r.success) {
             var el = document.querySelector('.message[data-mid="' + id + '"]');
@@ -1620,9 +1721,28 @@ function sendReaction(mid, emoji) {
     if (picker) picker.classList.remove('open');
     activeRp = null;
     postJson('/inbox/' + CONV_ID + '/messages/' + mid + '/reaction', { reaction: emoji }).then(function(r) {
-        if (r.success !== false) toast('Reação enviada');
+        if (r.success !== false) {
+            refreshMessagePills(mid, r.reactions);
+            toast('Reação enviada');
+        }
         else toast('Erro ao enviar reação');
     });
+}
+// Re-renderiza as pílulas de reação de um balão sem reload.
+function refreshMessagePills(mid, reactionsJson) {
+    var el = document.querySelector('.message[data-mid="' + mid + '"]');
+    if (!el) return;
+    var body = el.querySelector('.message-body');
+    if (!body) return;
+    var old = body.querySelector('.reactions-row');
+    if (old) old.remove();
+    var html = (typeof renderReactions === 'function') ? renderReactions(reactionsJson) : '';
+    if (!html) return;
+    var tmp = document.createElement('div');
+    tmp.innerHTML = html;
+    var node = tmp.firstChild;
+    var anchor = body.querySelector('.msg-actions') || body.querySelector('.message-time');
+    if (node) body.insertBefore(node, anchor ? anchor.nextSibling : null);
 }
 function scrollToMessage(mid) {
     var el = document.querySelector('.message[data-mid="' + mid + '"]');
@@ -1710,21 +1830,55 @@ function renderReactions(reactionsJson) {
     return html;
 }
 function isAbsoluteUrl(u) { return /^https?:\/\//i.test(u); }
+function captionHtml(content) {
+    var m = fileMeta(content);
+    var cap = (m && m.caption) ? String(m.caption) : '';
+    if (!cap) return '';
+    return '<div class="message-caption">' + linkify(nl2br(cap)) + '</div>';
+}
 function fileContentHtml(type, content, uploadsBase) {
     var m = fileMeta(content); var url = isAbsoluteUrl(m.url) ? m.url : (uploadsBase + '/' + m.url);
-    if (type === 'image' || type === 'sticker') return '<a href="' + esc(url) + '" target="_blank" rel="noopener" class="msg-lightbox"><img class="msg-img" src="' + esc(url) + '" alt="' + esc(m.name || 'imagem') + '" loading="lazy"></a>';
-    if (type === 'audio') return '<audio controls preload="metadata" src="' + esc(url) + '"></audio>';
-    if (type === 'video') return '<a href="' + esc(url) + '" target="_blank" rel="noopener" class="msg-lightbox"><video controls preload="metadata" src="' + esc(url) + '" class="msg-video" data-alt="' + esc(m.name || 'vídeo') + '"></video></a>';
+    var cap = captionHtml(content);
+    if (type === 'image' || type === 'sticker') return '<a href="' + esc(url) + '" target="_blank" rel="noopener" class="msg-lightbox"><img class="msg-img" src="' + esc(url) + '" alt="' + esc(m.name || 'imagem') + '" loading="lazy"></a>' + cap;
+    if (type === 'audio') return '<audio controls preload="metadata" src="' + esc(url) + '"></audio>' + cap;
+    if (type === 'video') return '<a href="' + esc(url) + '" target="_blank" rel="noopener" class="msg-lightbox"><video controls preload="metadata" src="' + esc(url) + '" class="msg-video" data-alt="' + esc(m.name || 'vídeo') + '"></video></a>' + cap;
     var name = m.name || 'arquivo'; var size = m.size ? ' (' + fmtBytes(m.size) + ')' : '';
-    return '<a class="msg-file" href="' + esc(url) + '" target="_blank" rel="noopener" download><i class="fas fa-file-download"></i><span class="msg-file-name">' + esc(name) + '</span><span class="msg-file-size">' + esc(size) + '</span></a>';
+    return '<a class="msg-file" href="' + esc(url) + '" target="_blank" rel="noopener" download><i class="fas fa-file-download"></i><span class="msg-file-name">' + esc(name) + '</span><span class="msg-file-size">' + esc(size) + '</span></a>' + cap;
 }
 function renderReceiptsHtml(m) {
     if (m.direction !== 'outbound') return '';
+    if (m.delivery_status === 'failed' || m.delivered === false) {
+        return '<span class="msg-receipts failed" title="Não entregue ao WhatsApp"><i class="fas fa-exclamation-circle"></i></span>' +
+            '<button type="button" class="msg-retry" title="Tentar de novo" onclick="retrySend(' + m.id + ', this)"><i class="fas fa-redo"></i> Tentar de novo</button>';
+    }
     var isRead = !!m.read_at;
     var icon = isRead ? 'fa-check-double' : 'fa-check';
     var cls = isRead ? 'msg-receipts read' : 'msg-receipts delivered';
     var title = isRead ? 'Lida' : 'Entregue';
     return '<span class="' + cls + '" title="' + title + '"><i class="fas ' + icon + '"></i></span>';
+}
+function retrySend(mid, btn) {
+    if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Enviando…'; }
+    postJson('/inbox/' + CONV_ID + '/messages/' + mid + '/retry', {})
+        .then(function (resp) {
+            if (resp && resp.success && resp.message) {
+                var node = document.querySelector('.message[data-mid="' + mid + '"]');
+                if (node) {
+                    var tmp = document.createElement('div');
+                    tmp.innerHTML = renderMessageHtml(resp.message, uploadsBase);
+                    node.replaceWith(tmp.firstChild);
+                    decorateDates();
+                }
+                toast('Mensagem entregue ✓');
+            } else {
+                if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fas fa-redo"></i> Tentar de novo'; }
+                toast(resp && resp.error ? resp.error : 'Ainda sem entregar. Tente de novo.');
+            }
+        })
+        .catch(function () {
+            if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fas fa-redo"></i> Tentar de novo'; }
+            toast('Erro de rede ao reenviar.');
+        });
 }
 function renderMessageBody(m) {
     var body = '';
@@ -2071,41 +2225,148 @@ document.getElementById('messageInput')?.addEventListener('keydown', function(e)
         var bar = document.getElementById('topProgress');
         if (bar) { bar.classList.remove('active'); bar.classList.add('done'); setTimeout(function() { bar.classList.remove('done'); }, 500); }
     }
+    // Envio otimista: o balão aparece na hora e a API confirma em
+    // segundo plano (o provedor pode levar segundos). Em falha, o balão
+    // temporário sai e entra o real com "Tentar de novo".
+    function tempFileKind(file) {
+        var mime = file.type || '';
+        if (mime.indexOf('image/') === 0) return 'image';
+        if (mime.indexOf('audio/') === 0) return 'audio';
+        if (mime.indexOf('video/') === 0) return 'video';
+        var ext = (file.name.split('.').pop() || '').toLowerCase();
+        if (['mp3', 'ogg', 'm4a', 'aac', 'wav', 'amr', 'opus'].indexOf(ext) >= 0) return 'audio';
+        if (['mp4', 'webm', 'mov', '3gp'].indexOf(ext) >= 0) return 'video';
+        if (['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp'].indexOf(ext) >= 0) return 'image';
+        return 'file';
+    }
+    function appendTempMessage(opts) {
+        var wrap = document.createElement('div');
+        wrap.className = 'message message-out';
+        wrap.setAttribute('data-temp', '1');
+        var quote = opts.replyText
+            ? '<div class="msg-quote"><div class="msg-quote-content"><div class="msg-quote-name">Você</div>' +
+              '<div class="msg-quote-text">' + esc(opts.replyText.substring(0, 200)) + '</div></div></div>'
+            : '';
+        var body = '';
+        if (opts.file) {
+            var kind = tempFileKind(opts.file);
+            var url = URL.createObjectURL(opts.file);
+            if (kind === 'image') body = '<a class="msg-lightbox"><img class="msg-img" src="' + url + '" alt=""></a>';
+            else if (kind === 'audio') body = '<audio controls preload="metadata" src="' + url + '"></audio>';
+            else if (kind === 'video') body = '<video controls preload="metadata" src="' + url + '" class="msg-video"></video>';
+            else body = '<span class="msg-file"><i class="fas fa-file-download"></i><span class="msg-file-name">' + esc(opts.file.name) + '</span></span>';
+            if (opts.text) body += '<div class="message-content">' + linkify(nl2br(opts.text)) + '</div>';
+        } else {
+            body = '<div class="message-content">' + linkify(nl2br(opts.text)) + '</div>';
+        }
+        wrap.innerHTML = '<div class="msg-avatar msg-avatar-agent">A</div>' +
+            '<div class="message-body">' + quote + body +
+            '<div class="message-time"><span>agora</span> ' +
+            '<span class="msg-receipts" title="Enviando…"><i class="fas fa-clock"></i></span></div></div>';
+        msgContainer.appendChild(wrap);
+        return wrap;
+    }
+    function clearTempMessages() {
+        document.querySelectorAll('#convMessagesList .message[data-temp]').forEach(function(n) { n.remove(); });
+    }
     form.addEventListener('submit', function(e) {
         e.preventDefault();
         var ta = document.getElementById('messageInput');
         var fileInput = document.getElementById('attachInput');
         var btn = document.getElementById('sendBtn');
-        if (!ta.value.trim() && !(fileInput && fileInput.files.length)) return;
+        // Fallback: se o input file estiver vazio mas o recorder tiver um arquivo
+        // gravado (caso o DataTransfer não tenha funcionado no navegador), usa-o.
+        var recordedFile = (window.AudioRecorder && window.AudioRecorder.getActiveFile)
+            ? window.AudioRecorder.getActiveFile('composerForm') : null;
+        var fileToSend = (fileInput && fileInput.files && fileInput.files[0]) || recordedFile || null;
+        var hasFile = !!fileToSend;
+        var textToSend = ta.value;
+        if (!textToSend.trim() && !hasFile) return;
         if (btn) btn.disabled = true;
         var fd = new FormData(form);
-        if (quoteTarget) fd.set('reply_to', quoteTarget);
+        var qid = quoteTarget;
+        if (qid) fd.set('reply_to', qid);
+        if (recordedFile && !(fileInput && fileInput.files && fileInput.files.length)) {
+            // Substitui o input file vazio pelo arquivo do recorder
+            fd.delete('file');
+            fd.append('file', recordedFile, recordedFile.name);
+        }
+        // Mostra na hora: texto e/ou arquivo como balões temporários.
+        var qText = '';
+        if (qid) {
+            var qel = document.querySelector('.message[data-mid="' + qid + '"]');
+            qText = qel ? (qel.getAttribute('data-text') || '') : '';
+        }
+        if (textToSend.trim()) appendTempMessage({ text: textToSend, replyText: qText });
+        if (fileToSend) appendTempMessage({ file: fileToSend, text: textToSend.trim(), replyText: textToSend.trim() ? '' : qText });
+        decorateDates();
+        scrollConvBottom();
+        ta.value = '';
+        clearQuote();
+        closeSuggest();
+        if (internalOn) toggleInternal();
+        if (fileInput) fileInput.value = '';
+        var fb = document.getElementById('composerFile');
+        if (fb) fb.style.display = 'none';
+        if (window.AudioRecorder && window.AudioRecorder.getActive) {
+            var rec = window.AudioRecorder.getActive('composerForm');
+            if (rec) rec.cancel();
+        }
         fetch(form.action, {
             method: 'POST',
             headers: { 'X-Requested-With': 'XMLHttpRequest' },
             body: fd
         }).then(function(r) { return r.json(); }).then(function(resp) {
+            clearTempMessages();
             if (resp && resp.ok && resp.messages) {
                 (resp.messages || []).forEach(function(m) { appendMessage(m, uploadsBase); });
                 decorateDates();
                 scrollConvBottom();
-                ta.value = '';
-                clearQuote();
-                closeSuggest();
-                if (internalOn) toggleInternal();
-                if (fileInput) fileInput.value = '';
-                var fb = document.getElementById('composerFile');
-                if (fb) fb.style.display = 'none';
+                if (resp.delivery_failed) {
+                    toast(resp.delivery_error || 'Mensagem salva, mas NÃO entregue ao WhatsApp. Use "Tentar de novo".');
+                }
             } else if (resp && resp.error) {
                 alert(resp.error);
             }
         }).catch(function() {
-            alert('Erro ao enviar mensagem. Tente novamente.');
+            clearTempMessages();
+            ta.value = textToSend;
+            alert('Erro ao enviar mensagem. Seu texto foi restaurado — tente novamente.');
         }).finally(function() {
             if (btn) btn.disabled = false;
             doneProgress();
         });
     });
+})();
+
+/* ---------- Gravação de áudio (MediaRecorder) ---------- */
+(function() {
+    var micBtn = document.getElementById('micToggle');
+    var recBox = document.getElementById('composerRecord');
+    if (!micBtn || !recBox || !window.AudioRecorder) return;
+
+    var recorder = AudioRecorder.create('composerForm', {
+        startBtn: micBtn,
+        stopBtn: document.getElementById('recStop'),
+        cancelBtn: document.getElementById('recCancel'),
+        timer: document.getElementById('recTimer'),
+        indicator: document.getElementById('recIndicator'),
+        fileInput: document.getElementById('attachInput'),
+        fileChip: document.getElementById('composerFile'),
+        fileName: document.getElementById('composerFileName'),
+        fileRemove: document.getElementById('composerFileX'),
+        onState: function(state) {
+            if (state === 'recording') {
+                recBox.style.display = 'flex';
+                micBtn.style.display = 'none';
+            } else if (state === 'ready' || state === 'idle' || state === 'denied' || state === 'error') {
+                recBox.style.display = 'none';
+                micBtn.style.display = '';
+                micBtn.innerHTML = '<i class="fas fa-microphone"></i>';
+            }
+        }
+    });
+    recorder.bind();
 })();
 
 /* ---------- Form de status (submit via AJAX) ---------- */
@@ -2195,12 +2456,36 @@ function notifyInbound() {
     }
 }
 
+var msgState = {};
+function msgSig(m) {
+    return (m.reactions || '') + '|' + (m.updated_at || '') + '|' + (m.deleted_at || '') + '|' +
+        String(m.content || '').length + ':' + String(m.content || '').substring(0, 64);
+}
 function pollMessages() {
     fetch(API + '/conversations/' + CONV_ID + '/messages').then(function(r) { return r.json(); }).then(function(msgs) {
         var added = 0, inboundNew = false;
         (msgs || []).forEach(function(m) {
             var id = parseInt(m.id, 10);
-            if (id > lastMid) { appendMessage(m, uploadsBase); lastMid = id; added++; if (m.direction === 'inbound') inboundNew = true; }
+            if (id > lastMid) {
+                appendMessage(m, uploadsBase);
+                msgState[id] = msgSig(m);
+                lastMid = id; added++;
+                if (m.direction === 'inbound') inboundNew = true;
+                return;
+            }
+            // Mensagem já na tela: reações, edições e exclusões chegam sem
+            // criar linha nova — atualiza o balão no lugar quando mudar.
+            var sig = msgSig(m);
+            if (msgState[id] === undefined) { msgState[id] = sig; return; }
+            if (msgState[id] !== sig) {
+                msgState[id] = sig;
+                var node = document.querySelector('.message[data-mid="' + id + '"]');
+                if (node) {
+                    var tmp = document.createElement('div');
+                    tmp.innerHTML = renderMessageHtml(m, uploadsBase);
+                    if (tmp.firstChild) node.replaceWith(tmp.firstChild);
+                }
+            }
         });
         if (added) {
             scrollConvBottom();
@@ -2218,11 +2503,9 @@ function pollMeta() {
         if (badge && c.status) badge.outerHTML = statusBadgeHtml(c.status);
         var pb = document.querySelector('.header-chip-priority');
         if (pb && c.priority) pb.outerHTML = priorityBadgeHtml(c.priority);
-        var sub = document.querySelector('.header-chip-substatus');
-        if (sub) {
-            var txt = sub.querySelector('.chip-text');
-            if (txt) txt.textContent = c.substatus || 'Sub-status';
-            sub.classList.toggle('is-empty', !c.substatus);
+        if (c.assigned_user_name) {
+            var a = document.getElementById('convAssigned');
+            if (a) a.innerHTML = '<i class="fas fa-user" style="font-size:10px"></i> ' + c.assigned_user_name;
         }
         var subj = document.querySelector('.header-chip-subject');
         if (subj) {

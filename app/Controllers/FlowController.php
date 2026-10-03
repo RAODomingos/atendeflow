@@ -131,6 +131,37 @@ class FlowController
         View::redirect('/flows');
     }
 
+    /**
+     * Envia uma mídia para os nós de mídia do fluxo (imagem/áudio/vídeo/arquivo).
+     * Retorna a URL armazenada para salvar em config.file_url do nó.
+     */
+    public function uploadMedia(Request $request): void
+    {
+        $uploaded = save_uploaded_file('file', null, 'flows');
+        if (!$uploaded) {
+            View::json(['error' => 'Arquivo inválido ou tipo não permitido (máx. 10 MB).'], 422);
+            return;
+        }
+
+        // A Uazapi (free plan) é capaz de aceitar PNG e JPEG como image; o
+        // provider faz fallback de conversão para JPEG apenas se a Uazapi
+        // rejeitar. Mantemos o arquivo no formato original aqui.
+        //
+        // Importante: retornamos também o 'path' (caminho relativo no disco,
+        // ex.: 'flows/abc.webm') para que o FlowEngineService monte o meta JSON
+        // com o path local. Sem isso, o UazapiProvider só teria a URL pública
+        // (ngrok, IP dinâmico) e a Uazapi não conseguiria baixá-la.
+
+        View::json([
+            'url'  => $uploaded['url'],
+            'name' => $uploaded['name'],
+            'size' => $uploaded['size'],
+            'type' => $uploaded['type'],
+            'mime' => $uploaded['mime'] ?? '',
+            'path' => $uploaded['path'] ?? null,
+        ]);
+    }
+
     public function duplicate(Request $request, int $id): void
     {
         $newFlowId = Flow::duplicate($id, Auth::id());
@@ -293,6 +324,9 @@ class FlowController
                     if (empty($config['days']) || !is_array($config['days'])) {
                         $errors[] = "Nó day_of_week deve ter pelo menos um dia selecionado";
                     }
+                    if (count($node['options'] ?? []) < 2) {
+                        $errors[] = "Nó day_of_week deve ter pelo menos 2 opções (dentro/fora)";
+                    }
                     break;
 
                 case 'time_range':
@@ -301,6 +335,9 @@ class FlowController
                     }
                     if (empty($config['end_time'])) {
                         $errors[] = "Nó time_range deve ter horário fim definido";
+                    }
+                    if (count($node['options'] ?? []) < 2) {
+                        $errors[] = "Nó time_range deve ter pelo menos 2 opções (dentro/fora)";
                     }
                     break;
 

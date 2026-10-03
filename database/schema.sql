@@ -1,4 +1,4 @@
--- AtendeFlow - Database Schema
+-- OminiDesk - Database Schema
 -- MySQL 8+
 
 CREATE DATABASE IF NOT EXISTS atendeflow CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
@@ -362,7 +362,9 @@ CREATE TABLE flow_nodes (
     node_type ENUM(
         'start', 'message', 'menu', 'question', 'collect_field',
         'condition', 'assign_department', 'assign_user',
-        'add_tag', 'handoff', 'end'
+        'add_tag', 'handoff', 'end', 'button_list', 'list_menu',
+        'send_file', 'delay', 'image', 'audio', 'video',
+        'finish', 'notify', 'day_of_week', 'time_range'
     ) NOT NULL,
     title VARCHAR(150) NOT NULL,
     content TEXT NULL,
@@ -436,6 +438,22 @@ CREATE TABLE IF NOT EXISTS macros (
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     FOREIGN KEY (department_id) REFERENCES departments(id) ON DELETE CASCADE,
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS macro_items (
+    id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    macro_id BIGINT UNSIGNED NOT NULL,
+    position INT NOT NULL DEFAULT 0,
+    type ENUM('text', 'image', 'video', 'audio', 'file') NOT NULL DEFAULT 'text',
+    content TEXT NULL,
+    media_url VARCHAR(500) NULL,
+    media_name VARCHAR(255) NULL,
+    media_mime VARCHAR(100) NULL,
+    media_size INT UNSIGNED NULL DEFAULT 0,
+    media_path VARCHAR(500) NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_macro_items_macro (macro_id, position),
+    FOREIGN KEY (macro_id) REFERENCES macros(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE canned_responses (

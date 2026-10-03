@@ -18,14 +18,13 @@ class Notification
 
     public static function getByUser(int $userId, bool $unreadOnly = false, int $limit = 50): array
     {
-        $sql = "SELECT n.*, 
+        // Sem JOIN em JSON (sem índice): busca o nome do autor em query separada se preciso.
+        $sql = "SELECT n.*,
                        COALESCE(ct.name, c.subject, CONCAT('Conversa #', c.id)) as conversation_title,
-                       c.status as conv_status,
-                       u.name as from_user_name
+                       c.status as conv_status
                 FROM notifications n
                 LEFT JOIN conversations c ON c.id = n.conversation_id
                 LEFT JOIN contacts ct ON ct.id = c.contact_id
-                LEFT JOIN users u ON u.id = JSON_UNQUOTE(JSON_EXTRACT(n.metadata, '$.from_user_id'))
                 WHERE n.user_id = ?";
         $params = [$userId];
 
@@ -89,41 +88,24 @@ class Notification
     /**
      * Lista as notificações estruturadas para o dropdown do sino, juntando
      * menções/atribuições com conversas não lidas do mesmo usuário.
+     * Single-query (sem N+1): traz dados da conversa via JOIN.
      */
     public static function getForDropdown(int $userId, int $limit = 10): array
     {
-        $rows = \App\Core\Database::getInstance()->fetchAll(
+        return \App\Core\Database::getInstance()->fetchAll(
             "SELECT n.id, n.notification_type, n.title, n.body, n.conversation_id,
-                    n.is_read, n.created_at, n.metadata
+                    n.is_read, n.created_at, n.metadata,
+                    ct.name as contact_name, ch.type as channel_type, ch.name as channel_name,
+                    c.status as conv_status, c.last_message_at
              FROM notifications n
+             LEFT JOIN conversations c ON c.id = n.conversation_id
+             LEFT JOIN contacts ct ON ct.id = c.contact_id
+             LEFT JOIN channels ch ON ch.id = c.channel_id
              WHERE n.user_id = ? AND n.is_read = 0
              ORDER BY n.id DESC
              LIMIT " . (int) $limit,
             [$userId]
         );
-
-        foreach ($rows as &$r) {
-            if (!empty($r['conversation_id'])) {
-                $conv = \App\Core\Database::getInstance()->fetch(
-                    "SELECT ct.name as contact_name, ch.type as channel_type, ch.name as channel_name,
-                            c.status, c.last_message_at
-                     FROM conversations c
-                     JOIN contacts ct ON ct.id = c.contact_id
-                     LEFT JOIN channels ch ON ch.id = c.channel_id
-                     WHERE c.id = ?",
-                    [$r['conversation_id']]
-                );
-                if ($conv) {
-                    $r['contact_name'] = $conv['contact_name'] ?? null;
-                    $r['channel_type'] = $conv['channel_type'] ?? null;
-                    $r['channel_name'] = $conv['channel_name'] ?? null;
-                    $r['conv_status'] = $conv['status'] ?? null;
-                    $r['last_message_at'] = $conv['last_message_at'] ?? null;
-                }
-            }
-        }
-
-        return $rows;
     }
 
     /**

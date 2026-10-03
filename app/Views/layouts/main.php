@@ -3,11 +3,11 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title><?= e($title ?? 'AtendeFlow') ?> - AtendeFlow</title>
+    <title><?= e($title ?? 'OminiDesk') ?> - OminiDesk</title>
     <meta name="base-url" content="<?= rtrim(base_url(), '/') ?>">
     <meta name="user-name" content="<?= e(\App\Core\Session::get('user_name')) ?>">
     <meta name="user-role" content="<?= e(\App\Core\Session::get('user_role')) ?>">
-    <meta name="config-app-name" content="<?= e($config['app_name'] ?? 'AtendeFlow') ?>">
+    <meta name="config-app-name" content="<?= e($config['app_name'] ?? 'OminiDesk') ?>">
     <meta name="config-chat-widget-enabled" content="<?= $config['chat_widget_enabled'] ?? 'true' ?>">
     <meta name="config-proactive-chat-enabled" content="<?= $config['proactive_chat_enabled'] ?? 'true' ?>">
     <meta name="csrf-token" content="<?= csrf_token() ?>">
@@ -15,6 +15,9 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
     <link rel="stylesheet" href="<?= asset('assets/css/app.css') ?>">
+    <script>
+    (function(){try{var t=localStorage.getItem('omini-theme');if(!t)t=window.matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';if(t==='dark')document.documentElement.setAttribute('data-theme','dark');}catch(e){}})();
+    </script>
 </head>
 <body>
 <?php
@@ -24,16 +27,63 @@ $userName = \App\Core\Session::get('user_name') ?? 'Admin';
 $userRole = \App\Core\Session::get('user_role') ?? 'admin';
 $userInitial = mb_strtoupper(mb_substr($userName, 0, 1));
 ?>
+<?php
+try {
+    $waDown = \App\Models\WhatsAppConnection::disconnected();
+} catch (\Throwable $e) {
+    $waDown = [];
+}
+?>
+<?php if (!empty($waDown)): ?>
+<div class="wa-alert-bar" id="waAlertBar" role="alert">
+    <i class="fa-brands fa-whatsapp"></i>
+    <span>
+        <strong>WhatsApp desconectado<?= count($waDown) > 1 ? ' (' . count($waDown) . ' canais)' : '' ?>:</strong>
+        <?= e(implode(', ', array_column($waDown, 'channel_name'))) ?>.
+        As respostas não estão chegando ao cliente.
+    </span>
+    <?php if (\App\Core\Auth::isAdmin()): ?>
+        <a href="<?= url('channels') ?>" class="wa-alert-link">Reconectar <i class="fa-solid fa-arrow-right"></i></a>
+    <?php endif; ?>
+</div>
+<?php endif; ?>
 <div class="app<?= $isInbox ? ' app-inbox' : '' ?>" id="app">
     <header class="topbar">
         <div class="topbar-left">
+            <div class="topbar-waffle-wrap">
+                <button class="topbar-waffle" id="waffleBtn" title="Aplicativos" aria-label="Aplicativos" aria-haspopup="true">
+                    <span class="waffle-grid"><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></span>
+                </button>
+                <div class="waffle-menu" id="waffleMenu">
+                    <div class="waffle-menu-title">Aplicativos OminiDesk</div>
+                    <div class="waffle-grid-items">
+                        <a href="<?= route('dashboard') ?>" class="waffle-app"><span class="waffle-app-icon"><i class="fa-solid fa-chart-pie"></i></span>Dashboard</a>
+                        <a href="<?= route('inbox') ?>" class="waffle-app"><span class="waffle-app-icon"><i class="fa-solid fa-inbox"></i></span>Caixa de Entrada</a>
+                        <a href="<?= route('contacts') ?>" class="waffle-app"><span class="waffle-app-icon"><i class="fa-solid fa-address-book"></i></span>Contatos</a>
+                        <a href="<?= route('departments') ?>" class="waffle-app"><span class="waffle-app-icon"><i class="fa-solid fa-sitemap"></i></span>Departamentos</a>
+                        <a href="<?= route('flows') ?>" class="waffle-app"><span class="waffle-app-icon"><i class="fa-solid fa-diagram-project"></i></span>Fluxos</a>
+                        <a href="<?= url('library') ?>" class="waffle-app"><span class="waffle-app-icon"><i class="fa-solid fa-book"></i></span>Tags e Respostas</a>
+                        <a href="<?= url('wiki') ?>" class="waffle-app"><span class="waffle-app-icon"><i class="fa-solid fa-book-open"></i></span>Base de Conhecimento</a>
+                        <?php if (\App\Core\Auth::isManager()): ?>
+                        <a href="<?= url('reports') ?>" class="waffle-app"><span class="waffle-app-icon"><i class="fa-solid fa-chart-line"></i></span>Relatórios</a>
+                        <?php endif; ?>
+                        <?php if (\App\Core\Auth::isAdmin()): ?>
+                        <a href="<?= url('settings') ?>" class="waffle-app"><span class="waffle-app-icon"><i class="fa-solid fa-gear"></i></span>Configurações</a>
+                        <?php endif; ?>
+                    </div>
+                </div>
+            </div>
             <button class="topbar-toggle" id="sidebarToggle" title="Menu">
                 <i class="fa-solid fa-bars"></i>
             </button>
-            <a href="<?= route('dashboard') ?>" class="topbar-brand">
-                <i class="fas fa-headset"></i>
-                AtendeFlow
-            </a>
+            <div class="topbar-title-wrap">
+                <h1 class="topbar-title"><?= e($title ?? 'Dashboard') ?></h1>
+            </div>
+        </div>
+        <div class="m365-search">
+            <i class="fa-solid fa-magnifying-glass m365-search-icon"></i>
+            <input type="text" id="globalSearch" placeholder="Pesquisar" autocomplete="off" aria-label="Pesquisar">
+            <span class="m365-search-hint">Ctrl K</span>
         </div>
         <div class="topbar-right">
             <div class="notif-wrapper">
@@ -52,6 +102,9 @@ $userInitial = mb_strtoupper(mb_substr($userName, 0, 1));
             <button class="notif-btn" id="soundToggle" title="Som de notificações">
                 <i class="fa-solid fa-volume-high"></i>
             </button>
+            <button class="notif-btn" id="themeToggle" title="Alternar tema claro/escuro" aria-label="Alternar tema">
+                <i class="fa-regular fa-moon" id="themeToggleIcon"></i>
+            </button>
             <div class="topbar-user" id="topbarUser">
                 <a href="<?= url('profile') ?>" class="topbar-profile-link" title="Meu Perfil">
                     <div class="avatar avatar-sm"><?= $userInitial ?></div>
@@ -61,6 +114,7 @@ $userInitial = mb_strtoupper(mb_substr($userName, 0, 1));
                     </div>
                 </a>
                 <form method="post" action="<?= url('logout') ?>" style="margin:0;display:flex">
+                    <?= csrf_field() ?>
                     <button type="submit" class="topbar-logout" title="Sair">
                         <i class="fas fa-sign-out-alt"></i>
                     </button>
@@ -69,6 +123,10 @@ $userInitial = mb_strtoupper(mb_substr($userName, 0, 1));
         </div>
     </header>
     <aside class="sidebar">
+        <a href="<?= route('dashboard') ?>" class="sidebar-brand" title="OminiDesk">
+            <span class="sidebar-brand-icon"><i class="fas fa-headset"></i></span>
+            <span class="sidebar-brand-name">OminiDesk</span>
+        </a>
         <div class="nav-section" style="margin-top:0">
             <a href="<?= route('dashboard') ?>" class="nav-item <?= $activePage === 'dashboard' ? 'active' : '' ?>">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/></svg>
@@ -88,19 +146,20 @@ $userInitial = mb_strtoupper(mb_substr($userName, 0, 1));
             $openByInbox = \App\Models\Conversation::openCountsByInbox($allInboxIds);
             $totalOpen = 0;
             foreach ($catInboxes as $ib) { $totalOpen += $openByInbox[$ib['id']] ?? 0; }
-            $chatbotCount = \App\Models\Conversation::getChatbotConversations(\App\Core\Auth::id());
-            $chatbotBadge = count($chatbotCount);
+            // Caixa de Entrada (todas) só fica ativa quando nenhuma caixa
+            // específica está selecionada; senão só a caixa visível destaca.
+            $selectedInbox = (string) ($_GET['inbox'] ?? '');
             ?>
-            <a href="<?= route('inbox') ?>" class="nav-item <?= in_array($activePage, ['inbox','inbox_mine','inbox_chatbot']) ? 'active' : '' ?>">
+            <a href="<?= route('inbox') ?>" class="nav-item <?= ($activePage === 'inbox' && $selectedInbox === '') ? 'active' : '' ?>" data-inbox-link="all">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 12h-6l-2 3h-4l-2-3H2"/><path d="M5.45 5.11L2 12v6a2 2 0 002 2h16a2 2 0 002-2v-6l-3.45-6.89A2 2 0 0016.76 4H7.24a2 2 0 00-1.79 1.11z"/></svg>
                 Caixa de Entrada
-                <?php if ($totalOpen > 0): ?><span class="nav-badge"><?= $totalOpen ?></span><?php endif; ?>
+                <?php if ($totalOpen > 0): ?><span class="nav-badge" data-inbox-badge="all"><?= $totalOpen ?></span><?php endif; ?>
             </a>
             <?php foreach ($catInboxes as $ib): ?>
-                <a href="<?= url('inbox?inbox=' . $ib['id']) ?>" class="nav-item nav-sub <?= (($_GET['inbox'] ?? '') == $ib['id']) ? 'active' : '' ?>">
+                <a href="<?= url('inbox?inbox=' . $ib['id']) ?>" class="nav-item nav-sub <?= ($activePage === 'inbox' && $selectedInbox === (string) $ib['id']) ? 'active' : '' ?>" data-inbox-link="<?= (int) $ib['id'] ?>">
                     <i class="fa-solid fa-inbox" style="font-size:14px;width:17px;text-align:center"></i>
                     <span><?= e($ib['name']) ?></span>
-                    <?php if (($openByInbox[$ib['id']] ?? 0) > 0): ?><span class="nav-badge"><?= $openByInbox[$ib['id']] ?></span><?php endif; ?>
+                    <?php if (($openByInbox[$ib['id']] ?? 0) > 0): ?><span class="nav-badge" data-inbox-badge="<?= (int) $ib['id'] ?>"><?= $openByInbox[$ib['id']] ?></span><?php endif; ?>
                 </a>
             <?php endforeach; ?>
             <a href="<?= route('inbox.mine') ?>" class="nav-item <?= $activePage === 'inbox_mine' ? 'active' : '' ?>">
@@ -109,15 +168,15 @@ $userInitial = mb_strtoupper(mb_substr($userName, 0, 1));
             </a>
 
             <?php foreach ($personalInboxes as $ib): ?>
-                <a href="<?= url('inbox?inbox=' . $ib['id']) ?>" class="nav-item nav-sub <?= (($_GET['inbox'] ?? '') == $ib['id']) ? 'active' : '' ?>">
+                <a href="<?= url('inbox?inbox=' . $ib['id']) ?>" class="nav-item nav-sub <?= ($activePage === 'inbox' && $selectedInbox === (string) $ib['id']) ? 'active' : '' ?>" data-inbox-link="<?= (int) $ib['id'] ?>">
                     <i class="fa-solid fa-lock" style="font-size:14px;width:17px;text-align:center"></i>
                     <span><?= e($ib['name']) ?></span>
-                    <?php if (($openByInbox[$ib['id']] ?? 0) > 0): ?><span class="nav-badge"><?= $openByInbox[$ib['id']] ?></span><?php endif; ?>
+                    <?php if (($openByInbox[$ib['id']] ?? 0) > 0): ?><span class="nav-badge" data-inbox-badge="<?= (int) $ib['id'] ?>"><?= $openByInbox[$ib['id']] ?></span><?php endif; ?>
                 </a>
             <?php endforeach; ?>
         </div>
 
-        <?php $gestaoActive = in_array($activePage, ['contacts', 'departments', 'flows', 'library']); ?>
+        <?php $gestaoActive = in_array($activePage, ['contacts', 'departments', 'flows', 'library', 'macros', 'wiki']); ?>
         <div class="nav-section <?= $gestaoActive ? 'expanded' : '' ?>">
             <div class="nav-section-title" onclick="this.parentElement.classList.toggle('expanded')">
                 <span>Gestão</span>
@@ -140,10 +199,23 @@ $userInitial = mb_strtoupper(mb_substr($userName, 0, 1));
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5A2.5 2.5 0 016.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z"/></svg>
                     Tags e Respostas
                 </a>
+                <a href="<?= url('macros') ?>" class="nav-item <?= $activePage === 'macros' ? 'active' : '' ?>">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+                    Macros
+                </a>
+                <a href="<?= url('wiki') ?>" class="nav-item <?= $activePage === 'wiki' ? 'active' : '' ?>">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5A2.5 2.5 0 016.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z"/><path d="M9 7h6M9 11h6"/></svg>
+                    Base de Conhecimento
+                </a>
+                <a href="<?= url('whatsapp/groups') ?>" class="nav-item <?= $activePage === 'wa_groups' ? 'active' : '' ?>">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75"/></svg>
+                    Grupos WhatsApp
+                </a>
             </div>
         </div>
 
-        <?php $relatoriosActive = in_array($activePage, ['reports', 'reports_conversations', 'reports_agents', 'reports_csat']); ?>
+        <?php $relatoriosActive = in_array($activePage, ['reports', 'reports_timeline', 'reports_conversations', 'reports_agents', 'reports_csat']); ?>
+        <?php if (\App\Core\Auth::isManager()): ?>
         <div class="nav-section <?= $relatoriosActive ? 'expanded' : '' ?>">
             <div class="nav-section-title" onclick="this.parentElement.classList.toggle('expanded')">
                 <span>Relatórios</span>
@@ -153,6 +225,10 @@ $userInitial = mb_strtoupper(mb_substr($userName, 0, 1));
                 <a href="<?= url('reports') ?>" class="nav-item <?= $activePage === 'reports' ? 'active' : '' ?>">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.21 15.89A10 10 0 118 2.83M22 12A10 10 0 0012 2v10z"/></svg>
                     Visão Geral
+                </a>
+                <a href="<?= url('reports/timeline') ?>" class="nav-item <?= $activePage === 'reports_timeline' ? 'active' : '' ?>">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 6l-9.5 9.5-5-5L1 18"/><path d="M17 6h6v6"/></svg>
+                    Linha do Tempo
                 </a>
                 <a href="<?= url('reports/conversations') ?>" class="nav-item <?= $activePage === 'reports_conversations' ? 'active' : '' ?>">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>
@@ -168,9 +244,10 @@ $userInitial = mb_strtoupper(mb_substr($userName, 0, 1));
                 </a>
             </div>
         </div>
+        <?php endif; ?>
 
         <?php if (\App\Core\Auth::isAdmin()): ?>
-        <?php $adminActive = in_array($activePage, ['users', 'channels', 'inboxes', 'settings']); ?>
+        <?php $adminActive = in_array($activePage, ['users', 'settings', 'settings_notifications']); ?>
         <div class="nav-section <?= $adminActive ? 'expanded' : '' ?>">
             <div class="nav-section-title" onclick="this.parentElement.classList.toggle('expanded')">
                 <span>Administração</span>
@@ -180,14 +257,6 @@ $userInitial = mb_strtoupper(mb_substr($userName, 0, 1));
                 <a href="<?= route('users') ?>" class="nav-item <?= $activePage === 'users' ? 'active' : '' ?>">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75"/></svg>
                     Usuários
-                </a>
-                <a href="<?= url('channels') ?>" class="nav-item <?= $activePage === 'channels' ? 'active' : '' ?>">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="2" width="20" height="8" rx="2" ry="2"/><rect x="2" y="14" width="20" height="8" rx="2" ry="2"/><path d="M6 6h.01M6 18h.01"/></svg>
-                    Canais
-                </a>
-                <a href="<?= url('inboxes') ?>" class="nav-item <?= $activePage === 'inboxes' ? 'active' : '' ?>">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 12h-6l-2 3h-4l-2-3H2"/><path d="M5.45 5.11L2 12v6a2 2 0 002 2h16a2 2 0 002-2v-6l-3.45-6.89A2 2 0 0016.76 4H7.24a2 2 0 00-1.79 1.11z"/></svg>
-                    Caixas de Entrada
                 </a>
                 <a href="<?= url('settings') ?>" class="nav-item <?= $activePage === 'settings' ? 'active' : '' ?>">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 01-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
@@ -251,6 +320,25 @@ $userInitial = mb_strtoupper(mb_substr($userName, 0, 1));
     }
 })();
 (function(){
+    var KEY='omini-theme';
+    var btn=document.getElementById('themeToggle'),icon=document.getElementById('themeToggleIcon');
+    function apply(t){
+        if(t==='dark')document.documentElement.setAttribute('data-theme','dark');
+        else document.documentElement.removeAttribute('data-theme');
+        if(icon)icon.className=t==='dark'?'fa-regular fa-sun':'fa-regular fa-moon';
+        if(btn)btn.title=t==='dark'?'Tema claro':'Tema escuro';
+    }
+    var saved=null;
+    try{saved=localStorage.getItem(KEY);}catch(e){}
+    if(!saved)saved=window.matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';
+    apply(saved);
+    if(btn)btn.addEventListener('click',function(){
+        var next=document.documentElement.getAttribute('data-theme')==='dark'?'light':'dark';
+        apply(next);
+        try{localStorage.setItem(KEY,next);}catch(e){}
+    });
+})();
+(function(){
     var notifBtn=document.getElementById('notifBtn'),notifDropdown=document.getElementById('notifDropdown'),
         notifBadge=document.getElementById('notifBadge'),notifList=document.getElementById('notifList'),
         markAllBtn=document.getElementById('notifMarkAllRead'),
@@ -258,7 +346,7 @@ $userInitial = mb_strtoupper(mb_substr($userName, 0, 1));
     if(!notifBtn)return;
     var baseUrl=document.querySelector('meta[name="base-url"]')?.content||'';
     var channelIcons={whatsapp:'fab fa-whatsapp',webchat:'fas fa-comment-dots',email:'fas fa-envelope',telegram:'fab fa-telegram',facebook:'fab fa-facebook',instagram:'fab fa-instagram',phone:'fas fa-phone'};
-    var typeIcons={mention:'fa-at',assignment:'fa-user-plus',new_message:'fa-comment',new_conversation:'fa-comments',transfer:'fa-share',status_change:'fa-circle-info',system:'fa-gear'};
+    var typeIcons={mention:'fa-at',group_mention:'fa-users',assignment:'fa-user-plus',new_message:'fa-comment',new_conversation:'fa-comments',transfer:'fa-share',status_change:'fa-circle-info',system:'fa-gear'};
     function esc(s){if(s==null)return'';var d=document.createElement('div');d.textContent=String(s);return d.innerHTML;}
     function timeAgo(dt){if(!dt)return'';var d=new Date(String(dt).replace(' ','T'));if(isNaN(d))return'';var n=new Date(),s=Math.floor((n-d)/1000);if(s<60)return'agora';var m=Math.floor(s/60);if(m<60)return m+'m';var h=Math.floor(m/60);if(h<24)return h+'h';var dy=Math.floor(h/24);if(dy<30)return dy+'d';return d.toLocaleDateString('pt-BR');}
     function trunc(s,l){if(!s)return'Sem mensagens';if(s.length<=l)return s;return s.substring(0,l)+'...';}
@@ -273,6 +361,15 @@ $userInitial = mb_strtoupper(mb_substr($userName, 0, 1));
     function renderNotifItem(n){
         var icon=typeIcons[n.notification_type]||'fa-bell';
         var link=n.conversation_id?baseUrl+'/inbox?conv='+n.conversation_id:'#';
+        try{
+            if(n.notification_type==='group_mention'&&n.metadata){
+                var meta=typeof n.metadata==='string'?JSON.parse(n.metadata):n.metadata;
+                // Prefere abrir a conversa na caixa (tem o histórico); sem
+                // conversa, cai na página do grupo (lista de menções).
+                if(meta&&(meta.conversation_id||n.conversation_id))link=baseUrl+'/inbox?conv='+(meta.conversation_id||n.conversation_id);
+                else if(meta&&meta.group_id)link=baseUrl+'/whatsapp/groups/'+meta.group_id;
+            }
+        }catch(e){}
         return '<a href="'+link+'" class="notif-msg-item notif-struct"><div class="notif-msg-avatar notif-msg-icon"><i class="fa-solid '+icon+'"></i></div><div class="notif-msg-content"><div class="notif-msg-header"><span class="notif-msg-name">'+esc(n.title||'Notificação')+'</span><span class="notif-msg-time">'+timeAgo(n.created_at)+'</span></div>'+(n.body?'<div class="notif-msg-preview">'+esc(n.body)+'</div>':'')+'</div></a>';
     }
     function renderDropdown(){
@@ -334,12 +431,56 @@ $userInitial = mb_strtoupper(mb_substr($userName, 0, 1));
     notifDropdown.addEventListener('click',function(e){e.stopPropagation();});
 })();
 (function(){
+    // Barra de alerta WhatsApp: atualiza sozinha a cada 60s (a conexão
+    // pode cair no meio da sessão, ex.: auto-disconnect do provedor).
+    var baseUrl=document.querySelector('meta[name="base-url"]')?.content||'';
+    function esc(s){var d=document.createElement('div');d.textContent=String(s==null?'':s);return d.innerHTML;}
+    function renderWaBar(list, canManage){
+        var old=document.getElementById('waAlertBar');
+        if(!list.length){if(old)old.remove();return;}
+        var names=list.map(function(c){return esc(c.channel);}).join(', ');
+        var label=list.length>1?' ('+list.length+' canais)':'';
+        var link=canManage?' <a href="'+baseUrl+'/channels" class="wa-alert-link">Reconectar <i class="fa-solid fa-arrow-right"></i></a>':'';
+        var html='<i class="fa-brands fa-whatsapp"></i> <span><strong>WhatsApp desconectado'+label+':</strong> '
+            +names+'. As respostas não estão chegando ao cliente.</span>'+link;
+        if(old){old.innerHTML=html;return;}
+        var bar=document.createElement('div');
+        bar.className='wa-alert-bar';bar.id='waAlertBar';bar.setAttribute('role','alert');
+        bar.innerHTML=html;
+        var app=document.getElementById('app');
+        if(app&&app.parentNode)app.parentNode.insertBefore(bar,app);
+        else document.body.insertBefore(bar,document.body.firstChild);
+    }
+    function pollWa(){
+        fetch(baseUrl+'/api/whatsapp-status',{headers:{'X-Requested-With':'XMLHttpRequest'}})
+            .then(function(r){return r.json();})
+            .then(function(d){renderWaBar(d.disconnected||[],!!d.can_manage);})
+            .catch(function(){});
+    }
+    setInterval(pollWa,60000);
+})();
+(function(){
     var toggle=document.getElementById('sidebarToggle');
+    var app=document.getElementById('app');
     var sidebar=document.querySelector('.sidebar');
     var overlay=document.getElementById('sidebarOverlay');
+    function isMobile(){return window.innerWidth<=768;}
     if(toggle&&sidebar&&overlay){
-        toggle.addEventListener('click',function(){sidebar.classList.toggle('open');overlay.classList.toggle('open');});
-        overlay.addEventListener('click',function(){sidebar.classList.remove('open');overlay.classList.remove('open');});
+        // Estado colapsado persistido (desktop)
+        try{if(localStorage.getItem('af_sidebar_collapsed')==='1'&&!isMobile())app?.classList.add('collapsed');}catch(e){}
+        toggle.addEventListener('click',function(){
+            if(isMobile()){
+                sidebar.classList.toggle('open');overlay.classList.toggle('open');
+                overlay.style.display=sidebar.classList.contains('open')?'block':'none';
+            }else if(app){
+                app.classList.toggle('collapsed');
+                try{localStorage.setItem('af_sidebar_collapsed',app.classList.contains('collapsed')?'1':'0');}catch(e){}
+            }
+        });
+        overlay.addEventListener('click',function(){sidebar.classList.remove('open');overlay.classList.remove('open');overlay.style.display='none';});
+        window.addEventListener('resize',function(){
+            if(!isMobile()){sidebar.classList.remove('open');overlay.classList.remove('open');overlay.style.display='none';}
+        });
     }
 })();
 (function(){
@@ -354,6 +495,65 @@ $userInitial = mb_strtoupper(mb_substr($userName, 0, 1));
     });
     function checkMobile(){if(window.innerWidth>768)closeSidebar();}
     window.addEventListener('resize',checkMobile);
+})();
+(function(){
+    var waffleBtn=document.getElementById('waffleBtn');
+    var waffleMenu=document.getElementById('waffleMenu');
+    if(waffleBtn&&waffleMenu){
+        waffleBtn.addEventListener('click',function(e){
+            e.stopPropagation();
+            waffleMenu.classList.toggle('open');
+        });
+        waffleMenu.addEventListener('click',function(e){e.stopPropagation();});
+        document.addEventListener('click',function(){waffleMenu.classList.remove('open');});
+        document.addEventListener('keydown',function(e){
+            if(e.key==='Escape')waffleMenu.classList.remove('open');
+        });
+    }
+})();
+(function(){
+    var input=document.getElementById('globalSearch');
+    if(!input)return;
+    var sidebar=document.querySelector('.sidebar');
+    if(!sidebar)return;
+    var items=Array.prototype.slice.call(sidebar.querySelectorAll('.nav-item'));
+    var sections=Array.prototype.slice.call(sidebar.querySelectorAll('.nav-section'));
+    var initialExpanded=sections.map(function(s){return s.classList.contains('expanded');});
+    function normalize(s){
+        return (s||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').trim();
+    }
+    var initialText=items.map(function(it){return normalize(it.textContent);});
+    function applyFilter(){
+        var q=normalize(input.value);
+        items.forEach(function(it,i){
+            var match=!q||initialText[i].indexOf(q)!==-1;
+            it.style.display=match?'':'none';
+            if(match&&q){
+                var sec=it.closest('.nav-section');
+                if(sec&&sec.querySelector('.nav-section-title'))sec.classList.add('expanded');
+            }
+        });
+        sections.forEach(function(sec,si){
+            if(!q){ if(initialExpanded[si])sec.classList.add('expanded'); return; }
+            var visible=sec.querySelectorAll('.nav-item:not([style*="display: none"])').length;
+            sec.style.display=visible?'':'none';
+        });
+        if(!q)sections.forEach(function(sec){sec.style.display='';});
+    }
+    input.addEventListener('input',applyFilter);
+    input.addEventListener('keydown',function(e){
+        if(e.key==='Escape'){input.value='';applyFilter();input.blur();}
+        if(e.key==='Enter'){
+            e.preventDefault();
+            var first=items.find(function(it){return it.style.display!=='none';});
+            if(first&&first.href)window.location.href=first.href;
+        }
+    });
+    document.addEventListener('keydown',function(e){
+        if((e.ctrlKey||e.metaKey)&&(e.key==='k'||e.key==='K')){
+            e.preventDefault();input.focus();input.select();
+        }
+    });
 })();
 </script>
 </body>

@@ -2,86 +2,79 @@
 <html>
 <head>
 <meta charset="utf-8">
+<?php require __DIR__ . '/../_pdf_style.php'; ?>
 <style>
     @page { margin: 20mm 15mm; }
-    body { font-family: 'DejaVu Sans', sans-serif; font-size: 10pt; color: #1a1a2e; line-height: 1.5; }
-    .header { text-align: center; border-bottom: 2px solid #4A90D9; padding-bottom: 10px; margin-bottom: 20px; }
-    .header h1 { font-size: 16pt; color: #4A90D9; margin: 0 0 4px; }
-    .header .sub { font-size: 9pt; color: #888; }
-    .section { margin-bottom: 18px; }
-    .section-title { font-size: 11pt; font-weight: bold; color: #4A90D9; border-bottom: 1px solid #ddd; padding-bottom: 4px; margin-bottom: 8px; }
-    .info-grid { width: 100%; }
-    .info-grid td { padding: 3px 8px; vertical-align: top; }
-    .info-grid td:first-child { font-weight: bold; width: 130px; color: #555; }
-    .contact-card { background: #f8f9fa; border: 1px solid #e9ecef; border-radius: 6px; padding: 10px; margin-bottom: 10px; }
-    .contact-card td { padding: 2px 8px; vertical-align: top; }
-    .contact-card td:first-child { font-weight: bold; width: 100px; color: #555; }
-    .msg { padding: 6px 10px; margin-bottom: 4px; border-radius: 4px; }
-    .msg-out { background: #e3f2fd; border-left: 3px solid #4A90D9; }
-    .msg-in { background: #f8f9fa; border-left: 3px solid #28A745; }
-    .msg-note { background: #fff3cd; border-left: 3px solid #ffc107; font-style: italic; }
-    .msg-system { background: #f1f0f0; border-left: 3px solid #888; text-align: center; font-size: 9pt; color: #666; }
-    .msg-header { font-size: 8pt; color: #888; margin-bottom: 2px; }
-    .msg-header strong { color: #333; }
-    .msg-content { font-size: 10pt; word-wrap: break-word; }
-    .msg-time { font-size: 7pt; color: #aaa; text-align: right; margin-top: 2px; }
-    .msg-file { color: #4A90D9; text-decoration: none; }
-    .msg-date-sep { text-align: center; font-size: 8pt; color: #888; margin: 10px 0 6px; border-bottom: 1px dashed #ddd; padding-bottom: 4px; }
-    .event { padding: 3px 8px; margin-bottom: 2px; font-size: 9pt; color: #666; border-left: 2px solid #ddd; }
-    .event strong { color: #333; }
-    .event-time { font-size: 7pt; color: #aaa; }
-    .csat-box { background: #fef9e7; border: 1px solid #f9e79f; border-radius: 6px; padding: 8px; text-align: center; font-size: 10pt; }
-    .csat-stars { color: #f39c12; font-size: 14pt; }
-    .footer { text-align: center; font-size: 8pt; color: #aaa; border-top: 1px solid #ddd; padding-top: 8px; margin-top: 20px; }
-    .tag { display: inline-block; padding: 1px 6px; border-radius: 3px; font-size: 8pt; margin: 1px; }
+    body { font-size: 10pt; }
 </style>
 </head>
 <body>
 
-<div class="header">
-    <h1>Relatório de Conversa</h1>
-    <div class="sub">AtendeFlow &mdash; <?= format_datetime(date('Y-m-d H:i:s')) ?></div>
-</div>
+<table class="doc-header">
+    <tr>
+        <td>
+            <span class="doc-logo">O</span>
+            <span class="doc-brand">
+                <div class="doc-brand-name">OminiDesk</div>
+                <div class="doc-brand-title">Relat&oacute;rio de Conversa</div>
+            </span>
+        </td>
+        <td class="r">
+            <?php if (!empty($conversation['protocol'])): ?>
+                <div class="proto-label">Protocolo</div>
+                <span class="proto">#<?= e(format_protocol($conversation['protocol'])) ?></span>
+            <?php else: ?>
+                <div class="doc-meta">Emitido em <?= format_datetime(date('Y-m-d H:i:s')) ?></div>
+            <?php endif; ?>
+        </td>
+    </tr>
+</table>
 
 <div class="section">
-    <div class="section-title">Informações da Conversa</div>
-    <table class="info-grid">
-        <tr><td>ID</td><td><?= $conversation['id'] ?></td></tr>
-        <tr><td>Status</td><td><?= ['new'=>'Novo','open'=>'Aberto','waiting_customer'=>'Em atendimento','waiting_internal'=>'Aguardando Interno','resolved'=>'Resolvido','closed'=>'Fechado','spam'=>'Spam'][$conversation['status']] ?? $conversation['status'] ?></td></tr>
-        <tr><td>Prioridade</td><td><?= ['low'=>'Baixa','normal'=>'Normal','high'=>'Alta','urgent'=>'Urgente'][$conversation['priority'] ?? 'normal'] ?? $conversation['priority'] ?></td></tr>
-        <tr><td>Canal</td><td><?= e($conversation['channel_name'] ?? '-') ?> (<?= e($conversation['channel_type'] ?? '-') ?>)</td></tr>
+    <div class="section-title">Informa&ccedil;&otilde;es da Conversa</div>
+    <table class="kv">
+        <?php if (!empty($conversation['protocol'])): ?>
+        <tr class="proto-row">
+            <td class="k">Protocolo</td>
+            <td class="v"><span class="proto-inline">#<?= e(format_protocol($conversation['protocol'])) ?></span></td>
+        </tr>
+        <?php endif; ?>
+        <tr><td class="k">ID</td><td class="v"><?= (int) $conversation['id'] ?></td></tr>
+        <tr><td class="k">Status</td><td class="v"><span class="badge <?= ['new'=>'badge-info','open'=>'badge-info','waiting_customer'=>'badge-warning','waiting_internal'=>'badge-neutral','resolved'=>'badge-success','closed'=>'badge-neutral','spam'=>'badge-danger'][$conversation['status']] ?? 'badge-neutral' ?>"><?= ['new'=>'Novo','open'=>'Aberto','waiting_customer'=>'Em atendimento','waiting_internal'=>'Aguardando Interno','resolved'=>'Resolvido','closed'=>'Fechado','spam'=>'Spam'][$conversation['status']] ?? e($conversation['status']) ?></span></td></tr>
+        <tr><td class="k">Prioridade</td><td class="v"><?= ['low'=>'Baixa','normal'=>'Normal','high'=>'Alta','urgent'=>'Urgente'][$conversation['priority'] ?? 'normal'] ?? e($conversation['priority']) ?></td></tr>
+        <tr><td class="k">Canal</td><td class="v"><?= e($conversation['channel_name'] ?? '-') ?> (<?= e($conversation['channel_type'] ?? '-') ?>)</td></tr>
         <?php if (!empty($conversation['department_name'])): ?>
-        <tr><td>Departamento</td><td><?= e($conversation['department_name']) ?></td></tr>
+        <tr><td class="k">Departamento</td><td class="v"><?= e($conversation['department_name']) ?></td></tr>
         <?php endif; ?>
-        <tr><td>Responsável</td><td><?= e($conversation['assigned_user_name'] ?? 'Sem responsável') ?></td></tr>
-        <tr><td>Assunto</td><td><?= e($conversation['subject'] ?? '-') ?></td></tr>
+        <tr><td class="k">Respons&aacute;vel</td><td class="v"><?= e($conversation['assigned_user_name'] ?? 'Sem responsável') ?></td></tr>
+        <tr><td class="k">Assunto</td><td class="v"><?= e($conversation['subject'] ?? '-') ?></td></tr>
         <?php if (!empty($conversation['unit'])): ?>
-        <tr><td>Unidade</td><td><?= e($conversation['unit']) ?></td></tr>
+        <tr><td class="k">Unidade</td><td class="v"><?= e($conversation['unit']) ?></td></tr>
         <?php endif; ?>
-        <tr><td>Criada em</td><td><?= format_datetime($conversation['created_at']) ?></td></tr>
+        <tr><td class="k">Criada em</td><td class="v"><?= format_datetime($conversation['created_at']) ?></td></tr>
         <?php if (!empty($conversation['closed_at'])): ?>
-        <tr><td>Fechada em</td><td><?= format_datetime($conversation['closed_at']) ?></td></tr>
+        <tr><td class="k">Fechada em</td><td class="v"><?= format_datetime($conversation['closed_at']) ?></td></tr>
         <?php endif; ?>
         <?php if (!empty($conversation['close_reason'])): ?>
-        <tr><td>Motivo</td><td><?= e($conversation['close_reason']) ?></td></tr>
+        <tr><td class="k">Motivo</td><td class="v"><?= e($conversation['close_reason']) ?></td></tr>
         <?php endif; ?>
         <?php if (!empty($conversation['close_description'])): ?>
-        <tr><td>Descrição</td><td><?= e($conversation['close_description']) ?></td></tr>
+        <tr><td class="k">Descri&ccedil;&atilde;o</td><td class="v"><?= e($conversation['close_description']) ?></td></tr>
         <?php endif; ?>
     </table>
 </div>
 
 <div class="section">
     <div class="section-title">Contato</div>
-    <table class="contact-card">
-        <tr><td>Nome</td><td><?= e($contact['name'] ?? '-') ?></td></tr>
-        <tr><td>Telefone</td><td><?= e($contact['phone'] ?? '-') ?></td></tr>
-        <tr><td>E-mail</td><td><?= e($contact['email'] ?? '-') ?></td></tr>
+    <table class="kv">
+        <tr><td class="k">Nome</td><td class="v"><?= e($contact['name'] ?? '-') ?></td></tr>
+        <tr><td class="k">Telefone</td><td class="v"><?= e($contact['phone'] ?? '-') ?></td></tr>
+        <tr><td class="k">E-mail</td><td class="v"><?= e($contact['email'] ?? '-') ?></td></tr>
         <?php if (!empty($contact['company'])): ?>
-        <tr><td>Empresa</td><td><?= e($contact['company']) ?></td></tr>
+        <tr><td class="k">Empresa</td><td class="v"><?= e($contact['company']) ?></td></tr>
         <?php endif; ?>
         <?php if (!empty($contact['document'])): ?>
-        <tr><td>Documento</td><td><?= e($contact['document']) ?></td></tr>
+        <tr><td class="k">Documento</td><td class="v"><?= e($contact['document']) ?></td></tr>
         <?php endif; ?>
     </table>
 </div>
@@ -101,9 +94,9 @@
 
 <?php if (!empty($csat)): ?>
 <div class="section">
-    <div class="section-title">Avaliação de Satisfação</div>
+    <div class="section-title">Avalia&ccedil;&atilde;o de Satisfa&ccedil;&atilde;o</div>
     <div class="csat-box">
-        <div class="csat-stars"><?= str_repeat('★', (int) $csat['rating']) ?><?= str_repeat('☆', 5 - (int) $csat['rating']) ?></div>
+        <div class="csat-stars"><?= str_repeat('&#9733;', (int) $csat['rating']) ?><?= str_repeat('&#9734;', 5 - (int) $csat['rating']) ?></div>
         <div><?= (int) $csat['rating'] ?>/5</div>
         <?php if (!empty($csat['comment'])): ?>
             <div style="margin-top:4px;font-size:9pt"><?= e($csat['comment']) ?></div>
@@ -139,13 +132,16 @@
                 <div class="msg-content"><?= e($msg['content']) ?></div>
             <?php elseif ($msg['type'] === 'csat_request'): ?>
                 <?php $csatReq = json_decode($msg['content'], true) ?: []; ?>
-                <div class="msg-content"><em>[Solicitação de avaliação]</em> <?= e($csatReq['prompt'] ?? '') ?></div>
+                <div class="msg-content"><em>[Solicita&ccedil;&atilde;o de avalia&ccedil;&atilde;o]</em> <?= e($csatReq['prompt'] ?? '') ?></div>
             <?php elseif ($msg['type'] === 'reaction'): ?>
                 <?php $rData = json_decode($msg['content'], true) ?: []; ?>
-                <div class="msg-content"><em>[Reação: <?= e($rData['reaction'] ?? '') ?>]</em></div>
+                <div class="msg-content"><em>[Rea&ccedil;&atilde;o: <?= e($rData['reaction'] ?? '') ?>]</em></div>
             <?php elseif ($isFile && $meta): ?>
                 <div class="msg-content">
                     <span class="msg-file"><?= e($meta['name']) ?><?= !empty($meta['size']) ? ' (' . format_bytes($meta['size']) . ')' : '' ?></span>
+                    <?php if (!empty($meta['caption'])): ?>
+                        <div class="msg-caption"><?= nl2br(e($meta['caption'])) ?></div>
+                    <?php endif; ?>
                 </div>
             <?php else: ?>
                 <div class="msg-content"><?= nl2br(e($msg['content'])) ?></div>
@@ -158,7 +154,7 @@
 <div class="section">
     <div class="section-title">Eventos (<?= count($events) ?>)</div>
     <?php if (empty($events)): ?>
-        <div style="color:#888;font-size:9pt">Nenhum evento registrado.</div>
+        <div class="muted" style="font-size:9pt">Nenhum evento registrado.</div>
     <?php else: ?>
         <?php foreach ($events as $ev): ?>
         <div class="event">
@@ -171,7 +167,10 @@
 </div>
 
 <div class="footer">
-    Relatório gerado em <?= format_datetime(date('Y-m-d H:i:s')) ?> &mdash; AtendeFlow
+    <?php if (!empty($conversation['protocol'])): ?>
+        Protocolo <span class="proto-inline">#<?= e(format_protocol($conversation['protocol'])) ?></span> &mdash;
+    <?php endif; ?>
+    Relat&oacute;rio gerado em <?= format_datetime(date('Y-m-d H:i:s')) ?> &mdash; OminiDesk
 </div>
 
 </body>

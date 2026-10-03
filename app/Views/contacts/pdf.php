@@ -37,7 +37,10 @@
 
 <div class="header">
     <h1>Ficha do Contato</h1>
-    <div class="sub">AtendeFlow &mdash; <?= format_datetime(date('Y-m-d H:i:s')) ?></div>
+    <div class="sub">OminiDesk &mdash; <?= format_datetime(date('Y-m-d H:i:s')) ?></div>
+    <?php if (!empty($pdfScope ?? null)): ?>
+        <div class="sub" style="margin-top:4px;font-weight:600;color:#7c5cff"><?= e($pdfScope) ?></div>
+    <?php endif; ?>
 </div>
 
 <div class="section">
@@ -137,7 +140,7 @@
 </div>
 
 <div class="footer">
-    Relatório gerado em <?= format_datetime(date('Y-m-d H:i:s')) ?> &mdash; AtendeFlow
+    Relatório gerado em <?= format_datetime(date('Y-m-d H:i:s')) ?> &mdash; OminiDesk
 </div>
 
 </body>

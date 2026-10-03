@@ -229,7 +229,7 @@ class WhatsAppService
     /**
      * Recebe o payload bruto do webhook, normaliza e cria/atualiza a conversa.
      */
-    public function handleWebhook(array $payload): void
+    public function handleWebhook(array $payload, string $rawBody = ''): void
     {
         $this->logWebhook('RECEIVED', [
             'query' => $_GET,
@@ -246,13 +246,22 @@ class WhatsAppService
         // Eventos de conexão/status da instância (EventType: connection, qrcode, status...).
         $event = strtolower((string) ($payload['EventType'] ?? $payload['event'] ?? ($payload['data']['event'] ?? '')));
         if (in_array($event, ['connection', 'connections.update', 'status', 'qrcode', 'qrcode.update', 'qrcode.updated', 'state', 'session.status'], true)) {
-            $this->handleConnectionEvent($payload, $providerName);
+            $this->handleConnectionEvent($payload, $providerName, $rawBody);
             return;
         }
 
         $message = $provider->parseWebhook($payload);
         if (!$message) {
-            $this->logWebhook('FILTERED', ['reason' => 'parseWebhook retornou null (fromMe/evento nao-mensagem/grupo)']);
+            $dbgMsg = $payload['data']['message'] ?? $payload['message'] ?? [];
+            $this->logWebhook('FILTERED', [
+                'reason' => 'parseWebhook retornou null (fromMe/evento nao-mensagem)',
+                'event' => $payload['EventType'] ?? $payload['event'] ?? null,
+                'fromMe' => $dbgMsg['fromMe'] ?? null,
+                'wasSentByApi' => $dbgMsg['wasSentByApi'] ?? null,
+                'isGroup' => $dbgMsg['isGroup'] ?? null,
+                'chatid' => $dbgMsg['chatid'] ?? null,
+                'messageType' => $dbgMsg['messageType'] ?? ($payload['data']['messageType'] ?? null),
+            ]);
             return;
         }
 
@@ -263,20 +272,21 @@ class WhatsAppService
             'content' => substr($message->content, 0, 120),
         ]);
 
+        // Aprende pares LID -> telefone do payload (essencial p/ menções em
+        // grupo, onde tudo chega como @lid). Provedores nunca tocam o banco.
+        $this->learnLidMappings($payload);
+
         $connection = WhatsAppConnection::findByProviderId($providerName, $message->providerId);
         if (!$connection) {
             $this->logWebhook('NO_CONNECTION', ['providerId' => $message->providerId, 'provider' => $providerName]);
             return;
         }
 
-        // Validação opcional do segredo do webhook.
-        $secret = $_GET['secret'] ?? '';
-        // Uazapi pode adicionar /messages/text ao final da URL; extrai apenas a parte hex
-        if (preg_match('/^([a-f0-9]{32})/i', $secret, $m)) {
-            $secret = $m[1];
-        }
-        if (!empty($connection['webhook_secret']) && !hash_equals((string) $connection['webhook_secret'], (string) $secret)) {
-            $this->logWebhook('SECRET_FAIL', ['got' => $secret, 'expected_len' => strlen($connection['webhook_secret'])]);
+        // Validação do segredo do webhook: ?secret= (legado) ou HMAC-SHA256
+        // do corpo no header X-Webhook-Signature. Obrigatório quando a
+        // conexão tem webhook_secret configurado.
+        if (!$this->validateWebhookSecret($connection, $rawBody)) {
+            $this->logWebhook('SECRET_FAIL', ['providerId' => $message->providerId]);
             return;
         }
 
@@ -287,6 +297,12 @@ class WhatsAppService
                 'last_connected_at' => date('Y-m-d H:i:s'),
                 'error_message' => null,
             ]);
+        }
+
+        // Mensagens de grupo: caixa de grupos (sem criar conversa no inbox).
+        if (!empty($message->extra['is_group'])) {
+            $this->handleGroupMessage($connection, $message);
+            return;
         }
 
         // Se o número for LID, tenta resolver o telefone real via WAHA
@@ -395,10 +411,11 @@ class WhatsAppService
             if ($resolved) {
                 $type = $resolved['type'];
                 $content = json_encode([
-                    'url' => $resolved['url'],
+                    'url'  => $resolved['url'],
                     'name' => $resolved['name'],
                     'size' => $resolved['size'],
                     'mime' => $resolved['mime'],
+                    'path' => $resolved['path'] ?? null,
                 ], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
             } else {
                 $this->logWebhook('MEDIA_UNRESOLVED', [
@@ -420,12 +437,19 @@ class WhatsAppService
             $content = $message->content;
         }
 
-        $msgId = Conversation::addMessage($conversation['id'], [
+        // Citação recebida: quoted_id do provedor → mensagem local citada.
+        $replyToLocal = $this->resolveInboundReplyTo((int) $conversation['id'], (string) ($message->extra['quoted_id'] ?? ''));
+
+        $msgData = [
             'type' => $type,
             'content' => $content,
             'direction' => 'inbound',
             'channel_message_id' => $message->messageId,
-        ]);
+        ];
+        if ($replyToLocal) {
+            $msgData['reply_to'] = $replyToLocal;
+        }
+        $msgId = Conversation::addMessage($conversation['id'], $msgData);
 
         // Detecta se o fluxo está ou será executado (antes de executar,
         // pois o fluxo pode completar e setar is_active=0 antes da notificação).
@@ -485,6 +509,452 @@ class WhatsAppService
         } catch (\Throwable $e) {
             $this->logWebhook('ABSENCE_ERROR', ['error' => $e->getMessage()]);
         }
+    }
+
+    /**
+     * Caixa de grupos: registra o grupo (upsert), espelha a conversa na caixa
+     * selecionada na gestão de grupos (grupo.inbox_id ou caixa do canal) e,
+     * quando alguém marcar o número da conexão, grava a menção e dispara
+     * alerta no sino para os membros daquela caixa.
+     */
+    public function handleGroupMessage(array $connection, IncomingMessage $message): void
+    {
+        $extra = $message->extra;
+        $groupJid = (string) ($extra['group_jid'] ?? '');
+        if ($groupJid === '') {
+            $this->logWebhook('GROUP_NO_JID', ['from' => $message->from]);
+            return;
+        }
+
+        $group = \App\Models\WhatsAppGroup::upsertFromWebhook((int) $connection['id'], $groupJid, [
+            'name' => $extra['group_name'] ?? null,
+            'avatar_url' => $message->avatarUrl,
+            'participant_count' => $extra['participant_count'] ?? null,
+        ]);
+
+        $connDigits = preg_replace('/\D/', '', (string) ($connection['phone_number'] ?? ''));
+        $senderDigits = \App\Models\WhatsAppLidMap::resolve((string) $message->from) ?? '';
+        $isSelf = $connDigits !== '' && $senderDigits !== '' && self::samePhoneDigits($connDigits, $senderDigits);
+
+        $text = $message->type === 'text' ? (string) $message->content : (string) ($message->caption ?? '');
+        if ($text === '' && $message->type !== 'text') {
+            $text = '[' . $message->type . ']';
+        }
+
+        // Reação em grupo: atualiza o balão da mensagem original (igual no 1:1),
+        // sem criar mensagem nova, sem unread e sem sino.
+        if ($message->type === 'text' && str_starts_with($text, '{"reaction":')) {
+            $this->handleGroupReaction($connection, $group, $message, $text);
+            return;
+        }
+
+        // Detecta menção ANTES de espelhar: só menção gera não-lida + sino.
+        // Mensagem comum de grupo entra na conversa como lida (histórico sem
+        // contador, sem som, sem toast).
+        $isMention = false;
+        $mentionEveryone = false;
+        if (!$isSelf && !empty($group['mention_alert'])) {
+            $rawMentioned = (array) ($extra['mentioned'] ?? []);
+            $mentioned = $this->resolveMentionedPhones($connection, $rawMentioned);
+            $mentionEveryone = self::isEveryoneMentioned($rawMentioned, $text);
+            $isMention = $mentionEveryone || self::connectionMentioned($connDigits, $mentioned, $text);
+        }
+
+        // 1) Espelha na caixa selecionada (toda msg de grupo vira mensagem da
+        // conversa do grupo — é assim que aparece no inbox).
+        $conversation = null;
+        try {
+            $conversation = $this->ensureGroupConversation($connection, $group, $text);
+        } catch (\Throwable $e) {
+            $this->logWebhook('GROUP_CONV_ERROR', ['error' => $e->getMessage(), 'group_id' => $group['id'] ?? null]);
+        }
+        if ($conversation) {
+            try {
+                $providerMsgId = $message->messageId !== ''
+                    ? $message->messageId
+                    : ('g' . md5($groupJid . '|' . $senderDigits . '|' . $text . '|' . ($message->timestamp ?? time())));
+                $dup = Database::getInstance()->fetch(
+                    "SELECT id FROM messages WHERE conversation_id = ? AND channel_message_id = ? LIMIT 1",
+                    [(int) $conversation['id'], $providerMsgId]
+                );
+                if (!$dup) {
+                    $groupReplyTo = $this->resolveInboundReplyTo((int) $conversation['id'], (string) ($extra['quoted_id'] ?? ''));
+                    $groupMsgData = [
+                        'type' => 'text',
+                        'content' => $text !== '' ? $text : ('[' . $message->type . ']'),
+                        'direction' => $isSelf ? 'outbound' : 'inbound',
+                        'channel_message_id' => $providerMsgId,
+                        'sender_name' => $message->senderName ?: null,
+                        'sender_phone' => $senderDigits ?: null,
+                        // Só menção fica não-lida (contador/sino). Comum = lida.
+                        'is_read' => ($isMention && !$isSelf) ? 0 : 1,
+                        'read_at' => ($isMention && !$isSelf) ? null : date('Y-m-d H:i:s'),
+                    ];
+                    if ($groupReplyTo) {
+                        $groupMsgData['reply_to'] = $groupReplyTo;
+                    }
+                    Conversation::addMessage((int) $conversation['id'], $groupMsgData);
+                }
+            } catch (\Throwable $e) {
+                $this->logWebhook('GROUP_MSG_ERROR', ['error' => $e->getMessage()]);
+            }
+        }
+
+        // Mensagem do próprio número: só aprende o grupo + espelha, sem alerta.
+        if ($isSelf) {
+            $this->logWebhook('GROUP_SELF', ['group_jid' => $groupJid]);
+            return;
+        }
+
+        if (!$isMention) {
+            return;
+        }
+
+        $providerMsgId = $message->messageId !== ''
+            ? $message->messageId
+            : ('g' . md5($groupJid . '|' . $senderDigits . '|' . $text . '|' . ($message->timestamp ?? time())));
+        $mention = [
+            'sender_name' => $message->senderName,
+            'sender_phone' => $senderDigits,
+            'content' => $text !== '' ? $text : ('[' . $message->type . ']'),
+            'provider_message_id' => $providerMsgId,
+            'mentioned_digits' => $connDigits,
+            'conversation_id' => $conversation ? (int) $conversation['id'] : null,
+            'mention_kind' => $mentionEveryone ? 'everyone' : 'direct',
+        ];
+        $mentionId = \App\Models\WhatsAppGroup::logMention((int) $group['id'], $mention);
+        if (!$mentionId) {
+            return; // webhook duplicado
+        }
+        $this->logWebhook('GROUP_MENTION', ['group_id' => $group['id'], 'mention_id' => $mentionId]);
+
+        try {
+            \App\Services\NotificationService::notifyGroupMention($group, $connection, $mention);
+        } catch (\Throwable $e) {
+            $this->logWebhook('GROUP_NOTIF_ERROR', ['error' => $e->getMessage()]);
+        }
+    }
+
+    /**
+     * Resolve a mensagem local citada por uma resposta recebida: busca o
+     * channel_message_id do provedor dentro da conversa. Retorna o id
+     * local (para reply_to) ou null.
+     */
+    private function resolveInboundReplyTo(int $conversationId, string $quotedProviderId): ?int
+    {
+        if ($quotedProviderId === '') {
+            return null;
+        }
+        try {
+            $parent = Database::getInstance()->fetch(
+                "SELECT id FROM messages WHERE conversation_id = ? AND channel_message_id = ? LIMIT 1",
+                [$conversationId, $quotedProviderId]
+            );
+            return $parent ? (int) $parent['id'] : null;
+        } catch (\Throwable $e) {
+            return null;
+        }
+    }
+
+    /**
+     * Reação recebida numa conversa de grupo: aplica/remova o emoji no
+     * balão original (busca por channel_message_id dentro da conversa do
+     * grupo). Nunca cria mensagem, nunca conta unread, nunca notifica.
+     */
+    private function handleGroupReaction(array $connection, array $group, IncomingMessage $message, string $text): void
+    {
+        $meta = json_decode($text, true);
+        $reaction = (string) ($meta['reaction'] ?? '');
+        $parentMsgId = (string) ($meta['parent_message_id'] ?? '');
+        if ($parentMsgId === '') {
+            $this->logWebhook('GROUP_REACTION_NO_PARENT', ['group_id' => $group['id'] ?? null]);
+            return;
+        }
+        $conv = Database::getInstance()->fetch(
+            "SELECT id FROM conversations WHERE group_id = ? AND status NOT IN ('closed','resolved','spam') ORDER BY COALESCE(last_message_at, created_at) DESC LIMIT 1",
+            [(int) ($group['id'] ?? 0)]
+        );
+        if (!$conv) {
+            $this->logWebhook('GROUP_REACTION_NO_CONV', ['group_id' => $group['id'] ?? null]);
+            return;
+        }
+        $parentMsg = Database::getInstance()->fetch(
+            "SELECT id, reactions FROM messages WHERE channel_message_id = ? AND conversation_id = ? LIMIT 1",
+            [$parentMsgId, (int) $conv['id']]
+        );
+        if (!$parentMsg) {
+            $this->logWebhook('GROUP_REACTION_PARENT_NOT_FOUND', ['parent_channel_msg_id' => $parentMsgId]);
+            return;
+        }
+        $senderDigits = \App\Models\WhatsAppLidMap::resolve((string) $message->from) ?? '';
+        $existing = json_decode((string) ($parentMsg['reactions'] ?? '[]'), true) ?: [];
+        // Mesma semântica do 1:1: troca a reação do mesmo remetente.
+        $existing = array_values(array_filter($existing, fn($r) => ($r['from'] ?? '') !== $senderDigits));
+        if ($reaction !== '') {
+            $existing[] = [
+                'emoji' => $reaction,
+                'from' => $senderDigits,
+                'sender_name' => $message->senderName ?? '',
+                'sender_phone' => $senderDigits,
+                'timestamp' => time(),
+            ];
+        }
+        Database::getInstance()->update('messages', [
+            'reactions' => json_encode($existing, JSON_UNESCAPED_UNICODE),
+            'updated_at' => date('Y-m-d H:i:s'),
+        ], 'id = ?', [$parentMsg['id']]);
+        $this->logWebhook('GROUP_REACTION_UPDATED', ['parent_msg_id' => $parentMsg['id'], 'emoji' => $reaction]);
+    }
+
+    /**
+     * Garante contato + conversa persistente do grupo na caixa selecionada:
+     * grupo.inbox_id (escolhida na gestão de grupos) ou caixa do canal.
+     * Uma conversa por grupo (reabre se fechada). Atualiza inbox/assunto
+     * quando a gestão trocar a caixa ou o nome do grupo mudar.
+     */
+    private function ensureGroupConversation(array $connection, array $group, string $lastText = ''): ?array
+    {
+        $db = Database::getInstance();
+        $groupId = (int) $group['id'];
+        $channelId = (int) $connection['channel_id'];
+        $groupName = trim((string) ($group['name'] ?? '')) !== '' ? (string) $group['name'] : 'Grupo WhatsApp';
+        $groupJid = (string) ($group['group_jid'] ?? '');
+
+        $targetInbox = !empty($group['inbox_id'])
+            ? (int) $group['inbox_id']
+            : \App\Models\Inbox::resolveInboxForChannel($channelId);
+
+        // Contato sintético do grupo (phone = JID para não colidir com 1:1).
+        $contact = $groupJid !== '' ? $db->fetch("SELECT * FROM contacts WHERE phone = ? LIMIT 1", [$groupJid]) : null;
+        if (!$contact) {
+            $contactId = Contact::create(['name' => $groupName, 'phone' => $groupJid ?: null]);
+            $contact = Contact::find($contactId);
+        } elseif (!empty($group['name']) && ($contact['name'] === null || $contact['name'] === '' || $contact['name'] !== $group['name'])) {
+            // Mantém o nome do contato sincronizado com o nome do grupo.
+            Contact::update((int) $contact['id'], ['name' => $groupName]);
+            $contact['name'] = $groupName;
+        }
+        if (!$contact) {
+            return null;
+        }
+
+        $conv = $db->fetch(
+            "SELECT * FROM conversations WHERE group_id = ? AND status NOT IN ('closed','resolved','spam') ORDER BY COALESCE(last_message_at, created_at) DESC LIMIT 1",
+            [$groupId]
+        );
+        if ($conv) {
+            $upd = [];
+            if ($targetInbox && (int) ($conv['inbox_id'] ?? 0) !== $targetInbox) {
+                $upd['inbox_id'] = $targetInbox;
+            }
+            if (!empty($group['name']) && ($conv['subject'] ?? '') !== $group['name']) {
+                $upd['subject'] = $group['name'];
+            }
+            if ((int) ($conv['contact_id'] ?? 0) !== (int) $contact['id']) {
+                $upd['contact_id'] = (int) $contact['id'];
+            }
+            if ($upd) {
+                Conversation::update((int) $conv['id'], $upd);
+                $conv = array_merge($conv, $upd);
+            }
+            Contact::touchActivity((int) $contact['id']);
+            return Conversation::find((int) $conv['id']) ?: $conv;
+        }
+
+        $channel = $db->fetch("SELECT * FROM channels WHERE id = ?", [$channelId]);
+        $conversationId = Conversation::create([
+            'contact_id' => (int) $contact['id'],
+            'channel_id' => $channelId,
+            'department_id' => $channel['department_id'] ?? null,
+            'inbox_id' => $targetInbox,
+            'group_id' => $groupId,
+            'subject' => $groupName,
+            'status' => 'new',
+            'source' => 'whatsapp_group',
+        ]);
+        Conversation::addEvent($conversationId, 'created', 'Conversa do grupo criada automaticamente (' . $groupName . ')');
+        Contact::touchActivity((int) $contact['id']);
+        return Conversation::find($conversationId);
+    }
+
+    /**
+     * Compara dígitos de telefone pelo sufixo (tolerando DDI/DDD e 9º dígito).
+     */
+    public static function samePhoneDigits(string $a, string $b, int $minLen = 8): bool
+    {
+        $a = preg_replace('/\D/', '', $a);
+        $b = preg_replace('/\D/', '', $b);
+        if (strlen($a) < $minLen || strlen($b) < $minLen) {
+            return $a !== '' && $a === $b;
+        }
+        $n = min(strlen($a), strlen($b), 11);
+        return substr($a, -$n) === substr($b, -$n);
+    }
+
+    /**
+     * Verifica se a conexão foi mencionada: lista explícita do provedor OU
+     * "@<dígitos>" no texto. LIDs são resolvidos via mapa aprendido.
+     * "@todos"/"@all"/"@everyone" menciona todo mundo — inclui a conexão.
+     */
+    public static function connectionMentioned(string $connDigits, array $mentioned, string $text): bool
+    {
+        if (self::isEveryoneMentioned($mentioned, $text)) {
+            return true;
+        }
+        $connDigits = preg_replace('/\D/', '', $connDigits);
+        if ($connDigits === '') {
+            return false;
+        }
+        foreach ($mentioned as $m) {
+            $resolved = \App\Models\WhatsAppLidMap::resolve((string) $m) ?? (string) $m;
+            if (self::samePhoneDigits($connDigits, $resolved)) {
+                return true;
+            }
+        }
+        // Fallback textual: "@5511999998888" ou "@11999998888" (ou LID).
+        if (preg_match_all('/@(\d{8,16})/', $text, $mm)) {
+            foreach ($mm[1] as $digits) {
+                $resolved = \App\Models\WhatsAppLidMap::resolve($digits) ?? $digits;
+                if (self::samePhoneDigits($connDigits, $resolved)) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    /**
+     * "@todos"/"@all"/"@everyone" no texto ou na lista do provedor.
+     */
+    public static function isEveryoneMentioned(array $mentioned, string $text): bool
+    {
+        foreach ($mentioned as $m) {
+            $t = strtolower(trim((string) $m, "@ \t"));
+            if (in_array($t, ['todos', 'todo', 'all', 'everyone', 'everybody'], true)) {
+                return true;
+            }
+        }
+        return (bool) preg_match('/@(?:todos?|all|everyone|everybody)\b/i', $text);
+    }
+
+    /**
+     * Aprende pares LID -> telefone observados no payload bruto (Uazapi envia
+     * sender_lid/sender_pn e chat.wa_chatlid/phone). Vale p/ 1:1 e grupos.
+     */
+    private function learnLidMappings(array $payload): void
+    {
+        $pairs = [];
+        $msgs = [];
+        if (isset($payload['data']['message']) && is_array($payload['data']['message'])) {
+            $msgs[] = $payload['data']['message'];
+        }
+        if (isset($payload['message']) && is_array($payload['message'])) {
+            $msgs[] = $payload['message'];
+        }
+        foreach ($msgs as $msg) {
+            foreach ([['sender_lid', 'sender_pn'], ['chatlid', 'phone']] as [$lidKey, $phKey]) {
+                if (!empty($msg[$lidKey]) && !empty($msg[$phKey])) {
+                    $pairs[] = [$msg[$lidKey], $msg[$phKey]];
+                }
+            }
+        }
+        $chat = $payload['chat'] ?? [];
+        if (is_array($chat)) {
+            if (!empty($chat['wa_chatlid']) && !empty($chat['phone'])) {
+                $pairs[] = [$chat['wa_chatlid'], $chat['phone']];
+            }
+            if (!empty($chat['wa_chatlid']) && !empty($chat['wa_contactName'])) {
+                // sem telefone: ignora
+            }
+        }
+        foreach ($pairs as [$lid, $phone]) {
+            \App\Models\WhatsAppLidMap::learn((string) $lid, (string) $phone);
+        }
+    }
+
+    /**
+     * Resolve os mencionados para telefones: mapa aprendido + fallback ao
+     * endpoint resolvePhone do provedor (WAHA resolve @lid).
+     *
+     * @return string[] dígitos
+     */
+    private function resolveMentionedPhones(array $connection, array $mentioned): array
+    {
+        $out = [];
+        $needApi = [];
+        foreach ($mentioned as $m) {
+            $digits = preg_replace('/\D/', '', (string) $m);
+            if ($digits === '') {
+                continue;
+            }
+            $resolved = \App\Models\WhatsAppLidMap::resolve($digits);
+            if ($resolved && !\App\Models\WhatsAppLidMap::isLid($resolved)) {
+                $out[] = $resolved;
+            } elseif (\App\Models\WhatsAppLidMap::isLid($digits)) {
+                $needApi[] = $digits;
+            } else {
+                $out[] = $digits;
+            }
+        }
+        if (!empty($needApi)) {
+            try {
+                $provider = WhatsAppManager::forConnection($connection);
+                foreach (array_unique($needApi) as $lid) {
+                    $phone = $provider->resolvePhone($connection, $lid . '@lid');
+                    if ($phone) {
+                        \App\Models\WhatsAppLidMap::learn($lid, $phone);
+                        $out[] = preg_replace('/\D/', '', $phone);
+                    }
+                }
+            } catch (\Throwable $e) {
+                $this->logWebhook('LID_RESOLVE_ERROR', ['error' => $e->getMessage()]);
+            }
+        }
+        return array_values(array_unique($out));
+    }
+
+    /**
+     * Envia texto para um grupo gerenciado.
+     *
+     * @return array{provider_message_id:?string}
+     */
+    public function sendGroupMessage(int $groupId, string $text): array
+    {
+        $group = \App\Models\WhatsAppGroup::find($groupId);
+        if (!$group) {
+            throw new \RuntimeException('Grupo não encontrado.');
+        }
+        $connection = WhatsAppConnection::find((int) $group['connection_id']);
+        if (!$connection) {
+            throw new \RuntimeException('Conexão do grupo não encontrada.');
+        }
+        $text = trim($text);
+        if ($text === '') {
+            throw new \RuntimeException('Mensagem vazia.');
+        }
+        $provider = WhatsAppManager::forConnection($connection);
+        if (!method_exists($provider, 'sendGroupText')) {
+            throw new \RuntimeException('Provedor não suporta envio para grupos.');
+        }
+        $result = $provider->sendGroupText($connection, $group['group_jid'], $text);
+        // Espelha o envio na conversa do grupo (caixa selecionada).
+        try {
+            $conv = $this->ensureGroupConversation($connection, $group, $text);
+            if ($conv) {
+                Conversation::addMessage((int) $conv['id'], [
+                    'type' => 'text',
+                    'content' => $text,
+                    'direction' => 'outbound',
+                    'channel_message_id' => $result['provider_message_id'] ?? null,
+                    'user_id' => \App\Core\Auth::id() ?: null,
+                    'is_read' => 1,
+                    'read_at' => date('Y-m-d H:i:s'),
+                ]);
+            }
+        } catch (\Throwable $e) {
+            $this->logWebhook('GROUP_SEND_LOG_ERROR', ['error' => $e->getMessage()]);
+        }
+        return $result;
     }
 
     /**
@@ -639,6 +1109,7 @@ class WhatsAppService
             'name' => $name,
             'size' => $size,
             'mime' => $realMime,
+            'path' => 'messages/' . $newName,
         ];
     }
 
@@ -675,13 +1146,19 @@ class WhatsAppService
     {
         static $map = [
             'image/jpeg' => 'jpg', 'image/png' => 'png', 'image/gif' => 'gif', 'image/webp' => 'webp',
-            'audio/mpeg' => 'mp3', 'audio/mp4' => 'm4a', 'audio/ogg' => 'ogg', 'audio/wav' => 'wav', 'audio/x-wav' => 'wav',
-            'video/mp4' => 'mp4', 'video/webm' => 'webm', 'video/quicktime' => 'mov',
+            'image/bmp' => 'bmp', 'image/heic' => 'heic', 'image/heif' => 'heif',
+            'audio/mpeg' => 'mp3', 'audio/mp3' => 'mp3', 'audio/mp4' => 'm4a', 'audio/aac' => 'aac',
+            'audio/ogg' => 'ogg', 'audio/opus' => 'opus', 'audio/wav' => 'wav', 'audio/x-wav' => 'wav',
+            'audio/webm' => 'webm', 'audio/x-m4a' => 'm4a', 'audio/3gpp' => '3gp',
+            'video/mp4' => 'mp4', 'video/webm' => 'webm', 'video/quicktime' => 'mov', 'video/3gpp' => '3gp',
             'application/pdf' => 'pdf', 'application/msword' => 'doc',
             'application/vnd.openxmlformats-officedocument.wordprocessingml.document' => 'docx',
             'application/vnd.ms-excel' => 'xls',
             'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' => 'xlsx',
-            'application/zip' => 'zip', 'text/plain' => 'txt',
+            'application/vnd.ms-powerpoint' => 'ppt',
+            'application/vnd.openxmlformats-officedocument.presentationml.presentation' => 'pptx',
+            'application/zip' => 'zip', 'application/x-rar-compressed' => 'rar',
+            'text/plain' => 'txt', 'text/csv' => 'csv',
         ];
         return $map[strtolower($mime)] ?? null;
     }
@@ -692,7 +1169,51 @@ class WhatsAppService
         return $ext !== '' ? $ext : null;
     }
 
-    private function handleConnectionEvent(array $payload, string $providerName): void
+    /**
+     * Valida a autenticidade do webhook para a conexão.
+     * Aceita (qualquer um vale):
+     *   a) ?secret= na query string (Uazapi pode sufixar /messages/text);
+     *   b) HMAC-SHA256 do corpo bruto nos headers X-Webhook-Signature,
+     *      X-Signature ou X-Hub-Signature-256 (prefixo "sha256=" opcional).
+     * Sem webhook_secret configurado na conexão, permite (compatibilidade).
+     */
+    private function validateWebhookSecret(array $connection, string $rawBody): bool
+    {
+        $stored = (string) ($connection['webhook_secret'] ?? '');
+        if ($stored === '') {
+            return true;
+        }
+
+        $secret = (string) ($_GET['secret'] ?? '');
+        // Uazapi pode adicionar /messages/text ao final da URL; extrai apenas a parte hex
+        if (preg_match('/^([a-f0-9]{32})/i', $secret, $m)) {
+            $secret = $m[1];
+        }
+        if ($secret !== '' && hash_equals($stored, $secret)) {
+            return true;
+        }
+
+        $sig = '';
+        foreach (['HTTP_X_WEBHOOK_SIGNATURE', 'HTTP_X_SIGNATURE', 'HTTP_X_HUB_SIGNATURE_256'] as $h) {
+            if (!empty($_SERVER[$h])) {
+                $sig = (string) $_SERVER[$h];
+                break;
+            }
+        }
+        if ($sig !== '') {
+            $sig = strtolower(preg_replace('/^sha256=/i', '', trim($sig)));
+            if (preg_match('/^[a-f0-9]{64}$/', $sig)) {
+                $expected = hash_hmac('sha256', $rawBody, $stored);
+                if (hash_equals($expected, $sig)) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    private function handleConnectionEvent(array $payload, string $providerName, string $rawBody = ''): void
     {
         $instanceRaw = $payload['instance'] ?? null;
         $instanceName = is_array($instanceRaw) ? ($instanceRaw['name'] ?? '') : '';
@@ -710,6 +1231,12 @@ class WhatsAppService
         $connection = WhatsAppConnection::findByProviderId($providerName, $providerId);
         if (!$connection) {
             $this->logWebhook('NO_CONNECTION', ['providerId' => $providerId, 'provider' => $providerName]);
+            return;
+        }
+
+        // Eventos de conexão também exigem o segredo (antes passavam sem validar).
+        if (!$this->validateWebhookSecret($connection, $rawBody)) {
+            $this->logWebhook('SECRET_FAIL', ['providerId' => $providerId, 'event' => 'connection']);
             return;
         }
 
@@ -782,25 +1309,60 @@ class WhatsAppService
      * Envia uma mensagem outbound de uma conversa pelo provedor conectado.
      * O registro da mensagem já existe no banco; aqui apenas entregamos ao WhatsApp
      * e gravamos o channel_message_id.
+     *
+     * Otimizações de performance:
+     *  - Carrega conversation+channel+connection+contact em UMA única query (JOIN)
+     *  - Cache estático local de conexões válidas (evita re-fetch no mesmo request)
+     *  - A chamada HTTP ao provedor usa `delay: 0`, então a Uazapi responde rápido.
      */
+    private static array $connectionCache = [];
+
     public function sendOutbound(int $conversationId, int $messageId, string $type, string $content): ?string
     {
-        $conversation = Conversation::find($conversationId);
-        if (!$conversation) {
-            return null;
-        }
+        $cacheKey = "conn:{$conversationId}";
+        if (isset(self::$connectionCache[$cacheKey])) {
+            $bundle = self::$connectionCache[$cacheKey];
+            $conversation = $bundle['conversation'];
+            $channel = $bundle['channel'];
+            $connection = $bundle['connection'];
+            $contact = $bundle['contact'];
+        } else {
+            // Single JOIN: 1 round-trip ao banco em vez de 4
+            $row = Database::getInstance()->fetch(
+                "SELECT
+                    c.id AS conv_id, c.contact_id, c.status AS conv_status,
+                    ch.id AS ch_id, ch.type AS ch_type, ch.name AS ch_name,
+                    wc.id AS wc_id, wc.provider, wc.instance_name, wc.instance_token,
+                    wc.instance_id, wc.status AS wc_status, wc.phone_number,
+                    ct.phone AS ct_phone, ct.name AS ct_name
+                 FROM conversations c
+                 JOIN channels ch ON ch.id = c.channel_id
+                 LEFT JOIN whatsapp_connections wc ON wc.channel_id = ch.id
+                 LEFT JOIN contacts ct ON ct.id = c.contact_id
+                 WHERE c.id = ?",
+                [$conversationId]
+            );
+            if (!$row || $row['ch_type'] !== 'whatsapp') {
+                return null;
+            }
+            $conversation = ['id' => $row['conv_id'], 'contact_id' => $row['contact_id']];
+            $channel = ['id' => $row['ch_id'], 'type' => $row['ch_type'], 'name' => $row['ch_name']];
+            $connection = $row['wc_id'] === null ? null : [
+                'id' => $row['wc_id'],
+                'channel_id' => $row['ch_id'],
+                'provider' => $row['provider'],
+                'instance_name' => $row['instance_name'],
+                'instance_token' => $row['instance_token'],
+                'instance_id' => $row['instance_id'],
+                'status' => $row['wc_status'],
+                'phone_number' => $row['phone_number'],
+            ];
+            $contact = $row['ct_phone'] ? ['id' => $row['contact_id'], 'phone' => $row['ct_phone'], 'name' => $row['ct_name']] : null;
 
-        $channel = Database::getInstance()->fetch(
-            "SELECT ch.* FROM channels ch WHERE ch.id = ?",
-            [$conversation['channel_id']]
-        );
-        if (!$channel || $channel['type'] !== 'whatsapp') {
-            return null;
-        }
-
-        $connection = WhatsAppConnection::findByChannel((int) $channel['id']);
-        if (!$connection) {
-            return null;
+            if (!$connection || !$contact) {
+                return null;
+            }
+            self::$connectionCache[$cacheKey] = compact('conversation', 'channel', 'connection', 'contact');
         }
 
         // Sincroniza status rapidamente se estiver desconectado
@@ -816,21 +1378,12 @@ class WhatsAppService
                         'last_connected_at' => date('Y-m-d H:i:s'),
                         'error_message' => null,
                     ]);
+                    // atualiza o cache
+                    self::$connectionCache[$cacheKey]['connection'] = $connection;
                 }
             } catch (\Throwable $e) {
                 error_log("sendOutbound: {$conversationId}/{$messageId} getStatus falhou: " . $e->getMessage());
             }
-        }
-
-        // Tenta enviar mesmo se status não for 'connected'; o provider retornará erro se offline.
-        if ($connection['status'] !== 'connected') {
-            error_log("sendOutbound: {$conversationId}/{$messageId} tentando enviar mesmo com status={$connection['status']}");
-        }
-
-        $contact = Contact::find((int) $conversation['contact_id']);
-        if (!$contact || empty($contact['phone'])) {
-            error_log("sendOutbound: {$conversationId}/{$messageId} contato sem telefone");
-            return null;
         }
 
         $provider = WhatsAppManager::forConnection($connection);
@@ -838,8 +1391,37 @@ class WhatsAppService
         $options = [];
         if ($type !== 'text') {
             $meta = json_decode($content, true);
-            $options['mimetype'] = $meta['mime'] ?? null;
-            $options['caption'] = $meta['name'] ?? null;
+            if (is_array($meta)) {
+                $caption = $meta['caption'] ?? null;
+                if (!is_string($caption) || trim($caption) === '') {
+                    $caption = null;
+                }
+                $options['mimetype'] = $meta['mime'] ?? null;
+                $options['caption'] = $caption;
+                $options['file_name'] = $meta['name'] ?? null;
+            }
+        }
+
+        // Citação: reply_to local → ID da mensagem original no provedor
+        // (Uazapi usa `replyid`, WAHA usa `reply_to` — cada provider lê a sua).
+        try {
+            $own = Database::getInstance()->fetch(
+                "SELECT reply_to FROM messages WHERE id = ?",
+                [$messageId]
+            );
+            if ($own && !empty($own['reply_to'])) {
+                $parent = Database::getInstance()->fetch(
+                    "SELECT channel_message_id FROM messages WHERE id = ? AND conversation_id = ?",
+                    [(int) $own['reply_to'], $conversationId]
+                );
+                $quotedId = $parent['channel_message_id'] ?? null;
+                if (is_string($quotedId) && $quotedId !== '') {
+                    $options['quoted_id'] = $quotedId;
+                    $options['reply_to'] = $quotedId;
+                }
+            }
+        } catch (\Throwable $e) {
+            error_log("sendOutbound: {$conversationId}/{$messageId} quote lookup falhou: " . $e->getMessage());
         }
 
         try {
@@ -874,15 +1456,20 @@ class WhatsAppService
             $raw = $result['raw'] ?? [];
             $errMsg = is_array($raw) ? (json_encode($raw, JSON_UNESCAPED_UNICODE)) : (string) $raw;
             error_log("sendOutbound: {$conversationId}/{$messageId} sem provider_message_id. Resposta: {$errMsg}");
-        }
-        if ($providerMessageId) {
             Database::getInstance()->update(
                 'messages',
-                ['channel_message_id' => $providerMessageId],
+                ['delivery_status' => 'failed'],
                 'id = ?',
                 [$messageId]
             );
+            return null;
         }
+        Database::getInstance()->update(
+            'messages',
+            ['channel_message_id' => $providerMessageId, 'delivery_status' => 'sent'],
+            'id = ?',
+            [$messageId]
+        );
 
         return $providerMessageId;
     }
@@ -982,8 +1569,15 @@ class WhatsAppService
             [$conn, $waId] = $connection;
         }
 
+        // Uazapi exige o número do chat em /message/react (number + id + text).
+        $to = null;
+        $conversation = Conversation::find($conversationId);
+        if ($conversation && !empty($conversation['contact_phone'])) {
+            $to = (string) $conversation['contact_phone'];
+        }
+
         try {
-            return WhatsAppManager::forConnection($conn)->sendReaction($conn, $waId, $reaction);
+            return WhatsAppManager::forConnection($conn)->sendReaction($conn, $waId, $reaction, $to);
         } catch (\Throwable $e) {
             error_log('WhatsApp sendReaction error: ' . $e->getMessage());
             return false;

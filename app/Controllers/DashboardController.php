@@ -16,7 +16,13 @@ class DashboardController
     {
         $userId = Auth::id();
         $isAdmin = Auth::isAdmin();
-        $db = Database::getInstance();
+
+        // Cache de 30s por usuário/perfil: o dashboard faz 15+ queries por
+        // load + auto-refresh. Contadores toleram 30s de defasagem.
+        $data = \App\Core\FileCache::remember(
+            'dashboard:' . $userId . ':' . ($isAdmin ? 'admin' : 'user'),
+            function () use ($userId, $isAdmin) {
+                $db = Database::getInstance();
 
         // --- Global stats (all inboxes the user can access) ---
         $inboxes = Inbox::getUserInboxes($userId);
@@ -162,10 +168,10 @@ class DashboardController
             $agentData = [];
         }
 
-        View::renderWithLayout('dashboard/index', 'main', [
-            'title' => 'Dashboard',
-            'activePage' => 'dashboard',
-            'inboxes' => $inboxes,
+                return [
+                    'title' => 'Dashboard',
+                    'activePage' => 'dashboard',
+                    'inboxes' => $inboxes,
             'openByInbox' => $openByInbox,
             'globalCounts' => $globalCounts,
             'globalOpen' => $globalOpen,
@@ -190,7 +196,12 @@ class DashboardController
             'deptData' => $deptData,
             'agentData' => $agentData,
             'recentConversations' => $recentConversations,
-            'isAdmin' => $isAdmin,
-        ]);
+                    'isAdmin' => $isAdmin,
+                ];
+            },
+            30
+        );
+
+        View::renderWithLayout('dashboard/index', 'main', $data);
     }
 }

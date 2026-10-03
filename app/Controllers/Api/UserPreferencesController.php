@@ -13,7 +13,14 @@ class UserPreferencesController
         'sound_enabled',
         'sound_new_message',
         'sound_new_conversation',
+        'sound_mention',
         'browser_notif_enabled',
+    ];
+
+    private const SOUND_KEYS = [
+        'sound_new_message',
+        'sound_new_conversation',
+        'sound_mention',
     ];
 
     public function index(Request $request): void
@@ -30,6 +37,7 @@ class UserPreferencesController
             'sound_enabled' => true,
             'sound_new_message' => 'default',
             'sound_new_conversation' => 'default',
+            'sound_mention' => 'default',
             'browser_notif_enabled' => true,
         ];
 
@@ -38,6 +46,12 @@ class UserPreferencesController
                 $prefs[$key] = $val;
             }
         }
+
+        // Áudios personalizados (para o SoundManager montar custom:<id> → url).
+        $prefs['custom_sounds'] = array_map(
+            [\App\Models\NotificationSound::class, 'toApi'],
+            \App\Models\NotificationSound::forUser($userId)
+        );
 
         View::json($prefs);
     }
@@ -73,6 +87,8 @@ class UserPreferencesController
             $value = $body[$key];
             if (in_array($key, ['sound_enabled', 'browser_notif_enabled'], true)) {
                 $value = filter_var($value, FILTER_VALIDATE_BOOLEAN);
+            } elseif (in_array($key, self::SOUND_KEYS, true)) {
+                $value = self::sanitizeSoundValue($userId, $value);
             } else {
                 $allowed = ['default', 'soft', 'sharp', 'silent'];
                 $value = in_array($value, $allowed, true) ? $value : 'default';
@@ -86,5 +102,22 @@ class UserPreferencesController
             'updated' => $updated,
             'prefs' => UserPreference::getAll($userId),
         ]);
+    }
+
+    /**
+     * Aceita perfil built-in ou 'custom:<id>' (som do próprio usuário).
+     */
+    public static function sanitizeSoundValue(int $userId, $value): string
+    {
+        if (in_array($value, ['default', 'soft', 'sharp', 'silent'], true)) {
+            return $value;
+        }
+        if (is_string($value) && preg_match('/^custom:(\d+)$/', $value, $m)) {
+            $row = \App\Models\NotificationSound::find((int) $m[1]);
+            if ($row && (int) $row['user_id'] === $userId) {
+                return $value;
+            }
+        }
+        return 'default';
     }
 }

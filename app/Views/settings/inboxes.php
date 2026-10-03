@@ -1,6 +1,7 @@
 <div class="channels-page">
-    <div class="page-toolbar">
-        <h2 class="page-title"><i class="fas fa-inbox"></i> Caixas de Entrada</h2>
+    <?php $subPage = 'inboxes'; require __DIR__ . '/_tabs.php'; ?>
+
+    <div class="page-actions">
         <a href="<?= url('inboxes/create') ?>" class="btn btn-primary btn-sm">
             <i class="fas fa-plus"></i> Nova Caixa
         </a>
@@ -62,7 +63,7 @@
                                 </td>
                                 <td class="action-cell">
                                     <a href="<?= url('inboxes/' . $ib['id'] . '/edit') ?>" class="btn btn-sm btn-outline" title="Editar"><i class="fas fa-edit"></i></a>
-                                    <form action="<?= url('inboxes/' . $ib['id'] . '/delete') ?>" method="POST" style="display:inline" onsubmit="return confirm('Remover esta caixa? As conversas nela ficarão sem caixa.')">
+                                    <form action="<?= url('inboxes/' . $ib['id'] . '/delete') ?>" method="POST" style="display:inline" data-confirm="Remover esta caixa? As conversas nela ficarão sem caixa.">
                                         <?= csrf_field() ?>
                                         <button type="submit" class="btn btn-sm btn-danger" title="Excluir"><i class="fas fa-trash"></i></button>
                                     </form>

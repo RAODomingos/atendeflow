@@ -4,11 +4,6 @@
             <a href="<?= url('reports') ?>" class="reports-back" title="Voltar">
                 <i class="fa-solid fa-arrow-left"></i>
             </a>
-            <div class="reports-header-icon reports-header-icon--info"><i class="fas fa-comments"></i></div>
-            <div>
-                <h1 class="reports-title">Conversas</h1>
-                <p class="reports-subtitle">Volume, tendências e distribuição</p>
-            </div>
         </div>
         <form method="GET" class="reports-period-form">
             <label class="reports-period-label">Período:</label>
@@ -19,6 +14,9 @@
                 <option value="all" <?= $period === 'all' ? 'selected' : '' ?>>Todo período</option>
             </select>
         </form>
+        <a href="<?= url('reports/timeline') ?>" class="btn btn-sm btn-outline" title="Listar as conversas e exportar em PDF/CSV">
+            <i class="fas fa-list"></i> Listagem + Exportar PDF/CSV
+        </a>
     </div>
 
     <!-- Tendência -->

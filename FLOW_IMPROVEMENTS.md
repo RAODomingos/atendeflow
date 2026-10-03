@@ -2,7 +2,7 @@
 
 ## Resumo das Melhorias
 
-Todas as 10 melhorias identificadas foram implementadas no sistema de fluxos do AtendeFlow.
+Todas as 10 melhorias identificadas foram implementadas no sistema de fluxos do OminiDesk.
 
 ## 1. Delay Assíncrono (Remoção do sleep())
 

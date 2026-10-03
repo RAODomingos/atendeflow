@@ -65,7 +65,7 @@ class WhatsAppController
     {
         $raw = file_get_contents('php://input');
         @file_put_contents(dirname(__DIR__, 2) . '/storage/logs/webhook.log',
-            '[' . date('Y-m-d H:i:s') . "] RAW method={$_SERVER['REQUEST_METHOD']} query=" . json_encode($_GET) . " body=" . substr($raw, 0, 2000) . PHP_EOL, FILE_APPEND);
+            '[' . date('Y-m-d H:i:s') . "] RAW method={$_SERVER['REQUEST_METHOD']} query=" . json_encode($_GET) . " body=" . substr($raw, 0, 6000) . PHP_EOL, FILE_APPEND);
 
         $payload = json_decode($raw, true) ?: [];
         if (empty($payload) && !empty($_POST)) {
@@ -73,7 +73,7 @@ class WhatsAppController
         }
 
         try {
-            $this->service->handleWebhook($payload);
+            $this->service->handleWebhook($payload, (string) $raw);
         } catch (\Throwable $e) {
             // Nunca quebramos o webhook do provedor; registramos no log.
             error_log('WhatsApp webhook error: ' . $e->getMessage());

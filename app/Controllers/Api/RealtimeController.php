@@ -12,7 +12,7 @@ use App\Models\UserPresence;
 
 class RealtimeController
 {
-    private const POLL_INTERVAL = 2;
+    private const POLL_INTERVAL = 5;
     private const MAX_RUNTIME = 55;
 
     /**
@@ -24,6 +24,7 @@ class RealtimeController
      *   - conversation_new: nova conversa chegou (atalho para UI atualizar lista)
      *   - message_incoming: nova mensagem em conversa visível ao usuário
      *   - unread_count: contagem atualizada
+     *   - inbox_counts: abertas por caixa (badges do menu lateral)
      *   - presence: status online/offline de outro usuário
      */
     public function events(Request $request): void
@@ -49,7 +50,6 @@ class RealtimeController
         header('Cache-Control: no-cache, no-store, must-revalidate');
         header('Connection: keep-alive');
         header('X-Accel-Buffering: no');
-        header('Access-Control-Allow-Origin: *');
 
         set_time_limit(self::MAX_RUNTIME + 10);
 
@@ -68,6 +68,12 @@ class RealtimeController
             "SELECT COALESCE(MAX(id), 0) as max_id FROM messages"
         );
         $lastMessageId = (int) ($maxMsgRow['max_id'] ?? 0);
+
+        $maxEvtRow = Database::getInstance()->fetch(
+            "SELECT COALESCE(MAX(id), 0) as max_id FROM conversation_events
+             WHERE event_type IN ('flow_started','flow_completed','flow_timeout','tag_added','tag_removed')"
+        );
+        $lastEventId = (int) ($maxEvtRow['max_id'] ?? 0);
 
         echo "event: connected\ndata: " . json_encode([
             'userId' => $userId,
@@ -91,7 +97,9 @@ class RealtimeController
                 $this->emitNotifications($userId, $lastNotificationId);
                 $this->emitNewConversations($userId, $lastConversationId);
                 $this->emitIncomingMessages($userId, $lastMessageId);
+                $this->emitConversationUpdates($userId, $lastEventId);
                 $this->emitUnreadCount($userId);
+                $this->emitInboxCounts($userId);
                 $this->emitTyping($userId);
                 $this->emitHeartbeat();
 
@@ -135,26 +143,33 @@ class RealtimeController
     private function emitNewConversations(int $userId, int &$lastConvId): void
     {
         try {
+            // Grupos WhatsApp nunca disparam "nova conversa": só menção
+            // (via evento notification) deve tocar/avisar.
             $rows = Database::getInstance()->fetchAll(
                 "SELECT c.id, c.contact_id, c.channel_id, c.inbox_id, c.status, c.created_at,
-                        c.last_message_at, ct.name as contact_name, ct.avatar as contact_avatar,
+                        c.last_message_at, c.assigned_user_id, c.department_id,
+                        ct.name as contact_name, ct.avatar as contact_avatar,
                         ch.type as channel_type, ch.name as channel_name
                  FROM conversations c
                  JOIN contacts ct ON ct.id = c.contact_id
                  LEFT JOIN channels ch ON ch.id = c.channel_id
                  WHERE c.id > ?
                    AND c.status NOT IN ('closed','resolved','spam')
+                   AND c.group_id IS NULL
                  ORDER BY c.id ASC
                  LIMIT 20",
                 [$lastConvId]
             );
+            $maxSeen = $lastConvId;
             foreach ($rows as $row) {
+                $maxSeen = max($maxSeen, (int) $row['id']);
                 if (!self::userSeesConversation($userId, $row)) {
                     continue;
                 }
                 echo "event: conversation_new\ndata: " . json_encode($row, JSON_UNESCAPED_UNICODE) . "\n\n";
-                $lastConvId = max($lastConvId, (int) $row['id']);
             }
+            // Avança o cursor mesmo para conversas invisíveis: evita re-scan infinito.
+            $lastConvId = $maxSeen;
         } catch (\Throwable $e) {
             error_log('SSE conversations error: ' . $e->getMessage());
         }
@@ -163,33 +178,27 @@ class RealtimeController
     private function emitIncomingMessages(int $userId, int &$lastMsgId): void
     {
         try {
+            // Traz inbox/assigned/department no JOIN: evita 1 SELECT extra por mensagem (N+1).
+            // Grupos WhatsApp nunca emitem message_incoming (nem menção): o
+            // aviso de menção chega UMA vez via evento notification.
             $rows = Database::getInstance()->fetchAll(
                 "SELECT m.id, m.conversation_id, m.type, m.content, m.direction, m.created_at,
-                        c.contact_id, ct.name as contact_name, ch.type as channel_type
+                        c.contact_id, c.inbox_id, c.assigned_user_id, c.department_id,
+                        ct.name as contact_name, ch.type as channel_type
                  FROM messages m
                  JOIN conversations c ON c.id = m.conversation_id
                  JOIN contacts ct ON ct.id = c.contact_id
                  LEFT JOIN channels ch ON ch.id = c.channel_id
                  WHERE m.id > ? AND m.direction = 'inbound'
+                   AND c.group_id IS NULL
                  ORDER BY m.id ASC
                  LIMIT 50",
                 [$lastMsgId]
             );
+            $maxSeen = $lastMsgId;
             foreach ($rows as $row) {
-                $conv = [
-                    'id' => $row['conversation_id'],
-                    'inbox_id' => null,
-                    'assigned_user_id' => null,
-                    'department_id' => null,
-                ];
-                $full = Database::getInstance()->fetch(
-                    "SELECT inbox_id, assigned_user_id, department_id FROM conversations WHERE id = ?",
-                    [$row['conversation_id']]
-                );
-                if ($full) {
-                    $conv = array_merge($conv, $full);
-                }
-                if (!self::userSeesConversation($userId, $conv)) {
+                $maxSeen = max($maxSeen, (int) $row['id']);
+                if (!self::userSeesConversation($userId, $row)) {
                     continue;
                 }
                 $payload = [
@@ -202,18 +211,77 @@ class RealtimeController
                     'channel_type' => $row['channel_type'],
                 ];
                 echo "event: message_incoming\ndata: " . json_encode($payload, JSON_UNESCAPED_UNICODE) . "\n\n";
-                $lastMsgId = max($lastMsgId, (int) $row['id']);
             }
+            // Avança mesmo para invisíveis: evita re-scan a cada 2s.
+            $lastMsgId = $maxSeen;
         } catch (\Throwable $e) {
             error_log('SSE messages error: ' . $e->getMessage());
         }
     }
 
-    private function emitUnreadCount(int $userId): void
+    /**
+     * Emite o evento "conversation_updated" quando tags ou estado de fluxo
+     * mudam (fluxo iniciado/finalizado/timeout, etiqueta aplicada/removida).
+     * A UI usa esse sinal para re-buscar a lista e atualizar os chips em tempo real.
+     */
+    private function emitConversationUpdates(int $userId, int &$lastEventId): void
     {
         try {
+            $rows = Database::getInstance()->fetchAll(
+                "SELECT e.id, e.conversation_id, e.event_type,
+                        c.inbox_id, c.assigned_user_id, c.department_id
+                 FROM conversation_events e
+                 JOIN conversations c ON c.id = e.conversation_id
+                 WHERE e.id > ?
+                   AND e.event_type IN ('flow_started','flow_completed','flow_timeout','tag_added','tag_removed')
+                 ORDER BY e.id ASC
+                 LIMIT 50",
+                [$lastEventId]
+            );
+            foreach ($rows as $row) {
+                if (!self::userSeesConversation($userId, $row)) {
+                    $lastEventId = max($lastEventId, (int) $row['id']);
+                    continue;
+                }
+                echo "event: conversation_updated\ndata: " . json_encode([
+                    'conversation_id' => (int) $row['conversation_id'],
+                    'event_type' => $row['event_type'],
+                ], JSON_UNESCAPED_UNICODE) . "\n\n";
+                $lastEventId = max($lastEventId, (int) $row['id']);
+            }
+        } catch (\Throwable $e) {
+            error_log('SSE conversation_updated error: ' . $e->getMessage());
+        }
+    }
+
+    private function emitUnreadCount(int $userId): void
+    {
+        static $last = [];
+        try {
             $count = Notification::getUnreadCount($userId);
-            echo "event: unread_count\ndata: {$count}\n\n";
+            // Só emite quando muda: antes ia a cada tick (6 queries/2s por usuário).
+            if (($last[$userId] ?? null) !== $count) {
+                $last[$userId] = $count;
+                echo "event: unread_count\ndata: {$count}\n\n";
+            }
+        } catch (\Throwable $e) {
+            // ignore
+        }
+    }
+
+    private function emitInboxCounts(int $userId): void
+    {
+        static $last = [];
+        try {
+            [$counts, $total] = InboxCountsController::countsForUser($userId);
+            $key = json_encode(['c' => $counts, 't' => $total]);
+            if (($last[$userId] ?? null) !== $key) {
+                $last[$userId] = $key;
+                echo "event: inbox_counts\ndata: " . json_encode([
+                    'counts' => $counts,
+                    'total' => $total,
+                ], JSON_UNESCAPED_UNICODE) . "\n\n";
+            }
         } catch (\Throwable $e) {
             // ignore
         }
@@ -255,43 +323,59 @@ class RealtimeController
 
     /**
      * Verifica se o usuário tem acesso à conversa (caixa, departamento,
-     * atribuição ou papel admin).
+     * atribuição ou papel admin). Com cache estático por tick para evitar
+     * 2-3 queries por mensagem em rajadas.
      */
     private static function userSeesConversation(int $userId, array $conv): bool
     {
-        $row = Database::getInstance()->fetch(
-            "SELECT role FROM users WHERE id = ?",
-            [$userId]
-        );
-        if (!$row) {
+        static $roleCache = [];
+        static $inboxCache = [];
+        static $deptCache = [];
+
+        if (!array_key_exists($userId, $roleCache)) {
+            $row = Database::getInstance()->fetch(
+                "SELECT role FROM users WHERE id = ?",
+                [$userId]
+            );
+            $roleCache[$userId] = $row['role'] ?? null;
+        }
+        if (!$roleCache[$userId]) {
             return false;
         }
-        if ($row['role'] === 'admin') {
+        if ($roleCache[$userId] === 'admin') {
             return true;
         }
         if (!empty($conv['assigned_user_id']) && (int) $conv['assigned_user_id'] === $userId) {
             return true;
         }
         if (!empty($conv['inbox_id'])) {
-            $own = Database::getInstance()->fetch(
-                "SELECT 1 FROM inboxes i
-                 LEFT JOIN inbox_departments idp ON idp.inbox_id = i.id
-                 LEFT JOIN department_users du ON du.department_id = idp.department_id AND du.user_id = ?
-                 LEFT JOIN inbox_users iu ON iu.inbox_id = i.id AND iu.user_id = ?
-                 WHERE i.id = ? AND (du.id IS NOT NULL OR iu.id IS NOT NULL)
-                 LIMIT 1",
-                [$userId, $userId, $conv['inbox_id']]
-            );
-            if ($own) {
+            $key = $userId . ':' . $conv['inbox_id'];
+            if (!array_key_exists($key, $inboxCache)) {
+                $own = Database::getInstance()->fetch(
+                    "SELECT 1 FROM inboxes i
+                     LEFT JOIN inbox_departments idp ON idp.inbox_id = i.id
+                     LEFT JOIN department_users du ON du.department_id = idp.department_id AND du.user_id = ?
+                     LEFT JOIN inbox_users iu ON iu.inbox_id = i.id AND iu.user_id = ?
+                     WHERE i.id = ? AND (du.id IS NOT NULL OR iu.id IS NOT NULL)
+                     LIMIT 1",
+                    [$userId, $userId, $conv['inbox_id']]
+                );
+                $inboxCache[$key] = (bool) $own;
+            }
+            if ($inboxCache[$key]) {
                 return true;
             }
         }
         if (!empty($conv['department_id'])) {
-            $dept = Database::getInstance()->fetch(
-                "SELECT 1 FROM department_users WHERE department_id = ? AND user_id = ?",
-                [$conv['department_id'], $userId]
-            );
-            if ($dept) {
+            $key = $userId . ':' . $conv['department_id'];
+            if (!array_key_exists($key, $deptCache)) {
+                $dept = Database::getInstance()->fetch(
+                    "SELECT 1 FROM department_users WHERE department_id = ? AND user_id = ?",
+                    [$conv['department_id'], $userId]
+                );
+                $deptCache[$key] = (bool) $dept;
+            }
+            if ($deptCache[$key]) {
                 return true;
             }
         }

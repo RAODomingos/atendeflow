@@ -40,5 +40,20 @@ require __DIR__ . '/../routes/web.php';
 // Passar requisição autenticada
 $request = \App\Core\Request::capture();
 
+// CORS para a API pública do ChatWeb quando o widget está em outro domínio
+// (ex.: portal Wiki hospedado fora do OminiDesk). O widget usa POST com
+// Content-Type: application/json, que dispara preflight (OPTIONS).
+$__corsUri = parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH) ?: '/';
+if (str_contains($__corsUri, '/api/webchat/')) {
+    header('Access-Control-Allow-Origin: *');
+    header('Access-Control-Allow-Methods: GET, POST, OPTIONS');
+    header('Access-Control-Allow-Headers: Content-Type, X-Requested-With');
+    header('Access-Control-Max-Age: 86400');
+    if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'OPTIONS') {
+        http_response_code(200);
+        exit;
+    }
+}
+
 // Executar roteamento
 $router->dispatch($request);

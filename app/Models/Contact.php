@@ -117,7 +117,29 @@ class Contact
 
         $sql .= " ORDER BY c.updated_at DESC";
 
+        // Paginação opcional (index usa; selects internos trazem tudo).
+        if (!empty($filters['limit'])) {
+            $sql .= " LIMIT " . max(1, (int) $filters['limit']);
+            if (!empty($filters['offset'])) {
+                $sql .= " OFFSET " . max(0, (int) $filters['offset']);
+            }
+        }
+
         return Database::getInstance()->fetchAll($sql, $params);
+    }
+
+    public static function count(array $filters = []): int
+    {
+        $sql = "SELECT COUNT(*) as t FROM contacts c WHERE 1=1";
+        $params = [];
+
+        if (!empty($filters['search'])) {
+            $sql .= " AND (c.name LIKE ? OR c.email LIKE ? OR c.phone LIKE ?)";
+            $search = "%{$filters['search']}%";
+            $params = array_merge($params, [$search, $search, $search]);
+        }
+
+        return (int) (Database::getInstance()->fetch($sql, $params)['t'] ?? 0);
     }
 
     public static function create(array $data): int
@@ -226,6 +248,135 @@ class Contact
              ORDER BY c.name LIMIT 20",
             [$search, $search, $search, $search]
         );
+    }
+
+    /**
+     * Retorna as conversas do contato com filtros opcionais.
+     *
+     * Filtros aceitos em $filters:
+     *  - year:    int (4 dígitos) — filtra por YEAR(c.created_at)
+     *  - month:   int (1-12)     — filtra por MONTH(c.created_at)
+     *  - department: int         — filtra por c.department_id
+     *  - status:  string        — filtra por c.status
+     */
+    public static function getConversations(int $contactId, array $filters = []): array
+    {
+        $sql = "SELECT c.*, ch.type as channel_type, ch.name as channel_name,
+                       d.name as department_name, d.color as department_color,
+                       u.name as assigned_user_name,
+                       (SELECT content FROM messages WHERE conversation_id = c.id ORDER BY created_at DESC LIMIT 1) as last_message,
+                       (SELECT created_at FROM messages WHERE conversation_id = c.id ORDER BY created_at DESC LIMIT 1) as last_message_date,
+                       (SELECT COUNT(*) FROM messages WHERE conversation_id = c.id) as message_count
+                FROM conversations c
+                LEFT JOIN channels ch ON ch.id = c.channel_id
+                LEFT JOIN departments d ON d.id = c.department_id
+                LEFT JOIN users u ON u.id = c.assigned_user_id
+                WHERE c.contact_id = ?";
+        $params = [$contactId];
+
+        self::applyConversationFilters($sql, $params, $filters);
+
+        $sql .= " ORDER BY c.created_at DESC";
+
+        return Database::getInstance()->fetchAll($sql, $params);
+    }
+
+    /**
+     * Conta conversas do contato por status, respeitando os mesmos filtros
+     * de getConversations() (exceto 'status' em si).
+     */
+    public static function countConversationsByStatus(int $contactId, array $filters = []): array
+    {
+        $sql = "SELECT c.status, COUNT(*) as total
+                FROM conversations c
+                WHERE c.contact_id = ?";
+        $params = [$contactId];
+        $f = $filters;
+        unset($f['status']);
+        self::applyConversationFilters($sql, $params, $f);
+
+        $sql .= " GROUP BY c.status";
+
+        $rows = Database::getInstance()->fetchAll($sql, $params);
+        $map = ['new' => 0, 'open' => 0, 'waiting_customer' => 0, 'waiting_internal' => 0,
+                'resolved' => 0, 'closed' => 0, 'spam' => 0];
+        $total = 0;
+        foreach ($rows as $r) {
+            $map[$r['status']] = (int) $r['total'];
+            $total += (int) $r['total'];
+        }
+        $map['_total'] = $total;
+        return $map;
+    }
+
+    /**
+     * Meses/anos em que o contato teve conversas (para popular o filtro).
+     * Retorna [ ['year' => 2026, 'month' => 7, 'label' => 'Julho 2026', 'count' => 3], ... ]
+     */
+    public static function getAvailableMonths(int $contactId): array
+    {
+        $rows = Database::getInstance()->fetchAll(
+            "SELECT YEAR(created_at) as year, MONTH(created_at) as month, COUNT(*) as total
+             FROM conversations
+             WHERE contact_id = ? AND created_at IS NOT NULL
+             GROUP BY YEAR(created_at), MONTH(created_at)
+             ORDER BY year DESC, month DESC",
+            [$contactId]
+        );
+        $monthNames = [1 => 'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
+                       'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
+        $out = [];
+        foreach ($rows as $r) {
+            $m = (int) $r['month'];
+            $out[] = [
+                'year' => (int) $r['year'],
+                'month' => $m,
+                'label' => ($monthNames[$m] ?? $m) . ' / ' . $r['year'],
+                'count' => (int) $r['total'],
+            ];
+        }
+        return $out;
+    }
+
+    /**
+     * Departamentos em que o contato teve conversas (para popular o filtro).
+     * Retorna [['id' => 2, 'name' => 'Comercial', 'color' => '#abc', 'count' => 5], ...]
+     */
+    public static function getAvailableDepartments(int $contactId): array
+    {
+        return Database::getInstance()->fetchAll(
+            "SELECT d.id, d.name, d.color, COUNT(c.id) as total
+             FROM conversations c
+             INNER JOIN departments d ON d.id = c.department_id
+             WHERE c.contact_id = ? AND c.department_id IS NOT NULL
+             GROUP BY d.id, d.name, d.color
+             ORDER BY d.name",
+            [$contactId]
+        );
+    }
+
+    /**
+     * Aplica filtros comuns a getConversations/countConversationsByStatus.
+     * Modifica $sql e $params por referência.
+     */
+    private static function applyConversationFilters(string &$sql, array &$params, array $filters): void
+    {
+        if (!empty($filters['year']) && (int) $filters['year'] > 0) {
+            $sql .= " AND YEAR(c.created_at) = ?";
+            $params[] = (int) $filters['year'];
+        }
+        if (!empty($filters['month']) && (int) $filters['month'] > 0) {
+            $sql .= " AND MONTH(c.created_at) = ?";
+            $params[] = (int) $filters['month'];
+        }
+        if (!empty($filters['department']) && (int) $filters['department'] > 0) {
+            $sql .= " AND c.department_id = ?";
+            $params[] = (int) $filters['department'];
+        }
+        if (!empty($filters['status']) && is_string($filters['status'])) {
+            $sql .= " AND c.status = ?";
+            $params[] = (string) $filters['status'];
+        }
     }
 
     public static function findOrCreate(string $name, ?string $email = null, ?string $phone = null, array $extra = []): array

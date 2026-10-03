@@ -307,13 +307,17 @@ class Flow
                 'id = ?',
                 [$existing['id']]
             );
-            return $existing['id'];
+            $stateId = (int) $existing['id'];
+        } else {
+            $data['conversation_id'] = $conversationId;
+            $data['flow_id'] = $flowId;
+            $stateId = Database::getInstance()->insert('conversation_flow_states', $data);
         }
 
-        $data['conversation_id'] = $conversationId;
-        $data['flow_id'] = $flowId;
-        
-        return Database::getInstance()->insert('conversation_flow_states', $data);
+        // Conversa em fluxo => etiqueta "Fluxo" (remove "Aberto" de uma execução anterior)
+        self::applyFlowActiveTag($conversationId);
+
+        return $stateId;
     }
 
     public static function getActiveFlowState(int $conversationId): ?array
@@ -326,14 +330,76 @@ class Flow
         );
     }
 
-    public static function completeFlowState(int $conversationId): int
+    /**
+     * Finaliza o estado de fluxo ativo da conversa.
+     *
+     * @param bool $applyAbertoTag true  = troca "Fluxo" → "Aberto" (fluxo terminou
+     *                                     naturalmente: nó finalizar/end/handoff/timeout)
+     *                             false = remove "Fluxo" SEM aplicar "Aberto"
+     *                                     (atendente assumiu: atribuiu/transferiu/
+     *                                     respondeu/mudou status).
+     */
+    public static function completeFlowState(int $conversationId, bool $applyAbertoTag = true): int
     {
-        return Database::getInstance()->update(
+        $updated = Database::getInstance()->update(
             'conversation_flow_states',
             ['is_active' => 0, 'finished_at' => date('Y-m-d H:i:s')],
             'conversation_id = ? AND is_active = 1',
             [$conversationId]
         );
+
+        if ($updated > 0) {
+            self::applyFlowFinishedTag($conversationId, $applyAbertoTag);
+        }
+
+        return $updated;
+    }
+
+    /**
+     * Etiquetas de status de fluxo controladas pelo sistema.
+     * "Fluxo" = conversa com fluxo ativo; "Aberto" = fluxo finalizado.
+     */
+    private static function applyFlowActiveTag(int $conversationId): void
+    {
+        $fluxo = Tag::ensureByName('Fluxo', '#8b5cf6');
+        self::removeTagIfExists($conversationId, 'Aberto');
+        Conversation::addTag($conversationId, $fluxo);
+    }
+
+    private static function applyFlowFinishedTag(int $conversationId, bool $applyAbertoTag = true): void
+    {
+        self::removeTagIfExists($conversationId, 'Fluxo');
+
+        // Atendente assumiu: a tag "Fluxo" some e NÃO vira "Aberto".
+        if (!$applyAbertoTag) {
+            return;
+        }
+
+        // Conversas finalizadas (closed/resolved/spam) não recebem "Aberto":
+        // a tag indica fluxo encerrado aguardando atendimento humano.
+        $conv = Conversation::find($conversationId);
+        if ($conv && in_array($conv['status'] ?? '', ['closed', 'resolved', 'spam'], true)) {
+            self::removeTagIfExists($conversationId, 'Aberto');
+            return;
+        }
+
+        $aberto = Tag::ensureByName('Aberto', '#22c55e');
+        Conversation::addTag($conversationId, $aberto);
+    }
+
+    private static function removeTagIfExists(int $conversationId, string $tagName): void
+    {
+        $tag = Tag::findByName($tagName);
+        if (!$tag) {
+            return;
+        }
+        $exists = Database::getInstance()->fetch(
+            "SELECT 1 FROM conversation_tags WHERE conversation_id = ? AND tag_id = ? LIMIT 1",
+            [$conversationId, (int) $tag['id']]
+        );
+        if ($exists) {
+            Conversation::removeTag($conversationId, (int) $tag['id']);
+        }
     }
 
     public static function saveAnswer(int $conversationId, int $nodeId, ?int $optionId = null, ?string $text = null): int
