@@ -79,14 +79,15 @@ class ContactController
     {
         $customerId = trim((string) $request->get('customer_id', ''));
         if ($customerId === '') {
-            View::json(['success' => false, 'error' => 'Informe o código da loja.']);
+            View::json(['success' => false, 'error' => 'Informe o código da loja.'], 422);
             return;
         }
         try {
             $result = (new \App\Services\GuildService())->getStores($customerId);
             View::json(['success' => true] + $result);
         } catch (\App\Services\GuildException $e) {
-            View::json(['success' => false, 'error' => $e->getMessage()]);
+            $local = in_array($e->getKind(), ['invalid_customer_id', 'missing_token'], true);
+            View::json(['success' => false, 'error' => $e->getMessage()], $local ? 422 : 200);
         } catch (\Throwable $e) {
             error_log('Erro inesperado no proxy Guild: ' . $e->getMessage());
             View::json(['success' => false, 'error' => 'Falha ao consultar o painel Guild. Tente novamente.']);
@@ -237,14 +238,19 @@ class ContactController
             View::back();
         }
 
-        Contact::update($id, [
+        // Legado: company só é tocada quando o formulário a enviou
+        // (formulários Guild não a postam — nunca apaga às cegas).
+        $upd = [
             'name' => $name,
             'email' => $request->post('email') ?: null,
             'phone' => $request->post('phone') ?: null,
-            'company' => $request->post('company') ?: null,
             'document' => $request->post('document') ?: null,
             'notes' => $request->post('notes') ?: null,
-        ]);
+        ];
+        if ($request->post('company', null) !== null) {
+            $upd['company'] = $request->post('company') ?: null;
+        }
+        Contact::update($id, $upd);
 
         // Sync tags dentro de transação para evitar perda em caso de erro
         $db = Database::getInstance();

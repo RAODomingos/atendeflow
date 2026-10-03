@@ -104,7 +104,6 @@ $newToday = $stats['new_today'] ?? 0;
                                  data-name="<?= $cName ?>"
                                  data-email="<?= $cEmail ?>"
                                  data-phone="<?= $cPhone ?>"
-                                 data-company="<?= $cCompany ?>"
                                  data-document="<?= $cDoc ?>"
                                  data-notes="<?= $cNotes ?>"
                                  data-avatar="<?= e($cAvatar) ?>"

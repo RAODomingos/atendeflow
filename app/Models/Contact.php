@@ -194,17 +194,18 @@ class Contact
                         JOIN conversations cv ON cv.id = m.conversation_id
                         WHERE cv.contact_id = c.id) as last_message_at
                 FROM contacts c
+                LEFT JOIN contact_stores csf ON csf.contact_id = c.id
                 WHERE 1=1";
 
         $params = [];
 
         if (!empty($filters['search'])) {
-            $sql .= " AND (c.name LIKE ? OR c.email LIKE ? OR c.phone LIKE ?)";
+            $sql .= " AND (c.name LIKE ? OR c.email LIKE ? OR c.phone LIKE ? OR csf.network_name LIKE ? OR csf.store_name LIKE ?)";
             $search = "%{$filters['search']}%";
-            $params = array_merge($params, [$search, $search, $search]);
+            $params = array_merge($params, [$search, $search, $search, $search, $search]);
         }
 
-        $sql .= " ORDER BY c.updated_at DESC";
+        $sql .= " GROUP BY c.id ORDER BY c.updated_at DESC";
 
         // Paginação opcional (index usa; selects internos trazem tudo).
         if (!empty($filters['limit'])) {
@@ -219,13 +220,15 @@ class Contact
 
     public static function count(array $filters = []): int
     {
-        $sql = "SELECT COUNT(*) as t FROM contacts c WHERE 1=1";
+        $sql = "SELECT COUNT(DISTINCT c.id) as t FROM contacts c
+                LEFT JOIN contact_stores csf ON csf.contact_id = c.id
+                WHERE 1=1";
         $params = [];
 
         if (!empty($filters['search'])) {
-            $sql .= " AND (c.name LIKE ? OR c.email LIKE ? OR c.phone LIKE ?)";
+            $sql .= " AND (c.name LIKE ? OR c.email LIKE ? OR c.phone LIKE ? OR csf.network_name LIKE ? OR csf.store_name LIKE ?)";
             $search = "%{$filters['search']}%";
-            $params = array_merge($params, [$search, $search, $search]);
+            $params = array_merge($params, [$search, $search, $search, $search, $search]);
         }
 
         return (int) (Database::getInstance()->fetch($sql, $params)['t'] ?? 0);
@@ -350,9 +353,11 @@ class Contact
         return Database::getInstance()->fetchAll(
             "SELECT DISTINCT c.* FROM contacts c
              LEFT JOIN contact_phones cp ON cp.contact_id = c.id
+             LEFT JOIN contact_stores cs ON cs.contact_id = c.id
              WHERE c.name LIKE ? OR c.email LIKE ? OR c.phone LIKE ? OR cp.phone LIKE ?
+                OR cs.network_name LIKE ? OR cs.store_name LIKE ?
              ORDER BY c.name LIMIT 20",
-            [$search, $search, $search, $search]
+            [$search, $search, $search, $search, $search, $search]
         );
     }
 

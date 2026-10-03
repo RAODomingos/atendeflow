@@ -53,27 +53,54 @@
                     var form = document.querySelector('.page-form form');
                     if (form) form.addEventListener('submit', function(){ guildCollect('F'); });
                 })();
+                function guildErr(box, msg){
+                    var p = document.createElement('p');
+                    p.className = 'guild-err';
+                    p.textContent = msg;
+                    box.appendChild(p);
+                }
                 function guildBuscar(sfx){
                     var codeEl = document.getElementById('guildCustomer' + sfx);
                     var box = document.getElementById('guildResult' + sfx);
                     var code = (codeEl.value || '').trim();
-                    if (!code) return;
-                    box.insertAdjacentHTML('beforeend', '<p class="text-muted" data-tmp>Buscando lojas...</p>');
+                    if (!code || !box) return;
+                    var tmp = document.createElement('p');
+                    tmp.className = 'text-muted'; tmp.dataset.tmp = '';
+                    tmp.textContent = 'Buscando lojas...';
+                    box.appendChild(tmp);
                     var base = document.querySelector('meta[name="base-url"]')?.content || '';
                     fetch(base + '/api/guild/stores?customer_id=' + encodeURIComponent(code), {headers:{'X-Requested-With':'XMLHttpRequest'}})
                         .then(function(r){ return r.json(); })
                         .then(function(j){
-                            box.querySelector('[data-tmp]')?.remove();
-                            if (!j.success) { box.insertAdjacentHTML('beforeend', '<p class="guild-err">' + j.error + '</p>'); return; }
-                            if (box.querySelector('.guild-group[data-network="' + j.network_name.replace(/"/g,'') + '"]')) return;
-                            var h = '<div class="guild-group" data-network="' + j.network_name + '" data-customer="' + code + '">'
-                                + '<div class="guild-group-title">' + j.network_name + ' <span class="text-muted">(' + code + ')</span></div>';
-                            j.stores.forEach(function(st){
-                                h += '<label class="guild-opt"><input type="checkbox" data-sid="' + st.id + '" data-sname="' + st.name + '" checked> ' + st.name + '</label>';
-                            });
-                            box.insertAdjacentHTML('beforeend', h + '</div>');
+                            tmp.remove();
+                            if (!j.success) { guildErr(box, j.error || 'Falha ao consultar o painel Guild.'); return; }
+                            var dup = false;
+                            box.querySelectorAll('.guild-group').forEach(function(g){ if (g.dataset.network === j.network_name) dup = true; });
+                            if (dup) return;
+                            guildRenderGroup(box, {customer_id: code, network_name: j.network_name, stores: j.stores.map(function(st){ return {store_id: st.id, store_name: st.name}; })});
                         })
-                        .catch(function(){ box.querySelector('[data-tmp]')?.remove(); box.insertAdjacentHTML('beforeend', '<p class="guild-err">Falha ao consultar o painel Guild. Tente novamente.</p>'); });
+                        .catch(function(){ tmp.remove(); guildErr(box, 'Falha ao consultar o painel Guild. Tente novamente.'); });
+                }
+                function guildRenderGroup(box, g){
+                    var div = document.createElement('div');
+                    div.className = 'guild-group';
+                    div.dataset.network = g.network_name;
+                    div.dataset.customer = g.customer_id;
+                    var title = document.createElement('div');
+                    title.className = 'guild-group-title';
+                    title.textContent = g.network_name + ' (' + g.customer_id + ')';
+                    div.appendChild(title);
+                    g.stores.forEach(function(st){
+                        var lab = document.createElement('label');
+                        lab.className = 'guild-opt';
+                        var cb = document.createElement('input');
+                        cb.type = 'checkbox'; cb.checked = true;
+                        cb.dataset.sid = st.store_id; cb.dataset.sname = st.store_name;
+                        lab.appendChild(cb);
+                        lab.appendChild(document.createTextNode(' ' + st.store_name));
+                        div.appendChild(lab);
+                    });
+                    box.appendChild(div);
                 }
                 function guildCollect(sfx){
                     var box = document.getElementById('guildResult' + sfx);
