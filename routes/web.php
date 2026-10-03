@@ -95,6 +95,7 @@ $router->group('', function (Router $router) {
     $router->post('/contacts/create', [ContactController::class, 'store']);
     $router->get('/contacts/{id}', [ContactController::class, 'show']);
     $router->get('/contacts/{id}/stores', [ContactController::class, 'apiContactStores']);
+    $router->post('/contacts/{id}/stores', [ContactController::class, 'bindStores']);
     $router->get('/contacts/{id}/pdf', [ContactController::class, 'downloadPdf']);
     $router->get('/contacts/{id}/edit', [ContactController::class, 'edit']);
     $router->post('/contacts/{id}/merge', [ContactController::class, 'merge']);
