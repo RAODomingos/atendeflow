@@ -1648,8 +1648,11 @@ function saveUnit(val) {
     var fd = csrfForm();
     fd.append('unit', val);
     fetch(BASE + '/inbox/' + id + '/unit', { method: 'POST', headers: { 'X-Requested-With': 'XMLHttpRequest' }, body: fd }).then(function(r){
-        if (!r.ok) toast('Falha ao salvar a unidade. Tente novamente.');
-        else toast('Unidade salva com sucesso.');
+        if (!r.ok) throw new Error('http ' + r.status);
+        return r.json();
+    }).then(function(j){
+        if (j && (j.ok === true || j.success === true)) toast('Unidade salva com sucesso.');
+        else throw new Error('nok');
     }).catch(function(){ toast('Falha ao salvar a unidade. Tente novamente.'); });
 }
 function cancelUnitEdit() {
