@@ -214,6 +214,7 @@ $renderReceipts = function (array $msg) {
                                 <i class="fas fa-user" style="font-size:10px"></i> <?= e($conv['assigned_user_name']) ?>
                             </span>
                         <?php endif; ?>
+                        <?php if (empty($contact['stores'])): ?>
                         <?php if (!empty($conv['unit'])): ?>
                             <span class="meta-sep">·</span>
                             <span class="meta-tag" onclick="editUnit(event)" style="cursor:pointer" title="Clique para editar">
@@ -224,26 +225,13 @@ $renderReceipts = function (array $msg) {
                                 <i class="fas fa-plus" style="font-size:9px"></i> <span id="convUnitDisplay" style="font-style:italic">unidade</span>
                             </span>
                         <?php endif; ?>
+                        <?php endif; ?>
                     </div>
                 </div>
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="color:var(--text-muted);flex-shrink:0;margin-left:6px"><path d="M9 18l6-6-6-6"/></svg>
             </button>
-            <input type="text" id="convUnitInput" style="display:none;font-size:12px;padding:4px 8px;border:1px solid var(--brand);border-radius:6px;outline:none;width:160px" value="<?= e($conv['unit'] ?? '') ?>" placeholder="Unidade" onblur="saveUnit(this.value)" onkeydown="if(event.key==='Enter')saveUnit(this.value);if(event.key==='Escape')cancelUnitEdit()">
-            <?php
-            $unitNets = [];
-            foreach (($contact['stores'] ?? []) as $us) { $unitNets[$us['network_name']] = $us['customer_id']; }
-            ksort($unitNets);
-            ?>
-            <?php if ($unitNets): ?>
-            <span id="convUnitSelects" style="display:none;align-items:center;gap:6px" data-current-unit="<?= e($conv['unit'] ?? '') ?>">
-                <select id="convUnitNetwork" onchange="unitNetworkChanged()" style="font-size:12px;padding:4px 8px;border:1px solid var(--brand);border-radius:6px;outline:none;background:var(--bg-panel);color:var(--text-primary);max-width:160px">
-                    <?php foreach ($unitNets as $un => $uc): ?>
-                        <option value="<?= e($un) ?>" data-customer="<?= e($uc) ?>"><?= e($un) ?></option>
-                    <?php endforeach; ?>
-                </select>
-                <select id="convUnitStore" onchange="saveUnit(this.value)" onkeydown="if(event.key==='Escape')cancelUnitEdit()" style="font-size:12px;padding:4px 8px;border:1px solid var(--brand);border-radius:6px;outline:none;background:var(--bg-panel);color:var(--text-primary);max-width:180px">
-                </select>
-            </span>
+            <?php if (empty($contact['stores'])): ?>
+            <input type="text" id="convUnitInput" style="font-size:12px;padding:4px 8px;border:1px solid var(--brand);border-radius:6px;outline:none;width:160px" value="<?= e($conv['unit'] ?? '') ?>" placeholder="Unidade" onblur="saveUnit(this.value)" onkeydown="if(event.key==='Enter')saveUnit(this.value);if(event.key==='Escape')cancelUnitEdit()">
             <?php endif; ?>
         </div>
         <div class="chat-header-right">
@@ -267,6 +255,28 @@ $renderReceipts = function (array $msg) {
                 <span class="chip-text"><?= ['low'=>'Baixa','normal'=>'Normal','high'=>'Alta','urgent'=>'Urgente'][$conv['priority'] ?? 'normal'] ?></span>
                 <i class="fas fa-chevron-down" style="font-size:9px;opacity:.5;margin-left:auto"></i>
             </button>
+            <?php
+            $unitNets = [];
+            foreach (($contact['stores'] ?? []) as $us) { $unitNets[$us['network_name']] = $us['customer_id']; }
+            ksort($unitNets);
+            ?>
+            <?php if ($unitNets): ?>
+            <label class="header-chip header-chip-select" title="Loja">
+                <i class="fas fa-store"></i>
+                <select id="convUnitNetwork" onchange="unitNetworkChanged()" aria-label="Loja">
+                    <?php foreach ($unitNets as $un => $uc): ?>
+                        <option value="<?= e($un) ?>" data-customer="<?= e($uc) ?>"><?= e($uc) ?> - <?= e($un) ?></option>
+                    <?php endforeach; ?>
+                </select>
+                <i class="fas fa-chevron-down" style="font-size:9px;opacity:.5"></i>
+            </label>
+            <label class="header-chip header-chip-select" title="Unidade">
+                <i class="fas fa-tag"></i>
+                <select id="convUnitStore" onchange="saveUnit(this.value)" aria-label="Unidade" data-current-unit="<?= e($conv['unit'] ?? '') ?>">
+                </select>
+                <i class="fas fa-chevron-down" style="font-size:9px;opacity:.5"></i>
+            </label>
+            <?php endif; ?>
             <div class="conv-quick-actions">
                 <button class="icon-btn" onclick="toggleMsgSearch()" title="Buscar na conversa"><i class="fas fa-search"></i></button>
                 <button class="icon-btn" id="convSnoozeBtn" onclick="openSnoozeModal()" title="Agendar"><i class="fas fa-clock"></i></button>
@@ -1443,37 +1453,30 @@ function updateHeaderChip(kind, val) {
 function editUnit(e) {
     if (e) e.stopPropagation();
     var d = document.getElementById('convUnitDisplay');
-    var sel = document.getElementById('convUnitSelects');
     var i = document.getElementById('convUnitInput');
-    if (!d) return;
+    if (!d || !i) return;
     d.style.display = 'none';
-    if (sel) {
-        sel.style.display = 'inline-flex';
-        if (i) i.style.display = 'none';
-        unitLoadStores(true);
-    } else if (i) {
-        i.style.display = 'inline-block';
-        i.focus();
-        i.select();
-    }
+    i.style.display = 'inline-block';
+    i.focus();
+    i.select();
 }
-function unitLoadStores(focus) {
+function unitLoadStores() {
     var net = document.getElementById('convUnitNetwork');
     var st = document.getElementById('convUnitStore');
-    var sel = document.getElementById('convUnitSelects');
-    if (!net || !st || !sel) return;
+    if (!net || !st) return;
     var code = net.options[net.selectedIndex]?.dataset?.customer || '';
-    var current = sel.dataset.currentUnit || '';
+    var current = st.dataset.currentUnit || '';
     st.innerHTML = '';
     var loading = document.createElement('option');
     loading.textContent = 'Buscando unidades...';
     st.appendChild(loading);
-    if (focus) st.focus();
-    if (!code) { unitFallbackText(); return; }
+    st.disabled = true;
+    if (!code) { st.disabled = false; return; }
     var base = (typeof BASE !== 'undefined' && BASE) ? BASE : (document.querySelector('meta[name="base-url"]')?.content || '');
     fetch(base + '/api/guild/stores?customer_id=' + encodeURIComponent(code), {headers:{'X-Requested-With':'XMLHttpRequest'}})
         .then(function(r){ return r.json(); })
         .then(function(j){
+            st.disabled = false;
             if (!j.success || !j.stores || !j.stores.length) throw new Error(j.error || 'empty');
             st.innerHTML = '';
             j.stores.forEach(function(s){
@@ -1482,47 +1485,39 @@ function unitLoadStores(focus) {
                 if (s.name === current) o.selected = true;
                 st.appendChild(o);
             });
-            if (focus) st.focus();
         })
         .catch(function(){
-            toast('Falha ao buscar unidades. Use o campo de texto.');
-            unitFallbackText();
+            st.disabled = false;
+            toast('Falha ao buscar unidades. Tente novamente.');
         });
 }
-function unitFallbackText() {
-    var sel = document.getElementById('convUnitSelects');
-    var i = document.getElementById('convUnitInput');
-    if (sel) sel.style.display = 'none';
-    if (i) { i.style.display = 'inline-block'; i.focus(); i.select(); }
-}
 function unitNetworkChanged() {
-    var sel = document.getElementById('convUnitSelects');
-    if (sel) sel.dataset.currentUnit = '';
-    unitLoadStores(false);
+    var st = document.getElementById('convUnitStore');
+    if (st) st.dataset.currentUnit = '';
+    unitLoadStores();
 }
 function saveUnit(val) {
     var d = document.getElementById('convUnitDisplay');
-    var sel = document.getElementById('convUnitSelects');
-    var i = document.getElementById('convUnitInput');
-    if (!d) return;
-    if (sel) sel.style.display = 'none';
-    if (i) i.style.display = 'none';
-    d.style.display = 'inline-block';
-    d.textContent = '';
-    var label = document.createElement('span');
-    if (val) {
-        label.textContent = '| ' + val;
-    } else {
-        label.style.opacity = '.5';
-        label.style.fontStyle = 'italic';
-        label.textContent = '+ unidade';
+    if (d) {
+        d.textContent = '';
+        var label = document.createElement('span');
+        if (val) {
+            label.textContent = '| ' + val;
+        } else {
+            label.style.opacity = '.5';
+            label.style.fontStyle = 'italic';
+            label.textContent = '+ unidade';
+        }
+        d.appendChild(label);
+        var pen = document.createElement('i');
+        pen.className = 'fas fa-pen';
+        pen.setAttribute('style', 'font-size:9px;opacity:.4;margin-left:2px');
+        d.appendChild(document.createTextNode(' '));
+        d.appendChild(pen);
+        var i = document.getElementById('convUnitInput');
+        if (i) i.style.display = 'none';
+        d.style.display = 'inline-block';
     }
-    d.appendChild(label);
-    var pen = document.createElement('i');
-    pen.className = 'fas fa-pen';
-    pen.setAttribute('style', 'font-size:9px;opacity:.4;margin-left:2px');
-    d.appendChild(document.createTextNode(' '));
-    d.appendChild(pen);
     var cv = document.getElementById('convView');
     var id = cv ? cv.dataset.conv : 0;
     if (id) {
@@ -1535,13 +1530,12 @@ function saveUnit(val) {
 }
 function cancelUnitEdit() {
     var d = document.getElementById('convUnitDisplay');
-    var sel = document.getElementById('convUnitSelects');
     var i = document.getElementById('convUnitInput');
-    if (!d) return;
-    if (sel) sel.style.display = 'none';
-    if (i) i.style.display = 'none';
+    if (!d || !i) return;
+    i.style.display = 'none';
     d.style.display = 'inline-block';
 }
+if (document.getElementById('convUnitNetwork')) unitLoadStores();
 function submitContactEdit(e) {
     e.preventDefault();
     var form = document.getElementById('contactEditForm');
