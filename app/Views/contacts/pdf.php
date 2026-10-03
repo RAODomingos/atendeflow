@@ -49,7 +49,19 @@
         <tr><td>Nome</td><td><?= e($contact['name'] ?? '-') ?></td></tr>
         <tr><td>E-mail</td><td><?= e($contact['email'] ?? '-') ?></td></tr>
         <tr><td>Telefone</td><td><?= e($contact['phone'] ?? '-') ?></td></tr>
-        <tr><td>Empresa</td><td><?= e($contact['company'] ?? '-') ?></td></tr>
+        <?php
+        $pdfStores = [];
+        foreach (($contact['stores'] ?? []) as $ps) { $pdfStores[$ps['network_name']][] = $ps['store_name']; }
+        ?>
+        <?php if ($pdfStores): ?>
+            <?php foreach ($pdfStores as $pdfNet => $pdfUnits): ?>
+                <tr><td>Loja</td><td><?= e($pdfNet) ?> — <?= e(implode(', ', $pdfUnits)) ?></td></tr>
+            <?php endforeach; ?>
+        <?php elseif (!empty($contact['company'])): ?>
+            <tr><td>Loja</td><td><?= e($contact['company']) ?></td></tr>
+        <?php else: ?>
+            <tr><td>Loja</td><td>-</td></tr>
+        <?php endif; ?>
         <tr><td>CPF/CNPJ</td><td><?= e($contact['document'] ?? '-') ?></td></tr>
         <tr><td>Cadastrado em</td><td><?= format_datetime($contact['created_at'] ?? '') ?></td></tr>
         <tr><td>Última atividade</td><td><?= !empty($contact['last_activity_at']) ? format_datetime($contact['last_activity_at']) : '-' ?></td></tr>

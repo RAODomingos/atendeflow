@@ -188,6 +188,8 @@ class Contact
     {
         $sql = "SELECT c.*,
                        (SELECT COUNT(*) FROM conversations WHERE contact_id = c.id) as conversation_count,
+                       (SELECT network_name FROM contact_stores WHERE contact_id = c.id ORDER BY network_name LIMIT 1) as store_network,
+                       (SELECT COUNT(DISTINCT network_name) FROM contact_stores WHERE contact_id = c.id) as store_networks,
                        (SELECT MAX(m.created_at) FROM messages m
                         JOIN conversations cv ON cv.id = m.conversation_id
                         WHERE cv.contact_id = c.id) as last_message_at

@@ -14,7 +14,7 @@ class Conversation
                     d.name as department_name, d.color as department_color,
                      u.name as assigned_user_name, ct.name as contact_name,
                      ct.email as contact_email, ct.phone as contact_phone,
-                     ct.avatar as contact_avatar, ct.company as contact_company
+                     ct.avatar as contact_avatar, COALESCE((SELECT network_name FROM contact_stores WHERE contact_id = ct.id ORDER BY network_name LIMIT 1), ct.company) as contact_company
              FROM conversations c
              JOIN contacts ct ON ct.id = c.contact_id
              LEFT JOIN departments d ON d.id = c.department_id
@@ -49,7 +49,7 @@ class Conversation
         $sql = "SELECT c.*, ch.type as channel_type, ch.name as channel_name,
                        d.name as department_name, d.color as department_color,
                        u.name as assigned_user_name,
-                        ct.name as contact_name, ct.email as contact_email, ct.phone as contact_phone, ct.avatar as contact_avatar, ct.company as contact_company,
+                        ct.name as contact_name, ct.email as contact_email, ct.phone as contact_phone, ct.avatar as contact_avatar, COALESCE((SELECT network_name FROM contact_stores WHERE contact_id = ct.id ORDER BY network_name LIMIT 1), ct.company) as contact_company,
                         (SELECT content FROM messages WHERE conversation_id = c.id ORDER BY created_at DESC LIMIT 1) as last_message,
                         (SELECT type FROM messages WHERE conversation_id = c.id ORDER BY created_at DESC LIMIT 1) as last_message_type,
                         (SELECT created_at FROM messages WHERE conversation_id = c.id ORDER BY created_at DESC LIMIT 1) as last_message_at,
@@ -160,7 +160,7 @@ class Conversation
         return "SELECT c.*, ch.type as channel_type, ch.name as channel_name,
                         d.name as department_name, d.color as department_color,
                         u.name as assigned_user_name,
-                        ct.name as contact_name, ct.email as contact_email, ct.phone as contact_phone, ct.avatar as contact_avatar, ct.company as contact_company,
+                        ct.name as contact_name, ct.email as contact_email, ct.phone as contact_phone, ct.avatar as contact_avatar, COALESCE((SELECT network_name FROM contact_stores WHERE contact_id = ct.id ORDER BY network_name LIMIT 1), ct.company) as contact_company,
                         latest_msg.content as last_message,
                         latest_msg.type as last_message_type,
                         latest_msg.created_at as last_msg_at,
