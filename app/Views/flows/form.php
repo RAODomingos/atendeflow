@@ -97,6 +97,7 @@ const NODE_TYPES = {
     menu:               { label: 'Menu Opções', icon: 'fa-list', color: '#17A2B8', group: 'interact' },
     question:           { label: 'Pergunta', icon: 'fa-question-circle', color: '#FFC107', group: 'interact' },
     collect_field:      { label: 'Coletar Dado', icon: 'fa-edit', color: '#6F42C1', group: 'interact' },
+    guild_select:       { label: 'Loja/Unidade', icon: 'fa-store', color: '#198754', group: 'interact' },
     condition:          { label: 'Condição', icon: 'fa-code-branch', color: '#FD7E14', group: 'logic' },
     day_of_week:        { label: 'Dia da Semana', icon: 'fa-calendar-day', color: '#0891B2', group: 'logic' },
     time_range:         { label: 'Horário', icon: 'fa-clock', color: '#7C3AED', group: 'logic' },
@@ -371,6 +372,8 @@ function renderAll() {
                 ${node.type === 'delay' && node.config?.seconds ? '<div class="fb-node-meta">⏱ ' + node.config.seconds + 's</div>' : ''}
                 ${(node.type === 'image' || node.type === 'audio' || node.type === 'video' || node.type === 'send_file') && node.config?.file_url ? '<div class="fb-node-meta">📎 ' + e(truncate(node.config.file_url, 40)) + '</div>' : ''}
                 ${node.type === 'button_list' && node.options ? '<div class="fb-node-meta">🔘 ' + node.options.length + ' botão(ns)</div>' : ''}
+                ${node.type === 'guild_select' ? '<div class="fb-node-meta">🏪 ' + (guildTargetTitle(node.config?.no_store_node_id) ? 'sem loja → ' + e(guildTargetTitle(node.config.no_store_node_id)) : 'sem loja → ?') + '</div>' : ''}
+                ${node.type === 'guild_select' ? '<div class="fb-node-meta">➡ ' + (guildTargetTitle(node.config?.next_node_id) ? e(guildTargetTitle(node.config.next_node_id)) : '?') + '</div>' : ''}
                 ${node.type === 'notify' && node.config?.phones ? '<div class="fb-node-meta">📞 ' + node.config.phones.length + ' tel.' + (node.config.phones[0] ? ' (' + e(truncate(node.config.phones[0], 13)) + '...)' : '') + '</div>' : ''}
                 ${node.type === 'notify' && !node.config?.phones && node.config?.phone_number ? '<div class="fb-node-meta">📞 ' + e(truncate(node.config.phone_number, 15)) + '</div>' : ''}
                 ${node.type === 'day_of_week' && node.config?.days ? '<div class="fb-node-meta">📅 ' + node.config.days.map(d => ['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'][d]).join(', ') + '</div>' : ''}
@@ -395,6 +398,10 @@ function renderAll() {
         });
         el.querySelector('.fb-port-out').addEventListener('click', e => {
             e.stopPropagation();
+            if (node.type === 'guild_select') {
+                alert('As saídas do nó Loja/Unidade são definidas no editor do nó (sem loja / após unidade).');
+                return;
+            }
             connectSource = { nodeId: node.id };
             el.classList.add('fb-node-connecting');
             renderAll();
@@ -632,7 +639,7 @@ function editNode(id) {
     const body = document.getElementById('nodeModalBody');
     let html = '<div class="form-group"><label>Título</label><input type="text" class="form-control" id="neTitle" value="' + e(node.title) + '"></div>';
 
-    const showContent = ['message', 'menu', 'question', 'collect_field', 'handoff', 'button_list', 'list_menu'];
+    const showContent = ['message', 'menu', 'question', 'collect_field', 'handoff', 'button_list', 'list_menu', 'guild_select'];
     if (showContent.includes(node.type)) {
         html += '<div class="form-group"><label>Conteúdo da mensagem</label><textarea class="form-control" id="neContent" rows="4">' + e(node.content || '') + '</textarea>';
         html += '<small class="text-muted">Variáveis: {nome}, {email}, {telefone}, {departamento}, {atendente}</small></div>';
@@ -743,6 +750,22 @@ function editNode(id) {
         html += '</select></div>';
         html += '<div class="form-group"><label>Mensagem de erro</label><input type="text" class="form-control" id="neInvalidMsg" value="' + e(node.config?.invalid_message || '') + '" placeholder="Opção inválida, tente novamente"></div>';
     }
+    if (node.type === 'guild_select') {
+        const others = nodes.filter(n => n.id !== node.id);
+        const optNodes = sel => others.map(n => '<option value="' + n.id + '"' + (sel == n.id ? ' selected' : '') + '>' + e(n.title || n.type) + '</option>').join('');
+        const cfg = node.config || {};
+        html += '<div class="form-group"><label>Apresentação das opções</label><select class="form-control" id="neGuildPresentation">'
+            + ['list_menu', 'button_list', 'menu'].map(p => '<option value="' + p + '"' + ((cfg.presentation || 'list_menu') === p ? ' selected' : '') + '>' + p + '</option>').join('')
+            + '</select></div>';
+        html += '<div class="form-group"><label>Pergunta das lojas</label><input type="text" class="form-control" id="neGuildStorePrompt" value="' + e(cfg.store_prompt || '') + '" placeholder="Qual loja deseja atendimento?"></div>';
+        html += '<div class="form-group"><label>Pergunta das unidades</label><input type="text" class="form-control" id="neGuildUnitPrompt" value="' + e(cfg.unit_prompt || '') + '" placeholder="Qual unidade?"></div>';
+        html += '<div class="form-group"><label>Mensagem de opção inválida</label><input type="text" class="form-control" id="neGuildInvalidMsg" value="' + e(cfg.invalid_message || '') + '" placeholder="Opção inválida, tente novamente"></div>';
+        html += '<div class="form-group"><label>Mensagem de erro da Guild</label><input type="text" class="form-control" id="neGuildErrorMsg" value="' + e(cfg.error_message || '') + '" placeholder="Falha ao buscar as opções. Tente novamente."></div>';
+        html += '<div class="form-group"><label>Tentativas até encaminhar</label><input type="number" class="form-control" id="neGuildMaxAttempts" min="1" max="10" value="' + e(cfg.max_attempts ?? 3) + '"></div>';
+        html += '<div class="form-group"><label>Sem loja → ir para</label><select class="form-control" id="neGuildNoStore"><option value="">(escolher nó)</option>' + optNodes(cfg.no_store_node_id) + '</select></div>';
+        html += '<div class="form-group"><label>Após unidade → ir para</label><select class="form-control" id="neGuildNext"><option value="">(escolher nó)</option>' + optNodes(cfg.next_node_id) + '</select></div>';
+        html += '<div class="form-check"><input type="checkbox" class="form-check-input" id="neGuildSave" ' + ((cfg.save_unit ?? true) ? 'checked' : '') + '><label class="form-check-label" for="neGuildSave">Salvar unidade na conversa</label></div>';
+    }
     if (node.type === 'question') {
         html += '<div class="form-group"><label>Campo para salvar (opcional)</label><select class="form-control" id="neSaveField"><option value="">Não salvar</option>';
         ['name','email','phone','company','document','notes'].forEach(f => {
@@ -753,6 +776,12 @@ function editNode(id) {
 
     body.innerHTML = html;
     document.getElementById('fbNodeModal').style.display = 'flex';
+}
+
+function guildTargetTitle(nodeId) {
+    if (!nodeId) return '';
+    const n = nodes.find(x => String(x.id) === String(nodeId));
+    return n ? (n.title || n.type) : '';
 }
 
 function buildOptionsEditor(options, label) {
@@ -880,6 +909,18 @@ function saveNodeModal() {
     if (node.type === 'question') {
         node.config = node.config || {};
         node.config.save_field = document.getElementById('neSaveField')?.value || '';
+    }
+    if (node.type === 'guild_select') {
+        node.config = node.config || {};
+        node.config.presentation = document.getElementById('neGuildPresentation')?.value || 'list_menu';
+        node.config.store_prompt = document.getElementById('neGuildStorePrompt')?.value || '';
+        node.config.unit_prompt = document.getElementById('neGuildUnitPrompt')?.value || '';
+        node.config.invalid_message = document.getElementById('neGuildInvalidMsg')?.value || '';
+        node.config.error_message = document.getElementById('neGuildErrorMsg')?.value || '';
+        node.config.max_attempts = Math.max(1, parseInt(document.getElementById('neGuildMaxAttempts')?.value || '3', 10));
+        node.config.no_store_node_id = document.getElementById('neGuildNoStore')?.value || null;
+        node.config.next_node_id = document.getElementById('neGuildNext')?.value || null;
+        node.config.save_unit = document.getElementById('neGuildSave')?.checked !== false;
     }
 
     closeNodeModal();
@@ -1024,6 +1065,17 @@ function saveFlow() {
     const OPTION_NODE_TYPES = ['menu', 'button_list', 'list_menu', 'condition', 'day_of_week', 'time_range'];
 
     nodes.forEach(node => {
+        if (node.type === 'guild_select') {
+            const cfg = node.config || {};
+            const okNo = !cfg.no_store_node_id || nodes.some(n => String(n.id) === String(cfg.no_store_node_id));
+            const okNext = !cfg.next_node_id || nodes.some(n => String(n.id) === String(cfg.next_node_id));
+            if (!okNo || !okNext) {
+                alert('Nó "' + (node.title || 'Loja/Unidade') + '": destino inválido. Ajuste os nós de saída no editor.');
+                throw new Error('guild_select com destino inválido');
+            }
+            node.options = [];
+            return;
+        }
         const outConns = connections.filter(c => c.source === node.id);
         if (OPTION_NODE_TYPES.includes(node.type)) {
             if (!node.options) node.options = [];
