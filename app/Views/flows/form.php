@@ -657,7 +657,7 @@ function editNode(id) {
     const showContent = ['message', 'menu', 'question', 'collect_field', 'handoff', 'button_list', 'list_menu', 'guild_select'];
     if (showContent.includes(node.type)) {
         html += '<div class="form-group"><label>Conteúdo da mensagem</label><textarea class="form-control" id="neContent" rows="4">' + e(node.content || '') + '</textarea>';
-        html += '<small class="text-muted">Variáveis: {nome}, {email}, {telefone}, {departamento}, {atendente}</small></div>';
+        html += '<small class="text-muted">Variáveis: {saudacao}, {nome}, {email}, {telefone}, {departamento}, {atendente}</small></div>';
     }
 
     if (node.type === 'menu') {
@@ -809,9 +809,23 @@ function buildOptionsEditor(options, label) {
     return html;
 }
 
+function syncOptionInputs() {
+    const node = nodes.find(n => n.id === editNodeId);
+    if (!node) return;
+    const box = document.getElementById('neOptions') || document.getElementById('neButtons');
+    if (!box || !node.options) return;
+    box.querySelectorAll('input').forEach((inp, i) => {
+        if (node.options[i]) {
+            node.options[i].label = inp.value;
+            node.options[i].value = inp.value;
+        }
+    });
+}
+
 function addOpt() {
     const node = nodes.find(n => n.id === editNodeId);
     if (!node) return;
+    syncOptionInputs();
     node.options.push({ label: 'Novo', value: 'Novo', next_node_id: null });
     editNode(editNodeId);
 }
@@ -819,6 +833,7 @@ function addOpt() {
 function removeOpt(idx) {
     const node = nodes.find(n => n.id === editNodeId);
     if (!node) return;
+    syncOptionInputs();
     node.options.splice(idx, 1);
     connections.forEach(c => {
         if (c.sourceOption > idx) c.sourceOption -= 1;
