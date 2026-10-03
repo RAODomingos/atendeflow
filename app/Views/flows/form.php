@@ -24,10 +24,10 @@
         <div class="fb-canvas-wrap">
             <div class="fb-canvas" id="fbCanvas">
                 <svg class="fb-svg" id="fbSvg"></svg>
-                <div class="fb-empty" id="fbEmpty">
-                    <i class="fas fa-diagram-project fa-4x"></i>
-                    <p>Arraste nós da paleta ao lado para começar</p>
-                </div>
+            </div>
+            <div class="fb-empty" id="fbEmpty">
+                <i class="fas fa-diagram-project fa-4x"></i>
+                <p>Arraste nós da paleta ao lado para começar</p>
             </div>
             <div class="fb-minimap" id="fbMinimap">
                 <div class="fb-minimap-title">Visão Geral</div>
@@ -122,12 +122,15 @@ let nodeIdCounter = 0;
 let selectedNode = null;
 let connectSource = null;
 let dragNode = null;
+let dragNodeH = 140;
 let dragOffsetX = 0, dragOffsetY = 0;
 let panX = 0, panY = 0;
 let zoom = 1;
 let isPanning = false, panStartX = 0, panStartY = 0, panStartPanX = 0, panStartPanY = 0;
 let editNodeId = null;
 let nextZIndex = 1;
+const CANVAS_W = 6000;
+const CANVAS_H = 4000;
 
 <?php if ($flow && !empty($flow['nodes'])): ?>
 <?php
@@ -223,7 +226,7 @@ function setupPaletteDrag() {
         const type = e.dataTransfer.getData('text/plain');
         if (!type || !NODE_TYPES[type]) return;
         const r = document.getElementById('fbCanvas').getBoundingClientRect();
-        addNode(type, (e.clientX - r.left - panX) / zoom - 75, (e.clientY - r.top - panY) / zoom - 30);
+        addNode(type, (e.clientX - r.left) / zoom - 75, (e.clientY - r.top) / zoom - 30);
     });
 }
 
@@ -236,7 +239,7 @@ function setupCanvasDrag() {
         setZoom(zoom + delta);
     }, { passive: false });
     canvas.addEventListener('mousedown', e => {
-        if (e.target === canvas || e.target.classList.contains('fb-svg') || e.target === document.getElementById('fbEmpty')) {
+        if (e.target === canvas || e.target.classList.contains('fb-svg')) {
             isPanning = true;
             panStartX = e.clientX;
             panStartY = e.clientY;
@@ -249,17 +252,18 @@ function setupCanvasDrag() {
         if (isPanning) {
             panX = panStartPanX + (e.clientX - panStartX);
             panY = panStartPanY + (e.clientY - panStartY);
-            panX = Math.min(2000, Math.max(-3000, panX));
-            panY = Math.min(2000, Math.max(-3000, panY));
+            clampPan();
             updateTransform();
         }
         if (dragNode) {
             const r = document.getElementById('fbCanvas').getBoundingClientRect();
-            const rawX = (e.clientX - r.left - panX) / zoom - dragOffsetX;
-            const rawY = (e.clientY - r.top - panY) / zoom - dragOffsetY;
-            dragNode.x = Math.max(0, rawX);
-            dragNode.y = Math.max(0, rawY);
             const el = document.getElementById(dragNode.id);
+            const rawX = (e.clientX - r.left) / zoom - dragOffsetX;
+            const rawY = (e.clientY - r.top) / zoom - dragOffsetY;
+            // Clamp ao mundo virtual: usa a altura real do nó (capturada no
+            // início do arrasto) para não cortar na borda inferior.
+            dragNode.x = Math.min(Math.max(0, rawX), CANVAS_W - 320);
+            dragNode.y = Math.min(Math.max(0, rawY), CANVAS_H - dragNodeH);
             if (el) {
                 el.style.left = dragNode.x + 'px';
                 el.style.top = dragNode.y + 'px';
@@ -287,8 +291,30 @@ function setZoom(newZoom) {
     panX = cx - (cx - panX) * newZoom / zoom;
     panY = cy - (cy - panY) * newZoom / zoom;
     zoom = newZoom;
+    clampPan();
     document.getElementById('zoomLevel').textContent = Math.round(zoom * 100) + '%';
     updateTransform();
+}
+
+function clampPan() {
+    const wrap = document.getElementById('fbCanvas').parentElement;
+    const wr = wrap.getBoundingClientRect();
+    const viewW = wr.width;
+    const viewH = wr.height;
+    const worldW = CANVAS_W * zoom;
+    const worldH = CANVAS_H * zoom;
+    // Se o mundo for maior que a viewport, limita o pan aos limites
+    // (mostra conteúdo até a borda do mundo; nunca deixa área vazia infinita).
+    if (worldW > viewW) {
+        panX = Math.max(viewW - worldW, Math.min(0, panX));
+    } else {
+        panX = (viewW - worldW) / 2;
+    }
+    if (worldH > viewH) {
+        panY = Math.max(viewH - worldH, Math.min(0, panY));
+    } else {
+        panY = (viewH - worldH) / 2;
+    }
 }
 
 /* -------- Render -------- */
@@ -390,8 +416,11 @@ function renderAll() {
             dragNode = node;
             node.zIndex = ++nextZIndex;
             const r = document.getElementById('fbCanvas').getBoundingClientRect();
-            dragOffsetX = (e.clientX - r.left - panX) / zoom - node.x;
-            dragOffsetY = (e.clientY - r.top - panY) / zoom - node.y;
+            dragOffsetX = (e.clientX - r.left) / zoom - node.x;
+            dragOffsetY = (e.clientY - r.top) / zoom - node.y;
+            // Altura real do nó capturada uma única vez (nós com muitas opções
+            // são mais altos); evita reflow a cada mousemove.
+            dragNodeH = el.offsetHeight || 140;
         });
 
         el.addEventListener('click', () => {
@@ -418,8 +447,8 @@ function renderAll() {
             const optPort = srcEl.querySelector(`.fb-opt-port[data-optidx="${conn.sourceOption}"]`);
             if (optPort) {
                 const pr = optPort.getBoundingClientRect();
-                sx = (pr.left - canvasRect.left - panX + pr.width / 2) / zoom;
-                sy = (pr.top - canvasRect.top - panY + pr.height / 2) / zoom;
+                sx = (pr.left - canvasRect.left + pr.width / 2) / zoom;
+                sy = (pr.top - canvasRect.top + pr.height / 2) / zoom;
             } else {
                 sx = srcNode.x + 150;
                 sy = srcNode.y + (srcEl.offsetHeight || 110) + 7;
@@ -442,11 +471,12 @@ function renderAll() {
         path.dataset.connKey = connKey(conn);
         path.addEventListener('click', e => {
             e.stopPropagation();
-            if (confirm('Remover esta conexão?')) {
-                const key = e.currentTarget.dataset.connKey;
+            const key = e.currentTarget.dataset.connKey;
+            OminiConfirm('Remover esta conexão?').then(ok => {
+                if (!ok) return;
                 connections = connections.filter(c => connKey(c) !== key);
                 renderAll();
-            }
+            });
         });
         svg.appendChild(path);
 
@@ -494,8 +524,8 @@ function renderAll() {
                 const optPort = srcEl.querySelector(`.fb-opt-port[data-optidx="${connectSource.optionIndex}"]`);
                 if (optPort) {
                     const pr = optPort.getBoundingClientRect();
-                    x1 = (pr.left - canvasRect.left - panX + pr.width / 2) / zoom;
-                    y1 = (pr.top - canvasRect.top - panY + pr.height / 2) / zoom;
+                    x1 = (pr.left - canvasRect.left + pr.width / 2) / zoom;
+                    y1 = (pr.top - canvasRect.top + pr.height / 2) / zoom;
                 } else {
                     x1 = src.x + 150;
                     y1 = src.y + (srcEl.offsetHeight || 110) + 7;
@@ -524,8 +554,8 @@ function followConnLine(me) {
     const line = document.getElementById('tempConnLine');
     if (!line) return;
     const r = document.getElementById('fbCanvas').getBoundingClientRect();
-    line.setAttribute('x2', (me.clientX - r.left - panX) / zoom);
-    line.setAttribute('y2', (me.clientY - r.top - panY) / zoom);
+    line.setAttribute('x2', (me.clientX - r.left) / zoom);
+    line.setAttribute('y2', (me.clientY - r.top) / zoom);
 }
 
 function updateTransform() {
@@ -533,8 +563,8 @@ function updateTransform() {
     const svg = document.getElementById('fbSvg');
     canvas.style.transformOrigin = '0 0';
     canvas.style.transform = 'translate(' + panX + 'px, ' + panY + 'px) scale(' + zoom + ')';
-    svg.setAttribute('width', canvas.scrollWidth || 6000);
-    svg.setAttribute('height', canvas.scrollHeight || 4000);
+    svg.setAttribute('width', CANVAS_W);
+    svg.setAttribute('height', CANVAS_H);
 }
 
 /* -------- CRUD -------- */
@@ -556,6 +586,9 @@ function addNode(type, x, y) {
             { label: 'SIM', value: 'sim', next_node_id: null },
             { label: 'NÃO', value: 'nao', next_node_id: null },
         ];
+    }
+    if (['button_list', 'list_menu'].includes(type)) {
+        node.content = 'Escolha uma opção:';
     }
     nodes.push(node);
     if (connectSource) {
@@ -579,12 +612,14 @@ function addNodeAtCenter(type) {
 }
 
 function deleteNode(id) {
-    if (!confirm('Remover este nó e suas conexões?')) return;
-    nodes = nodes.filter(n => n.id !== id);
-    connections = connections.filter(c => c.source !== id && c.target !== id);
-    if (selectedNode === id) selectedNode = null;
-    if (connectSource && connectSource.nodeId === id) { connectSource = null; }
-    renderAll();
+    OminiConfirm('Remover este nó e suas conexões?').then(ok => {
+        if (!ok) return;
+        nodes = nodes.filter(n => n.id !== id);
+        connections = connections.filter(c => c.source !== id && c.target !== id);
+        if (selectedNode === id) selectedNode = null;
+        if (connectSource && connectSource.nodeId === id) { connectSource = null; }
+        renderAll();
+    });
 }
 
 function editNode(id) {
@@ -622,18 +657,28 @@ function editNode(id) {
         html += buildOptionsEditor(node.options, 'Itens da lista');
     }
 
-    if (node.type === 'image') {
-        html += '<div class="form-group"><label>URL da imagem</label><input type="text" class="form-control" id="neFileUrl" value="' + e(node.config?.file_url || '') + '" placeholder="https://..."></div>';
+    if (['menu', 'button_list', 'list_menu'].includes(node.type)) {
+        html += '<div class="form-group"><label>Mensagem para opção inválida</label><input type="text" class="form-control" id="neMenuInvalidMsg" value="' + e(node.config?.invalid_message || '') + '" placeholder="Opção inválida. Por favor, escolha uma opção válida:"></div>';
     }
-    if (node.type === 'audio') {
-        html += '<div class="form-group"><label>URL do áudio</label><input type="text" class="form-control" id="neFileUrl" value="' + e(node.config?.file_url || '') + '" placeholder="https://..."></div>';
-    }
-    if (node.type === 'video') {
-        html += '<div class="form-group"><label>URL do vídeo</label><input type="text" class="form-control" id="neFileUrl" value="' + e(node.config?.file_url || '') + '" placeholder="https://..."></div>';
-    }
-    if (node.type === 'send_file') {
-        html += '<div class="form-group"><label>URL do arquivo</label><input type="text" class="form-control" id="neFileUrl" value="' + e(node.config?.file_url || '') + '" placeholder="https://..."></div>';
-        html += '<div class="form-group"><label>Nome do arquivo</label><input type="text" class="form-control" id="neFileName" value="' + e(node.config?.file_name || '') + '" placeholder="documento.pdf"></div>';
+
+    if (['image', 'audio', 'video', 'send_file'].includes(node.type)) {
+        const mediaLabels = { image: 'Imagem', audio: 'Áudio', video: 'Vídeo', send_file: 'Arquivo' };
+        const mediaAccept = node.type === 'image' ? 'image/*'
+            : node.type === 'audio' ? 'audio/*'
+            : node.type === 'video' ? 'video/*'
+            : '.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.zip,.rar';
+        html += '<div class="form-group"><label>' + mediaLabels[node.type] + ' (enviar da sua máquina)</label>';
+        html += '<input type="file" class="form-control" id="neFileUpload" accept="' + mediaAccept + '" onchange="uploadFlowMedia(this)">';
+        html += '<small class="text-muted">O arquivo é enviado ao servidor e o link é preenchido automaticamente. Máx. 10 MB.</small>';
+        html += '<div id="neUploadStatus" style="font-size:12px;margin-top:4px"></div></div>';
+        html += '<div class="form-group"><label>Ou informe uma URL externa</label><input type="text" class="form-control" id="neFileUrl" value="' + e(node.config?.file_url || '') + '" placeholder="https://..." oninput="var fp = document.getElementById(\'neFilePath\'); if (fp) fp.value = \'\';"></div>';
+        html += '<input type="hidden" id="neFilePath" value="' + e(node.config?.file_path || '') + '">';
+        html += '<div class="form-group"><label>Legenda / texto descritivo (opcional)</label>';
+        html += '<textarea class="form-control" id="neCaption" rows="2" placeholder="Mensagem exibida junto com a mídia">' + e(node.config?.caption || '') + '</textarea>';
+        html += '<small class="text-muted">Aceita variáveis: {nome}, {telefone}, {email}, {empresa}, {documento}, {mensagem}, {data}, {hora}.</small></div>';
+        if (node.type === 'send_file') {
+            html += '<div class="form-group"><label>Nome do arquivo (exibido no WhatsApp)</label><input type="text" class="form-control" id="neFileName" value="' + e(node.config?.file_name || '') + '" placeholder="documento.pdf"></div>';
+        }
     }
     if (node.type === 'delay') {
         html += '<div class="form-group"><label>Segundos de espera</label><input type="number" class="form-control" id="neDelay" value="' + (node.config?.seconds || 2) + '" min="1" max="300"></div>';
@@ -731,6 +776,9 @@ function removeOpt(idx) {
     const node = nodes.find(n => n.id === editNodeId);
     if (!node) return;
     node.options.splice(idx, 1);
+    connections.forEach(c => {
+        if (c.sourceOption > idx) c.sourceOption -= 1;
+    });
     editNode(editNodeId);
 }
 
@@ -763,9 +811,19 @@ function saveNodeModal() {
         inputs.forEach(inp => node.options.push({ label: inp.value, value: inp.value, next_node_id: null }));
     }
 
+    if (['menu', 'button_list', 'list_menu'].includes(node.type)) {
+        node.config = node.config || {};
+        node.config.invalid_message = document.getElementById('neMenuInvalidMsg')?.value || '';
+    }
+
     if (['image', 'audio', 'video', 'send_file'].includes(node.type)) {
         node.config = node.config || {};
         node.config.file_url = document.getElementById('neFileUrl')?.value || '';
+        // file_path: caminho local do arquivo no disco, preenchido pelo upload.
+        // Vazio quando o usuário usa URL externa. FlowEngineService usa isso para
+        // gerar o meta JSON com o path correto pro UazapiProvider.
+        node.config.file_path = document.getElementById('neFilePath')?.value || '';
+        node.config.caption = document.getElementById('neCaption')?.value || '';
         if (node.type === 'send_file') {
             node.config.file_name = document.getElementById('neFileName')?.value || '';
         }
@@ -833,6 +891,125 @@ function closeNodeModal() {
     editNodeId = null;
 }
 
+function uploadFlowMedia(input) {
+    var file = input.files && input.files[0];
+    var status = document.getElementById('neUploadStatus');
+    if (!file) return;
+    if (!status) return;
+
+    var node = nodes.find(n => n.id === editNodeId) || null;
+    prepareFlowMediaFile(file, node).then(function(readyFile) {
+        status.textContent = 'Enviando "' + readyFile.name + '"...';
+        status.style.color = '';
+
+        var baseUrl = document.querySelector('meta[name="base-url"]')?.content || '';
+        var fd = new FormData();
+        fd.append('file', readyFile);
+
+        fetch(baseUrl + '/api/flows/upload-media', { method: 'POST', body: fd })
+            .then(function(r) { return r.json().then(function(j) { return { status: r.status, json: j }; }); })
+            .then(function(resp) {
+                if (resp.status >= 200 && resp.status < 300 && resp.json && resp.json.url) {
+                    document.getElementById('neFileUrl').value = resp.json.url;
+                    // Guarda o caminho local retornado pelo backend (ex.: flows/abc.webm).
+                    // Sem isso o FlowEngineService só teria a URL pública e a Uazapi
+                    // (em outro servidor) não conseguiria buscar o arquivo.
+                    var pathInput = document.getElementById('neFilePath');
+                    if (pathInput) pathInput.value = resp.json.path || '';
+                    if (resp.json.size) {
+                        var kb = resp.json.size > 0 ? Math.max(1, Math.round(resp.json.size / 1024)) : 0;
+                        status.textContent = 'Enviado: ' + (resp.json.name || readyFile.name) + ' (' + kb + ' KB)';
+                    } else {
+                        status.textContent = 'Enviado: ' + (resp.json.name || readyFile.name);
+                    }
+                    status.style.color = '#28A745';
+                    if (document.getElementById('neFileName')) {
+                        var fn = document.getElementById('neFileName');
+                        if (!fn.value.trim()) fn.value = readyFile.name;
+                    }
+                } else {
+                    status.textContent = 'Erro: ' + ((resp.json && resp.json.error) || 'não foi possível enviar o arquivo.');
+                    status.style.color = '#DC3545';
+                }
+            })
+            .catch(function() {
+                status.textContent = 'Erro de rede ao enviar o arquivo.';
+                status.style.color = '#DC3545';
+            });
+    }).catch(function(msg) {
+        status.textContent = msg || 'Arquivo não suportado.';
+        status.style.color = '#DC3545';
+    });
+}
+
+// Converte imagens para JPEG (formato aceito pela API Uazapi para envio de
+// imagem; PNG/WebP/GIF são rejeitados: "unsupported image format"). Detecta
+// pelo CONTEÚDO (magic bytes), não pela extensão — assim arquivos renomeados
+// (.webp → .png) também são convertidos.
+function prepareFlowMediaFile(file, node) {
+    return new Promise(function(resolve, reject) {
+        var isImage = node && node.type === 'image';
+        if (!isImage) {
+            resolve(file);
+            return;
+        }
+        var reader = new FileReader();
+        reader.onloadend = function(e) {
+            try {
+                var bytes = new Uint8Array(e.target.result);
+                var startsWith = function(offset, str) {
+                    for (var i = 0; i < str.length; i++) {
+                        if (bytes[offset + i] !== str.charCodeAt(i)) return false;
+                    }
+                    return true;
+                };
+                var isJpeg = startsWith(0, '\u00ff\u00d8\u00ff');
+                if (isJpeg) {
+                    resolve(file);
+                    return;
+                }
+                convertImageToJpeg(file, resolve, reject);
+            } catch (err) {
+                reject('Não foi possível ler o arquivo de imagem.');
+            }
+        };
+        reader.onerror = function() { reject('Não foi possível ler o arquivo.'); };
+        reader.readAsArrayBuffer(file);
+    });
+}
+
+function convertImageToJpeg(file, resolve, reject) {
+    var reader = new FileReader();
+    reader.onload = function(e) {
+        var img = new Image();
+        img.onload = function() {
+            try {
+                var canvas = document.createElement('canvas');
+                canvas.width = img.naturalWidth || img.width;
+                canvas.height = img.naturalHeight || img.height;
+                var ctx = canvas.getContext('2d');
+                ctx.fillStyle = '#ffffff';
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+                ctx.drawImage(img, 0, 0);
+                canvas.toBlob(function(blob) {
+                    if (blob) {
+                        var base = file.name.replace(/\.[^.]+$/, '') || 'imagem';
+                        resolve(new File([blob], base + '.jpg', { type: 'image/jpeg' }));
+                    } else {
+                        reject('Não foi possível converter a imagem para JPEG.');
+                    }
+                }, 'image/jpeg', 0.92);
+            } catch (err) {
+                reject('Não foi possível converter a imagem para JPEG.');
+            }
+        };
+        img.onerror = function() { reject('Não foi possível ler a imagem (formato não suportado).'); };
+        img.src = e.target.result;
+    };
+    reader.onerror = function() { reject('Não foi possível ler o arquivo.'); };
+    reader.readAsDataURL(file);
+}
+
 function closeSettings() {
     document.getElementById('fbSettingsModal').style.display = 'none';
 }
@@ -843,17 +1020,23 @@ function saveFlow() {
     const nodeMap = {};
     nodes.forEach(n => nodeMap[n.id] = n);
 
+    // Nós cuja saída é uma única conexão (não usam portas por opção)
+    const OPTION_NODE_TYPES = ['menu', 'button_list', 'list_menu', 'condition', 'day_of_week', 'time_range'];
+
     nodes.forEach(node => {
         const outConns = connections.filter(c => c.source === node.id);
-        if (!node.options || node.options.length === 0) {
-            if (outConns.length) {
-                node.options = [{ label: 'Continuar', value: 'next', next_node_id: outConns[0].target }];
-            }
-        } else {
+        if (OPTION_NODE_TYPES.includes(node.type)) {
+            if (!node.options) node.options = [];
             node.options.forEach((opt, idx) => {
-                const conn = outConns.find(c => c.sourceOption === idx) || outConns[idx] || null;
+                const conn = outConns.find(c => c.sourceOption === idx);
                 opt.next_node_id = conn ? conn.target : null;
             });
+        } else {
+            if (outConns.length) {
+                node.options = [{ label: 'Continuar', value: 'next', next_node_id: outConns[0].target }];
+            } else {
+                node.options = [];
+            }
         }
     });
 

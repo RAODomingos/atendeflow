@@ -57,8 +57,11 @@ class WhatsAppHttpClient
         $ch = curl_init($url);
         curl_setopt($ch, CURLOPT_CUSTOMREQUEST, $method);
         curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-        curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 10);
-        curl_setopt($ch, CURLOPT_TIMEOUT, 30);
+        curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 5);
+        // Timeout curto para envios: a Uazapi processa async e responde em <2s em
+        // operação normal. Se travar por mais de 15s, o usuário não deve esperar
+        // — é melhor marcar a mensagem como pendente e o webhook atualiza depois.
+        curl_setopt($ch, CURLOPT_TIMEOUT, 15);
         curl_setopt($ch, CURLOPT_HTTPHEADER, $this->formatHeaders($headers));
 
         if ($json !== null) {

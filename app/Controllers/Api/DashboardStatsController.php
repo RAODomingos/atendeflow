@@ -14,7 +14,12 @@ class DashboardStatsController
     public function index(Request $request): void
     {
         $userId = Auth::id();
-        $db = Database::getInstance();
+
+        // Mesmo cache de 30s do dashboard (auto-refresh a cada 20s).
+        $data = \App\Core\FileCache::remember(
+            'dashboard-stats:' . $userId,
+            function () use ($userId) {
+                $db = Database::getInstance();
 
         $globalCounts = Conversation::countByStatus();
         $myCounts = Conversation::countByStatus($userId);
@@ -61,7 +66,7 @@ class DashboardStatsController
             $myOpen += $myCounts[$s] ?? 0;
         }
 
-        View::json([
+        return [
             'globalOpen' => $globalOpen,
             'myOpen' => $myOpen,
             'unread' => $unread,
@@ -76,6 +81,11 @@ class DashboardStatsController
             'csatCount' => $csatCount,
             'counts' => $globalCounts,
             'myCounts' => $myCounts,
-        ]);
+        ];
+            },
+            30
+        );
+
+        View::json($data);
     }
 }

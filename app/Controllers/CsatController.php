@@ -45,7 +45,8 @@ class CsatController
         $rating = (int) $request->post('rating');
         $comment = trim((string) $request->post('comment'));
 
-        if ($rating >= 1 && $rating <= 5) {
+        // Uma avaliação por conversa: não sobrescreve voto existente.
+        if ($rating >= 1 && $rating <= 5 && !Conversation::getCsat($conversation['id'])) {
             Conversation::addCsat($conversation['id'], $rating, $comment);
         }
 

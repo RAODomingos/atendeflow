@@ -274,13 +274,11 @@ class WahaProvider implements WhatsAppProviderInterface
         $phone = $this->normalizePhone($to);
         $headers = $this->authHeaders();
 
-        $antiBan = $options['anti_ban'] ?? true;
+        $antiBan = $options['anti_ban'] ?? false;
         if ($antiBan && $phone) {
             $chatId = $phone . '@c.us';
             $this->sendSeen($connection, $chatId);
             $this->startTyping($connection, $chatId);
-            $delay = $this->calculateTypingDelay($type === 'text' ? $content : ($options['caption'] ?? ''));
-            usleep($delay * 1000);
             $this->stopTyping($connection, $chatId);
         }
 
@@ -288,11 +286,17 @@ class WahaProvider implements WhatsAppProviderInterface
             $chatId = $phone . $suffix;
 
             if ($type === 'text') {
-                $resp = $this->client->post('/api/sendText', [
+                $textBody = [
                     'session' => $session,
                     'chatId' => $chatId,
                     'text' => $content,
-                ], $headers);
+                ];
+                // Citação nativa (responder): ID da mensagem original.
+                $quotedText = $options['reply_to'] ?? null;
+                if (is_string($quotedText) && $quotedText !== '') {
+                    $textBody['reply_to'] = $quotedText;
+                }
+                $resp = $this->client->post('/api/sendText', $textBody, $headers);
                 return $resp;
             }
 
@@ -344,6 +348,11 @@ class WahaProvider implements WhatsAppProviderInterface
             ];
             if ($caption !== '') {
                 $body['caption'] = $caption;
+            }
+            // Citação nativa em mídia (responder com contexto).
+            $quotedFile = $options['reply_to'] ?? null;
+            if (is_string($quotedFile) && $quotedFile !== '') {
+                $body['reply_to'] = $quotedFile;
             }
 
             $endpoint = $this->wahaSendEndpoint($type);
@@ -442,17 +451,25 @@ class WahaProvider implements WhatsAppProviderInterface
         $isFromMe = !empty($msg['fromMe']);
 
         $from = $msg['from'] ?? ($msg['to'] ?? '');
-        if (str_ends_with($from, '@g.us')) {
-            return null;
+        $isGroup = is_string($from) && str_ends_with($from, '@g.us');
+        // Grupos: não descartar — monta contexto (jid, participante, menções).
+        $groupExtra = [];
+        if ($isGroup) {
+            $groupExtra = $this->extractGroupContext($from, $msg);
         }
 
         $messageId = $msg['id'] ?? '';
         $timestamp = isset($msg['timestamp']) ? (int) $msg['timestamp'] : null;
 
         // Para edit/revoke, o from pode ser o ID da própria conta (fromMe),
-        // então usamos 'to' para identificar o contato
-        $effectiveFrom = $isFromMe ? ($msg['to'] ?? $from) : $from;
-        $fromPhone = $this->normalizePhone($effectiveFrom);
+        // então usamos 'to' para identificar o contato. Em grupo, o remetente
+        // é o participante.
+        if ($isGroup && !empty($groupExtra['participant_phone'])) {
+            $fromPhone = $groupExtra['participant_phone'];
+        } else {
+            $effectiveFrom = $isFromMe ? ($msg['to'] ?? $from) : $from;
+            $fromPhone = $this->normalizePhone($effectiveFrom);
+        }
         if (!$fromPhone) {
             return null;
         }
@@ -547,9 +564,13 @@ class WahaProvider implements WhatsAppProviderInterface
             // Extract WhatsApp CDN URL for fallback media download
             $cdnUrl = $msg['_data']['deprecatedMms3Url'] ?? '';
 
-            $extra = ['original_from' => $originalFrom];
+            $extra = array_merge(['original_from' => $originalFrom], $groupExtra);
             if ($cdnUrl) {
                 $extra['cdn_url'] = $cdnUrl;
+            }
+            $quotedMedia = self::extractQuotedId($msg);
+            if ($quotedMedia !== null) {
+                $extra['quoted_id'] = $quotedMedia;
             }
             if ($dataType === 'sticker') {
                 $extra['is_animated'] = !empty($msg['_data']['isAnimated']);
@@ -573,6 +594,11 @@ class WahaProvider implements WhatsAppProviderInterface
         }
 
         $body = $msg['body'] ?? '';
+        $textExtra = array_merge(['original_from' => $originalFrom], $groupExtra);
+        $quotedText = self::extractQuotedId($msg);
+        if ($quotedText !== null) {
+            $textExtra['quoted_id'] = $quotedText;
+        }
 
         return IncomingMessage::text(
             $session,
@@ -583,8 +609,70 @@ class WahaProvider implements WhatsAppProviderInterface
             false,
             $senderName,
             null,
-            ['original_from' => $originalFrom]
+            $textExtra
         );
+    }
+
+    /**
+     * Extrai o ID da mensagem citada (resposta): replyTo / quotedMsg
+     * (vários formatos conforme a versão do WAHA).
+     */
+    private static function extractQuotedId(array $msg): ?string
+    {
+        foreach (['replyTo', 'quotedId', 'quoted_id'] as $k) {
+            if (!empty($msg[$k]) && is_string($msg[$k])) {
+                return $msg[$k];
+            }
+        }
+        foreach (['quotedMsg', 'quotedMessage'] as $k) {
+            $q = $msg[$k] ?? $msg['_data'][$k] ?? null;
+            if (is_string($q) && $q !== '') {
+                return $q;
+            }
+            if (is_array($q)) {
+                foreach (['id', '_serialized', 'messageId'] as $ik) {
+                    if (!empty($q[$ik]) && is_string($q[$ik])) {
+                        return $q[$ik];
+                    }
+                }
+            }
+        }
+        $data = $msg['_data'] ?? [];
+        if (is_array($data)) {
+            foreach (['replyTo', 'quotedId', 'quoted_id'] as $k) {
+                if (!empty($data[$k]) && is_string($data[$k])) {
+                    return $data[$k];
+                }
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Contexto de mensagem em grupo (WAHA): JID do grupo, participante e
+     * mencionados. Busca defensiva — formato varia por versão do WAHA.
+     */
+    private function extractGroupContext(string $groupJid, array $msg): array
+    {
+        $participantRaw = (string) ($msg['participant'] ?? $msg['author'] ?? $msg['_data']['author'] ?? '');
+        $participantPhone = $this->normalizePhone($participantRaw) ?: null;
+
+        $mentioned = $this->collectMentionedDigits($msg);
+
+        $groupName = $msg['groupName'] ?? $msg['_data']['groupName'] ?? $msg['chatName'] ?? null;
+        if (!is_string($groupName) || $groupName === '') {
+            $groupName = null;
+        }
+
+        return [
+            'is_group' => true,
+            'group_jid' => $groupJid,
+            'group_name' => $groupName,
+            'participant_phone' => $participantPhone,
+            'participant_raw' => $participantRaw,
+            'mentioned' => $mentioned,
+            'participant_count' => null,
+        ];
     }
 
     public function editMessage(array $connection, string $messageId, string $text): bool
@@ -637,6 +725,25 @@ class WahaProvider implements WhatsAppProviderInterface
         }
     }
 
+    /**
+     * Envia texto para um grupo (chatId @g.us preservado).
+     */
+    public function sendGroupText(array $connection, string $groupJid, string $text): array
+    {
+        $session = $connection['instance_name'] ?? '';
+        $resp = $this->client->post('/api/sendText', [
+            'session' => $session,
+            'chatId' => $groupJid,
+            'text' => $text,
+        ], $this->authHeaders());
+        $this->guard($resp);
+        $body = $resp['body'] ?? [];
+        return [
+            'provider_message_id' => $body['id'] ?? $body['messageId'] ?? null,
+            'raw' => $body,
+        ];
+    }
+
     public function resolvePhone(array $connection, string $contactId): ?string
     {
         if ($contactId === '' || !str_ends_with($contactId, '@lid')) {
@@ -662,7 +769,7 @@ class WahaProvider implements WhatsAppProviderInterface
         }
     }
 
-    public function sendReaction(array $connection, string $messageId, string $reaction): bool
+    public function sendReaction(array $connection, string $messageId, string $reaction, ?string $to = null): bool
     {
         if ($messageId === '') {
             return false;
@@ -864,9 +971,50 @@ class WahaProvider implements WhatsAppProviderInterface
         if (!$phone) {
             return null;
         }
-        $phone = preg_replace('/@c\.us$|@s\.whatsapp\.net$|@lid$/', '', $phone);
+        $phone = preg_replace('/@c\.us$|@s\.whatsapp\.net$|@lid$|@g\.us$/', '', $phone);
+        // Sufixo de dispositivo do LID (ex.: 225962742546599:93@lid -> base)
+        $phone = preg_replace('/:\d+$/', '', $phone);
         $digits = preg_replace('/\D/', '', $phone);
         return $digits === '' ? null : $digits;
+    }
+
+    /**
+     * Coleta JIDs mencionados varrendo o payload de forma case-insensitive
+     * (mentionedJidList x mentionedJID x mentionedIds, qualquer profundidade).
+     *
+     * @return string[] dígitos únicos
+     */
+    private function collectMentionedDigits(array $node): array
+    {
+        $found = [];
+        $leaves = function ($value) use (&$leaves, &$found) {
+            if (is_array($value)) {
+                foreach ($value as $v) {
+                    $leaves($v);
+                }
+                return;
+            }
+            if (is_string($value) && $value !== '') {
+                $digits = preg_replace('/\D/', '', $value);
+                if ($digits !== '' && strlen($digits) >= 8) {
+                    $found[] = $digits;
+                }
+            }
+        };
+        $walk = function ($value) use (&$walk, $leaves) {
+            if (!is_array($value)) {
+                return;
+            }
+            foreach ($value as $k => $v) {
+                if (is_string($k) && preg_match('/^mentionedjid(list|ids)?$/i', $k)) {
+                    $leaves($v);
+                } else {
+                    $walk($v);
+                }
+            }
+        };
+        $walk($node);
+        return array_values(array_unique($found));
     }
 
     private function wahaSendEndpoint(string $type): string

@@ -1,18 +1,6 @@
 <div class="settings-page">
-    <div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap">
-        <a href="<?= url('settings') ?>" class="btn btn-sm <?= strpos($_SERVER['REQUEST_URI'] ?? '', '/settings/subjects') === false && strpos($_SERVER['REQUEST_URI'] ?? '', '/settings/substatuses') === false && strpos($_SERVER['REQUEST_URI'] ?? '', '/settings/close-reasons') === false ? 'btn-primary' : 'btn-outline' ?>">Geral</a>
-        <a href="<?= url('settings/substatuses') ?>" class="btn btn-sm <?= strpos($_SERVER['REQUEST_URI'] ?? '', '/settings/substatuses') !== false ? 'btn-primary' : 'btn-outline' ?>">Sub-status</a>
-        <a href="<?= url('settings/subjects') ?>" class="btn btn-sm <?= strpos($_SERVER['REQUEST_URI'] ?? '', '/settings/subjects') !== false ? 'btn-primary' : 'btn-outline' ?>">Assuntos</a>
-        <a href="<?= url('settings/close-reasons') ?>" class="btn btn-sm <?= strpos($_SERVER['REQUEST_URI'] ?? '', '/settings/close-reasons') !== false ? 'btn-primary' : 'btn-outline' ?>">Motivos</a>
-    </div>
-    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;flex-wrap:wrap;gap:12px">
-        <div>
-            <h1 style="font-size:24px;font-weight:700;margin:0;display:flex;align-items:center;gap:10px">
-                <i class="fas fa-bookmark" style="color:var(--primary);font-size:22px"></i>
-                Assuntos Predefinidos
-            </h1>
-            <p style="margin:4px 0 0;font-size:14px;color:var(--text-muted)">Gerencie os assuntos disponíveis nas conversas</p>
-        </div>
+    <?php $subPage = 'subjects'; require __DIR__ . '/_tabs.php'; ?>
+    <div class="page-actions">
         <button type="button" class="btn btn-primary" onclick="document.getElementById('newSubjectModal').style.display='flex'">
             <i class="fas fa-plus"></i> Novo Assunto
         </button>
@@ -51,7 +39,7 @@
                                     <button type="button" class="btn btn-sm btn-outline" onclick="editSubject(<?= $s['id'] ?>, '<?= e($s['name']) ?>', <?= (int)($s['sort_order'] ?? 0) ?>, <?= !empty($s['is_active']) ? 1 : 0 ?>)">
                                         <i class="fas fa-pen"></i>
                                     </button>
-                                    <form method="POST" action="<?= url('settings/subjects/') ?><?= $s['id'] ?>/delete" style="display:inline" onsubmit="return confirm('Remover assunto?')">
+                                    <form method="POST" action="<?= url('settings/subjects/') ?><?= $s['id'] ?>/delete" style="display:inline" data-confirm="Remover assunto?">
                                         <?= csrf_field() ?>
                                         <button type="submit" class="btn btn-sm btn-outline" style="color:var(--danger)"><i class="fas fa-trash"></i></button>
                                     </form>
@@ -66,7 +54,7 @@
 </div>
 
 <div id="newSubjectModal" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.4);z-index:9999;align-items:center;justify-content:center" onclick="if(event.target===this)this.style.display='none'">
-    <div style="background:#fff;border-radius:16px;padding:28px;width:420px;max-width:90vw;box-shadow:0 20px 60px rgba(0,0,0,.2)">
+    <div style="background:var(--bg-panel);border-radius:var(--radius-lg);padding:28px;width:420px;max-width:90vw;box-shadow:var(--shadow-md)">
         <h3 style="margin:0 0 20px;font-size:18px;font-weight:700">Novo Assunto</h3>
         <form method="POST" action="<?= url('settings/subjects/create') ?>">
             <?= csrf_field() ?>
@@ -87,7 +75,7 @@
 </div>
 
 <div id="editSubjectModal" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.4);z-index:9999;align-items:center;justify-content:center" onclick="if(event.target===this)this.style.display='none'">
-    <div style="background:#fff;border-radius:16px;padding:28px;width:420px;max-width:90vw;box-shadow:0 20px 60px rgba(0,0,0,.2)">
+    <div style="background:var(--bg-panel);border-radius:var(--radius-lg);padding:28px;width:420px;max-width:90vw;box-shadow:var(--shadow-md)">
         <h3 style="margin:0 0 20px;font-size:18px;font-weight:700">Editar Assunto</h3>
         <form method="POST" action="" id="editSubjectForm">
             <?= csrf_field() ?>

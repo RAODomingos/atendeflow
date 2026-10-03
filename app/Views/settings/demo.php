@@ -289,16 +289,16 @@
                     <div class="style-group">
                         <label>Cor primária</label>
                         <div class="input-row">
-                            <input type="color" id="sColor" value="#2f6fed" oninput="applyStyles()">
-                            <input type="text" id="sColorHex" value="#2f6fed" maxlength="7" oninput="syncColor(this.value)">
+                            <input type="color" id="sColor" value="#0078d4" oninput="applyStyles()">
+                            <input type="text" id="sColorHex" value="#0078d4" maxlength="7" oninput="syncColor(this.value)">
                         </div>
                     </div>
 
                     <div class="style-group">
                         <label>Cor das mensagens do usuário</label>
                         <div class="input-row">
-                            <input type="color" id="sUserColor" value="#2f6fed" oninput="applyStyles()">
-                            <input type="text" id="sUserColorHex" value="#2f6fed" maxlength="7" oninput="syncUserColor(this.value)">
+                            <input type="color" id="sUserColor" value="#0078d4" oninput="applyStyles()">
+                            <input type="text" id="sUserColorHex" value="#0078d4" maxlength="7" oninput="syncUserColor(this.value)">
                         </div>
                     </div>
 
@@ -364,7 +364,13 @@ window.ATENDIMENTO_CONFIG = {
     color: "<?= e($widget['color_primary']) ?>",
     position: "<?= e($widget['position']) ?>",
     apiUrl: "<?= rtrim(base_url(), '/') ?>"<?php if ($widget['avatar_url']): ?>,
-    avatarUrl: "<?= e($widget['avatar_url']) ?>"<?php endif; ?>
+    avatarUrl: "<?= e($widget['avatar_url']) ?>"<?php endif; ?>,
+    fields: <?= json_encode([
+        'name'  => ['ask' => (bool) $widget['ask_name'],  'required' => (bool) $widget['require_name']],
+        'email' => ['ask' => (bool) $widget['ask_email'], 'required' => (bool) $widget['require_email']],
+        'phone' => ['ask' => (bool) $widget['ask_phone'], 'required' => (bool) $widget['require_phone']],
+        'cnpj'  => ['ask' => (bool) $widget['ask_cnpj'],  'required' => (bool) $widget['require_cnpj']],
+    ]) ?>
 };
 &lt;/script&gt;
 &lt;script async src="<?= base_url('widget/chat.js') ?>"&gt;&lt;/script&gt;<button class="copy-btn" onclick="copyInstallCode()">Copiar</button></pre>
@@ -387,7 +393,7 @@ window.ATENDIMENTO_CONFIG = {
         clientBubbleColor: "<?= e($widget['color_primary']) ?>",
         welcomeMessage: "Olá! Bem-vindo à demonstração. Teste o atendimento aqui mesmo.",
         avatarUrl: "<?= e($widget['avatar_url'] ?? '') ?>",
-        quickReplies: ["Olá 👋", "Falar com atendente", "Ver planos"],
+        quickReplies: [],
         fields: {
             name:  { ask: <?= $widget['ask_name'] ? 'true' : 'false' ?>, required: <?= $widget['require_name'] ? 'true' : 'false' ?> },
             email: { ask: <?= $widget['ask_email'] ? 'true' : 'false' ?>, required: <?= $widget['require_email'] ? 'true' : 'false' ?> },
@@ -494,10 +500,10 @@ window.ATENDIMENTO_CONFIG = {
     }
 
     function resetStyles() {
-        document.getElementById('sColor').value = '#2f6fed';
-        document.getElementById('sColorHex').value = '#2f6fed';
-        document.getElementById('sUserColor').value = '#2f6fed';
-        document.getElementById('sUserColorHex').value = '#2f6fed';
+        document.getElementById('sColor').value = '#0078d4';
+        document.getElementById('sColorHex').value = '#0078d4';
+        document.getElementById('sUserColor').value = '#0078d4';
+        document.getElementById('sUserColorHex').value = '#0078d4';
         document.getElementById('sBg').value = '#f4f6fb';
         document.getElementById('sBgHex').value = '#f4f6fb';
         document.getElementById('sBorder').value = '#e7eaf1';
@@ -514,6 +520,13 @@ window.ATENDIMENTO_CONFIG = {
     function updateCodePreview(color, userColor, bg, border, botBubble, position, title, welcome) {
         const key = '<?= e($widget['widget_key']) ?>';
         const baseUrl = '<?= rtrim(base_url(), '/') ?>';
+        const avatarUrl = '<?= e($widget['avatar_url'] ?? '') ?>';
+        const fields = <?= json_encode([
+            'name'  => ['ask' => (bool) $widget['ask_name'],  'required' => (bool) $widget['require_name']],
+            'email' => ['ask' => (bool) $widget['ask_email'], 'required' => (bool) $widget['require_email']],
+            'phone' => ['ask' => (bool) $widget['ask_phone'], 'required' => (bool) $widget['require_phone']],
+            'cnpj'  => ['ask' => (bool) $widget['ask_cnpj'],  'required' => (bool) $widget['require_cnpj']],
+        ]) ?>;
         const code = `<script>
  window.ATENDIMENTO_CONFIG = {
      widgetId: "${key}",
@@ -525,7 +538,9 @@ window.ATENDIMENTO_CONFIG = {
      borderColor: "${border}",
      agentBubbleColor: "${botBubble}",
      clientBubbleColor: "${userColor}",
-     apiUrl: "${baseUrl}"
+     apiUrl: "${baseUrl}",` +
+     (avatarUrl ? `\n     avatarUrl: "${avatarUrl}",` : '') +
+     `\n     fields: ${JSON.stringify(fields)}
  };
  <\/script>
  <script async src="${baseUrl}/widget/chat.js"><\/script>`;

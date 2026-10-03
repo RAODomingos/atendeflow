@@ -29,11 +29,27 @@ class AuthController
             return;
         }
 
+        // Rate limit: 5 tentativas / 10 min por IP, bloqueio de 15 min.
+        $rlKey = \App\Core\RateLimiter::clientKey('login');
+        if (($blocked = \App\Core\RateLimiter::blocked($rlKey)) > 0) {
+            Session::setFlash('error', 'Muitas tentativas. Tente novamente em ' . ceil($blocked / 60) . ' min.');
+            Session::setFlash('old_email', $email);
+            View::redirect('/login');
+            return;
+        }
+
         if (Auth::attempt($email, $password)) {
+            \App\Core\RateLimiter::clear($rlKey);
             Session::setFlash('success', 'Login realizado com sucesso.');
             View::redirect('/');
         } else {
-            Session::setFlash('error', 'E-mail ou senha inválidos.');
+            $wait = \App\Core\RateLimiter::hit($rlKey);
+            Session::setFlash(
+                'error',
+                $wait > 0
+                    ? 'Muitas tentativas. Tente novamente em ' . ceil($wait / 60) . ' min.'
+                    : 'E-mail ou senha inválidos.'
+            );
             Session::setFlash('old_email', $email);
             View::redirect('/login');
         }

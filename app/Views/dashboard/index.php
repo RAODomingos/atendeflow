@@ -43,7 +43,7 @@ $resArea  = $padL . ',' . $baseY . ' ' . $resLine . ' ' . ($padL + ($n - 1) * $s
 $donutR = 62; $donutC = 2 * M_PI * $donutR;
 $donutDefs = [
     ['key' => 'new',               'label' => 'Novos',        'color' => '#2e90fa'],
-    ['key' => 'open',              'label' => 'Abertos',      'color' => '#7c5cff'],
+    ['key' => 'open',              'label' => 'Abertos',      'color' => '#0078d4'],
     ['key' => 'waiting_customer',  'label' => 'Agu. cliente', 'color' => '#12b76a'],
     ['key' => 'waiting_internal',  'label' => 'Agu. interno', 'color' => '#f59e0b'],
 ];
@@ -76,37 +76,52 @@ $todayName = $weekdays[(int) date('w')];
 $todayPt = date('j') . ' de ' . ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'][(int) date('n') - 1];
 ?>
 
+<?php
+$greetName = trim(explode(' ', (string) (\App\Core\Session::get('user_name') ?? ''))[0] ?? '');
+$dayHour = (int) date('H');
+$greeting = $dayHour < 12 ? 'Bom dia' : ($dayHour < 18 ? 'Boa tarde' : 'Boa noite');
+$newWaiting = (int) ($globalCounts['new'] ?? 0);
+?>
 <div class="dashboard" id="dashboardApp">
     <!-- Header -->
-    <div class="dash-header">
-        <div>
-            <h1 class="dash-title">
-                <span class="dash-title-icon"><i class="fas fa-chart-pie"></i></span>
-                Dashboard
-            </h1>
-            <p class="dash-subtitle">
-                <i class="fa-regular fa-calendar"></i>
-                <?= $todayName ?>, <?= $todayPt ?> — Visão geral dos atendimentos
-            </p>
-        </div>
+    <div class="dash-header" style="justify-content:flex-end">
         <div class="dash-header-actions">
             <span class="dash-updated">
                 <i class="fas fa-sync-alt fa-fw"></i> Atualizado <span id="dashUpdateTime">agora</span>
             </span>
+            <a href="<?= url('inbox') ?>" class="btn btn-sm btn-primary"><i class="fas fa-inbox"></i> Ir para caixa</a>
             <button class="btn btn-sm btn-outline" onclick="refreshDashboard()" title="Atualizar">
                 <i class="fas fa-redo"></i>
             </button>
         </div>
     </div>
 
-    <!-- Stats row: Global -->
+    <?php if ($newWaiting > 0): ?>
+    <a href="<?= url('inbox') ?>" class="dash-attention">
+        <span class="dash-attention-icon"><i class="fas fa-bell"></i></span>
+        <span><strong><?= $newWaiting ?> conversa<?= $newWaiting > 1 ? 's novas' : ' nova' ?> aguardando</strong> atendimento. Clique para ver a fila.</span>
+        <i class="fas fa-arrow-right dash-attention-go"></i>
+    </a>
+    <?php endif; ?>
+
+    <!-- Operação agora -->
+    <div class="dash-section-title"><span>Operação agora</span></div>
     <div class="stats-grid dash-stats">
-        <div class="stat-card">
+        <div class="stat-card stat-hero">
             <div class="stat-icon stat-icon-primary"><i class="fas fa-comments"></i></div>
             <div class="stat-info">
                 <span class="stat-value" id="statGlobalOpen" data-count="<?= $globalOpen ?>"><?= $globalOpen ?></span>
-                <span class="stat-label">Total Abertos</span>
-                <span class="stat-sub"><i class="fas fa-circle" style="color:#2e90fa;font-size:7px"></i> <?= $globalCounts['new'] ?> novos</span>
+                <span class="stat-label">Em aberto</span>
+                <span class="stat-sub"><i class="fas fa-circle" style="color:#2e90fa;font-size:7px"></i> <?= $globalCounts['new'] ?> novos &middot; <?= $globalCounts['open'] ?? 0 ?> em atendimento</span>
+            </div>
+        </div>
+
+        <div class="stat-card">
+            <div class="stat-icon stat-icon-danger"><i class="fas fa-inbox"></i></div>
+            <div class="stat-info">
+                <span class="stat-value" id="statTodayNew" data-count="<?= $globalCounts['new'] ?? 0 ?>"><?= $globalCounts['new'] ?? 0 ?></span>
+                <span class="stat-label">Novos aguardando</span>
+                <span class="stat-sub"><i class="fas fa-bell" style="font-size:9px"></i> precisam de atenção</span>
             </div>
         </div>
 
@@ -114,13 +129,32 @@ $todayPt = date('j') . ' de ' . ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul'
             <div class="stat-icon stat-icon-info"><i class="fas fa-user-check"></i></div>
             <div class="stat-info">
                 <span class="stat-value" id="statOnline" data-count="<?= $onlineUsers ?>"><?= $onlineUsers ?></span>
-                <span class="stat-label">Atendentes Online</span>
+                <span class="stat-label">Atendentes online</span>
                 <span class="stat-sub"><i class="fas fa-circle" style="color:var(--success);font-size:7px"></i> disponíveis agora</span>
             </div>
         </div>
 
         <div class="stat-card">
-            <div class="stat-icon stat-icon-success"><i class="fas fa-calendar-day"></i></div>
+            <div class="stat-icon stat-icon-success"><i class="fas fa-check-double"></i></div>
+            <div class="stat-info">
+                <span class="stat-value" id="statTodayResolved" data-count="<?= $todayResolved ?>"><?= $todayResolved ?></span>
+                <span class="stat-label">Resolvidos hoje</span>
+                <?php if ($deltaRes === 'new'): ?>
+                    <span class="stat-delta delta-new"><i class="fas fa-sparkles"></i> Sem base ontem</span>
+                <?php elseif ($deltaRes !== null): ?>
+                    <span class="stat-delta <?= $deltaRes >= 0 ? 'delta-up' : 'delta-down' ?>" id="dTodayResolved">
+                        <i class="fas fa-<?= $deltaRes >= 0 ? 'arrow-up' : 'arrow-down' ?>"></i> <?= abs($deltaRes) ?>% vs ontem
+                    </span>
+                <?php endif; ?>
+            </div>
+        </div>
+    </div>
+
+    <!-- Movimento de hoje -->
+    <div class="dash-section-title"><span>Movimento de hoje</span></div>
+    <div class="stats-grid dash-stats">
+        <div class="stat-card">
+            <div class="stat-icon stat-icon-violet"><i class="fas fa-calendar-day"></i></div>
             <div class="stat-info">
                 <span class="stat-value" id="statTodayConvs" data-count="<?= $todayConversations ?>"><?= $todayConversations ?></span>
                 <span class="stat-label">Conversas hoje</span>
@@ -150,29 +184,14 @@ $todayPt = date('j') . ' de ' . ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul'
         </div>
 
         <div class="stat-card">
-            <div class="stat-icon stat-icon-violet"><i class="fas fa-check-double"></i></div>
-            <div class="stat-info">
-                <span class="stat-value" id="statTodayResolved" data-count="<?= $todayResolved ?>"><?= $todayResolved ?></span>
-                <span class="stat-label">Resolvidos hoje</span>
-                <?php if ($deltaRes === 'new'): ?>
-                    <span class="stat-delta delta-new"><i class="fas fa-sparkles"></i> Sem base ontem</span>
-                <?php elseif ($deltaRes !== null): ?>
-                    <span class="stat-delta <?= $deltaRes >= 0 ? 'delta-up' : 'delta-down' ?>" id="dTodayResolved">
-                        <i class="fas fa-<?= $deltaRes >= 0 ? 'arrow-up' : 'arrow-down' ?>"></i> <?= abs($deltaRes) ?>% vs ontem
-                    </span>
-                <?php endif; ?>
-            </div>
-        </div>
-
-        <div class="stat-card">
-            <div class="stat-icon stat-icon-violet"><i class="fas fa-stopwatch"></i></div>
+            <div class="stat-icon stat-icon-neutral"><i class="fas fa-stopwatch"></i></div>
             <div class="stat-info">
                 <span class="stat-value" id="statAvgResp" data-count="<?= $avgResponseTime ?? 0 ?>" data-decimals="0" data-empty="<?= $avgResponseTime === null ? '1' : '0' ?>">
                     <?= $avgResponseTime !== null ? $avgResponseTime : '—' ?>
                 </span>
-                <span class="stat-label">Tempo médio resposta</span>
+                <span class="stat-label">Resposta média</span>
                 <?php if ($avgResponseTime !== null): ?>
-                    <span class="stat-sub">em 30 dias <span class="stat-suffix">min</span></span>
+                    <span class="stat-sub">últimos 30 dias <span class="stat-suffix">min</span></span>
                 <?php endif; ?>
             </div>
         </div>
@@ -183,30 +202,22 @@ $todayPt = date('j') . ' de ' . ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul'
                 <span class="stat-value" id="dashCsat" data-count="<?= $csatAvg ?? 0 ?>" data-decimals="1" data-empty="<?= $csatAvg === null ? '1' : '0' ?>">
                     <?= $csatAvg !== null ? number_format($csatAvg, 1, ',', '.') : '—' ?>
                 </span>
-                <span class="stat-label">CSAT (30 dias)</span>
+                <span class="stat-label">CSAT · 30 dias</span>
                 <?php if ($csatAvg !== null): ?>
                     <span class="stat-sub"><i class="fas fa-star" style="color:#f59e0b;font-size:9px"></i> <?= $csatCount ?> avaliações</span>
                 <?php endif; ?>
             </div>
         </div>
-
-        <div class="stat-card">
-            <div class="stat-icon stat-icon-info"><i class="fas fa-inbox"></i></div>
-            <div class="stat-info">
-                <span class="stat-value" id="statTodayNew" data-count="<?= $globalCounts['new'] ?? 0 ?>"><?= $globalCounts['new'] ?? 0 ?></span>
-                <span class="stat-label">Novos aguardando</span>
-                <span class="stat-sub"><i class="fas fa-bell" style="font-size:9px"></i> precisam de atenção</span>
-            </div>
-        </div>
     </div>
 
     <!-- Personal stats -->
+    <div class="dash-section-title"><span>Minha fila</span><a href="<?= url('inbox/mine') ?>" class="dash-section-link">Ver minha caixa <i class="fas fa-arrow-right"></i></a></div>
     <div class="dash-myrow">
         <div class="dash-myhead">
             <span class="dash-myicon"><i class="fas fa-user"></i></span>
             <div>
-                <strong>Minha fila</strong>
-                <small>Meus atendimentos em foco</small>
+                <strong>Em foco</strong>
+                <small>Meus atendimentos</small>
             </div>
         </div>
         <div class="dash-mystats">
@@ -234,10 +245,11 @@ $todayPt = date('j') . ' de ' . ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul'
     </div>
 
     <!-- Row: trend chart + donut -->
-    <div class="dashboard-grid" style="grid-template-columns:2fr 1fr;margin-top:16px">
+    <div class="dash-section-title" style="margin-top:20px"><span>Tendência e distribuição</span></div>
+    <div class="dashboard-grid" style="grid-template-columns:2fr 1fr;margin-top:0">
         <div class="card chart-card">
             <div class="card-header">
-                <h3><i class="fas fa-chart-line" style="color:var(--primary)"></i> Conversas (últimos 7 dias)</h3>
+                <h3><i class="fas fa-chart-line" style="color:var(--primary)"></i> Conversas <small class="card-header-sub">últimos 7 dias</small></h3>
                 <div class="chart-legend">
                     <span class="chart-legend-item"><span class="legend-dot" style="background:var(--primary)"></span> Novas</span>
                     <span class="chart-legend-item"><span class="legend-dot" style="background:var(--success)"></span> Resolvidas</span>
@@ -248,8 +260,8 @@ $todayPt = date('j') . ' de ' . ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul'
                     <svg viewBox="0 0 <?= $chartW ?> <?= $chartH ?>" class="trend-svg" preserveAspectRatio="xMidYMid meet">
                         <defs>
                             <linearGradient id="gradConv" x1="0" y1="0" x2="0" y2="1">
-                                <stop offset="0%" stop-color="#7c5cff" stop-opacity="0.28"/>
-                                <stop offset="100%" stop-color="#7c5cff" stop-opacity="0.02"/>
+                                <stop offset="0%" stop-color="#0078d4" stop-opacity="0.28"/>
+                                <stop offset="100%" stop-color="#0078d4" stop-opacity="0.02"/>
                             </linearGradient>
                             <linearGradient id="gradRes" x1="0" y1="0" x2="0" y2="1">
                                 <stop offset="0%" stop-color="#12b76a" stop-opacity="0.20"/>
@@ -290,7 +302,7 @@ $todayPt = date('j') . ' de ' . ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul'
 
         <div class="card chart-card">
             <div class="card-header">
-                <h3><i class="fas fa-chart-pie" style="color:var(--primary)"></i> Status Global</h3>
+                <h3><i class="fas fa-chart-pie" style="color:var(--primary)"></i> Status <small class="card-header-sub">abertos agora</small></h3>
             </div>
             <div class="card-body donut-body">
                 <div class="donut-wrap">
@@ -331,10 +343,11 @@ $todayPt = date('j') . ' de ' . ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul'
     </div>
 
     <!-- Row: departments + inboxes -->
+    <div class="dash-section-title" style="margin-top:20px"><span>Equipe e caixas</span><a href="<?= url('reports') ?>" class="dash-section-link">Relatórios <i class="fas fa-arrow-right"></i></a></div>
     <div class="dashboard-grid" style="grid-template-columns:1fr 1fr;margin-top:0">
         <div class="card chart-card">
             <div class="card-header">
-                <h3><i class="fas fa-layer-group" style="color:var(--primary)"></i> Por Departamento</h3>
+                <h3><i class="fas fa-layer-group" style="color:var(--primary)"></i> Por departamento <small class="card-header-sub">ativos</small></h3>
             </div>
             <div class="card-body">
                 <?php if (empty($deptData)): ?>
@@ -360,7 +373,7 @@ $todayPt = date('j') . ' de ' . ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul'
 
         <div class="card chart-card">
             <div class="card-header">
-                <h3><i class="fas fa-inbox" style="color:var(--primary)"></i> Por Caixa</h3>
+                <h3><i class="fas fa-inbox" style="color:var(--primary)"></i> Por caixa <small class="card-header-sub">em aberto</small></h3>
             </div>
             <div class="card-body">
                 <?php if (empty($inboxes)): ?>
@@ -480,18 +493,26 @@ $todayPt = date('j') . ' de ' . ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul'
 </div>
 
 <style>
-.dash-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:18px;flex-wrap:wrap;gap:12px}
-.dash-title{font-size:23px;font-weight:800;margin:0;display:flex;align-items:center;gap:12px;letter-spacing:-.3px}
-.dash-title-icon{width:40px;height:40px;border-radius:12px;background:linear-gradient(135deg,var(--brand),var(--brand-2));color:#fff;display:flex;align-items:center;justify-content:center;font-size:16px;box-shadow:var(--shadow-brand)}
-.dash-subtitle{margin:6px 0 0 52px;font-size:13px;color:var(--text-muted)}
+.dash-header{display:flex;align-items:flex-end;justify-content:space-between;margin-bottom:6px;flex-wrap:wrap;gap:12px}
+.dash-eyebrow{font-size:11px;font-weight:700;letter-spacing:.09em;text-transform:uppercase;color:var(--brand-2)}
+.dash-title{font-size:24px;font-weight:800;margin:2px 0 0;letter-spacing:-.02em}
+.dash-subtitle{margin:4px 0 0;font-size:13px;color:var(--text-muted)}
 .dash-subtitle i{font-size:11px}
-.dash-header-actions{display:flex;gap:10px;align-items:center}
-.dash-updated{font-size:12px;color:var(--text-muted);background:var(--bg-panel);border:1px solid var(--border-soft);padding:7px 12px;border-radius:20px;display:inline-flex;align-items:center;gap:6px}
-.dash-stats{grid-template-columns:repeat(auto-fill,minmax(200px,1fr))}
+.dash-header-actions{display:flex;gap:8px;align-items:center}
+.dash-updated{font-size:12px;color:var(--text-muted);background:var(--bg-panel);border:1px solid var(--border-soft);padding:7px 12px;border-radius:999px;display:inline-flex;align-items:center;gap:6px}
+.dash-attention{display:flex;align-items:center;gap:10px;background:#fff8eb;border:1px solid #f5dfae;color:#8a5a00;border-radius:12px;padding:10px 14px;font-size:13px;margin:12px 0 4px}
+.dash-attention strong{font-weight:800}
+.dash-attention-icon{width:30px;height:30px;border-radius:9px;background:#f59e0b;color:#fff;display:flex;align-items:center;justify-content:center;font-size:13px;flex-shrink:0}
+.dash-attention-go{margin-left:auto;font-size:12px}
+.dash-section-title{display:flex;align-items:center;justify-content:space-between;margin:18px 0 10px;font-size:11px;font-weight:800;letter-spacing:.09em;text-transform:uppercase;color:var(--text-muted)}
+.dash-section-link{font-size:12px;font-weight:700;color:var(--brand-2);text-transform:none;letter-spacing:0;display:inline-flex;align-items:center;gap:5px}
+.dash-section-link i{font-size:10px}
+.card-header-sub{font-size:11px;font-weight:600;color:var(--text-muted);margin-left:2px}
+.dash-stats{grid-template-columns:repeat(auto-fill,minmax(210px,1fr))}
 .stat-card{position:relative;overflow:hidden;transition:transform .18s ease,box-shadow .18s ease;min-height:112px;align-items:center}
 .stat-card .stat-info{flex:1;min-width:0}
-.stat-card:hover{transform:translateY(-2px);box-shadow:var(--shadow-md)}
-.stat-card::before{content:'';position:absolute;top:0;left:0;right:0;height:3px;background:linear-gradient(90deg,var(--brand),#a78bfa);opacity:0;transition:opacity .18s}
+.stat-card:hover{transform:none;box-shadow:none;border-color:var(--border-strong)}
+.stat-card::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;background:var(--brand);opacity:0;transition:opacity .18s}
 .stat-card:hover::before{opacity:1}
 .stat-sub{font-size:11px;color:var(--text-muted);display:flex;align-items:center;gap:5px;margin-top:1px}
 .stat-suffix{font-weight:700;color:var(--text-secondary)}
@@ -499,14 +520,20 @@ $todayPt = date('j') . ' de ' . ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul'
 .delta-up{color:var(--success)}
 .delta-down{color:var(--danger)}
 .delta-new{color:var(--info)}
-.stat-icon-violet{background:#f3e5f5;color:#7b1fa2}
+.stat-icon-violet{background:#efedfd;color:#4c1d95}
 .stat-icon-amber{background:var(--warning-soft);color:#b45309}
 .stat-icon-success{background:var(--success-soft);color:var(--success)}
+.stat-icon-danger{background:var(--danger-soft);color:var(--danger)}
+.stat-icon-neutral{background:#eef1f6;color:#4b5162}
+.stat-icon-primary{background:var(--brand-soft);color:var(--brand-2)}
+.stat-icon-info{background:var(--info-soft);color:var(--info)}
+.stat-icon-warning{background:var(--warning-soft);color:#b45309}
+.stat-hero{border-color:#d9d6fa;box-shadow:0 1px 3px rgba(67,56,202,.12)}
 .stat-value{font-variant-numeric:tabular-nums}
 .stat-value.stat-pulse{animation:statPulse .5s ease}
 @keyframes statPulse{0%{transform:scale(1)}40%{transform:scale(1.18)}100%{transform:scale(1)}}
 
-.dash-myrow{display:flex;align-items:center;gap:18px;flex-wrap:wrap;background:var(--bg-panel);border:1px solid var(--border-soft);border-radius:var(--radius-lg);padding:14px 18px;margin-top:14px;box-shadow:var(--shadow-sm)}
+.dash-myrow{display:flex;align-items:center;gap:18px;flex-wrap:wrap;background:var(--bg-panel);border:1px solid var(--border-soft);border-radius:var(--radius-lg);padding:12px 16px;margin-top:0;box-shadow:var(--shadow-sm)}
 .dash-myhead{display:flex;align-items:center;gap:10px}
 .dash-myicon{width:38px;height:38px;border-radius:11px;background:var(--brand-soft);color:var(--brand-2);display:flex;align-items:center;justify-content:center;font-size:15px;flex-shrink:0}
 .dash-myhead strong{font-size:14px;display:block}
@@ -561,7 +588,7 @@ $todayPt = date('j') . ' de ' . ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul'
 .dept-bar-track{height:9px;background:var(--bg-panel-alt);border-radius:5px;overflow:hidden}
 .dept-bar-fill{height:100%;border-radius:5px;transition:width .6s ease}
 
-.agent-avatar{width:30px;height:30px;border-radius:9px;background:linear-gradient(135deg,var(--brand),#a78bfa);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:12px;flex-shrink:0}
+.agent-avatar{width:30px;height:30px;border-radius:50%;background:var(--brand);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:600;font-size:12px;flex-shrink:0}
 .agent-table td{vertical-align:middle}
 .agent-progress{display:flex;align-items:center;gap:8px;max-width:200px}
 .agent-progress-track{flex:1;height:7px;background:var(--bg-panel-alt);border-radius:4px;overflow:hidden}
@@ -600,7 +627,7 @@ $todayPt = date('j') . ' de ' . ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul'
     }
 
     function refreshDashboard() {
-        fetch('/api/dashboard-stats', { headers: { 'X-Requested-With': 'XMLHttpRequest' } })
+        fetch('<?= base_url('api/dashboard-stats') ?>', { headers: { 'X-Requested-With': 'XMLHttpRequest' } })
             .then(function (r) { return r.json(); })
             .then(function (d) {
                 if (!d) return;

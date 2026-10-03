@@ -8,15 +8,16 @@
  * Executar via cron: php workers/flow_worker.php
  */
 
-require_once __DIR__ . '/../vendor/autoload.php';
-require_once __DIR__ . '/../app/Core/Database.php';
-require_once __DIR__ . '/../app/Core/Auth.php';
-require_once __DIR__ . '/../app/Models/Flow.php';
-require_once __DIR__ . '/../app/Models/Conversation.php';
-require_once __DIR__ . '/../app/Models/Contact.php';
-require_once __DIR__ . '/../app/Services/FlowEngineService.php';
+require_once __DIR__ . '/../app/Core/Autoloader.php';
+require_once __DIR__ . '/../app/Core/Helper.php';
 
+use App\Core\Database;
 use App\Services\FlowEngineService;
+
+$appConfig = require __DIR__ . '/../config/app.php';
+date_default_timezone_set($appConfig['timezone'] ?? 'America/Sao_Paulo');
+
+Database::connect();
 
 echo "[" . date('Y-m-d H:i:s') . "] Iniciando worker de fluxos...\n";
 

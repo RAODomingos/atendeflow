@@ -55,10 +55,10 @@ class Settings
     {
         return [
             // App Settings
-            'app_name' => 'AtendeFlow',
+            'app_name' => 'OminiDesk',
             'app_description' => 'Central de Atendimento Omnichannel',
             'app_logo' => '/assets/img/logo.png',
-            'app_favicon' => '/assets/img/favicon.ico',
+            'app_favicon' => '/assets/img/favicon.png',
             
             // Theme Settings
             'primary_color' => '#4A90D9',

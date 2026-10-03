@@ -27,6 +27,89 @@ class FlowEngineService
         return $setting['value'] ?? $default;
     }
 
+    /**
+     * Monta o array meta (url, name, mime, path) de um nó de mídia a partir da
+     * config do nó. Suporta:
+     *  - URL externa (https://...) → só url, Uazapi busca ela
+     *  - Upload local (uploads/... ou /atendeflow/uploads/...) → path relativo
+     *    para o disco + url pública (a Uazapi usa o path para base64)
+     */
+    private function buildMediaMetaFromFlowConfig(string $fileUrl, array $config): array
+    {
+        $meta = ['url' => $fileUrl];
+
+        if (!empty($config['file_name'])) {
+            $meta['name'] = $config['file_name'];
+        }
+        if (!empty($config['mime']) || !empty($config['mimetype'])) {
+            $meta['mime'] = $config['mime'] ?? $config['mimetype'];
+        }
+
+        // O frontend salva file_path (caminho local relativo, ex.: 'flows/abc.webm')
+        // sempre que o arquivo foi enviado do servidor local. Ele TEM prioridade:
+        // mesmo que file_url seja a URL pública completa (https://...), a Uazapi
+        // (servidor remoto) não consegue acessar a URL local — então enviamos o
+        // arquivo do disco em base64 via path.
+        if (!empty($config['file_path']) && is_string($config['file_path'])) {
+            $meta['path'] = $config['file_path'];
+        } elseif (!$this->isExternalUrl($fileUrl)) {
+            // Sem file_path salvo e URL não-externa (ex.: 'uploads/...'): tenta
+            // derivar o caminho local a partir do próprio file_url.
+            $path = $this->flowFileUrlToLocalPath($fileUrl, $config);
+            if ($path !== null) {
+                $meta['path'] = $path;
+            }
+        }
+
+        return $meta;
+    }
+
+    private function isExternalUrl(string $url): bool
+    {
+        return (bool) preg_match('#^https?://#i', $url);
+    }
+
+    /**
+     * Converte o file_url (que pode estar como "uploads/flows/abc.webm" ou
+     * "/atendeflow/uploads/flows/abc.webm" ou até a URL pública completa) em
+     * um caminho relativo que o UazapiProvider::resolveLocalFile entende.
+     *
+     * Também usa o config.file_path se o frontend salvou explicitamente
+     * (caminho puro retornado pelo backend de upload).
+     */
+    private function flowFileUrlToLocalPath(string $fileUrl, array $config): ?string
+    {
+        if (!empty($config['file_path']) && is_string($config['file_path'])) {
+            return $config['file_path'];
+        }
+
+        // Remove scheme/host se a URL vier completa
+        $path = parse_url($fileUrl, PHP_URL_PATH) ?: $fileUrl;
+
+        // Remove prefixos comuns (/atendeflow/uploads/, /uploads/, /)
+        $path = ltrim($path, '/');
+        if (stripos($path, 'atendeflow/') === 0) {
+            $path = substr($path, strlen('atendeflow/'));
+        }
+        if (stripos($path, 'uploads/') === 0) {
+            $path = substr($path, strlen('uploads/'));
+        }
+
+        // Verifica se o arquivo existe em public/uploads/<path>
+        $candidate = dirname(__DIR__, 2) . '/public/uploads/' . $path;
+        if (is_file($candidate)) {
+            return $path;
+        }
+
+        // Verifica em <docroot>/<path> (caso o upload tenha ido para outro lugar)
+        $candidate = dirname(__DIR__, 2) . '/' . $path;
+        if (is_file($candidate)) {
+            return $path;
+        }
+
+        return null;
+    }
+
     public function start(int $conversationId, int $flowId): void
     {
         $flow = Flow::find($flowId);
@@ -119,11 +202,7 @@ class FlowEngineService
                 $node['config']['invalid_message'] ?? 'Opção inválida. Por favor, escolha uma opção válida:'
             );
 
-            $optionsList = [];
-            foreach ($node['options'] as $i => $opt) {
-                $optionsList[] = ($i + 1) . ' - ' . $opt['label'];
-            }
-            $this->dispatchOutboundMessage($conversationId, 'text', implode("\n", $optionsList));
+            $this->dispatchMenuPresentation($conversationId, $node, $conv);
 
             return;
         }
@@ -203,15 +282,9 @@ class FlowEngineService
                 break;
 
             case 'menu':
-                $content = $this->processTemplate($node['content'] ?? '', $conv);
-                $this->dispatchOutboundMessage($conversationId, 'text', $content);
-
-                $optionsList = [];
-                foreach ($node['options'] as $i => $opt) {
-                    $optionsList[] = ($i + 1) . ' - ' . $opt['label'];
-                }
-                $this->dispatchOutboundMessage($conversationId, 'text', implode("\n", $optionsList));
-
+            case 'button_list':
+            case 'list_menu':
+                $this->dispatchMenuPresentation($conversationId, $node, $conv);
                 Flow::saveFlowState($conversationId, $conv['flow_id'] ?? $node['flow_id'], $node['id']);
                 break;
 
@@ -227,34 +300,18 @@ class FlowEngineService
                 Flow::saveFlowState($conversationId, $conv['flow_id'] ?? $node['flow_id'], $node['id']);
                 break;
 
-            case 'button_list':
-                $content = $this->processTemplate($node['content'] ?? '', $conv);
-                $buttons = [];
-                foreach ($node['options'] ?? [] as $opt) {
-                    $buttons[] = ['id' => $opt['value'] ?? $opt['label'], 'label' => $opt['label']];
-                }
-                $this->dispatchOutboundMessage($conversationId, 'button_list', json_encode(['text' => $content, 'buttons' => $buttons], JSON_UNESCAPED_UNICODE));
-                Flow::saveFlowState($conversationId, $conv['flow_id'] ?? $node['flow_id'], $node['id']);
-                break;
-
-            case 'list_menu':
-                $content = $this->processTemplate($node['content'] ?? '', $conv);
-                $items = [];
-                foreach ($node['options'] ?? [] as $opt) {
-                    $items[] = ['id' => $opt['value'] ?? $opt['label'], 'label' => $opt['label']];
-                }
-                $listTitle = $node['config']['list_title'] ?? 'Opções';
-                $this->dispatchOutboundMessage($conversationId, 'list_menu', json_encode(['text' => $content, 'title' => $listTitle, 'items' => $items], JSON_UNESCAPED_UNICODE));
-                Flow::saveFlowState($conversationId, $conv['flow_id'] ?? $node['flow_id'], $node['id']);
-                break;
-
             case 'image':
             case 'audio':
             case 'video':
                 $config = $node['config'] ?? [];
                 $fileUrl = $config['file_url'] ?? '';
                 if ($fileUrl) {
-                    $this->dispatchOutboundMessage($conversationId, $node['node_type'], json_encode(['url' => $fileUrl], JSON_UNESCAPED_SLASHES));
+                    $meta = $this->buildMediaMetaFromFlowConfig($fileUrl, $config);
+                    $caption = $this->processTemplate((string) ($config['caption'] ?? $config['text'] ?? ''), $conv);
+                    if ($caption !== '') {
+                        $meta['caption'] = $caption;
+                    }
+                    $this->dispatchOutboundMessage($conversationId, $node['node_type'], json_encode($meta, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE));
                 }
                 $this->goToNextNode($conversationId, $node);
                 break;
@@ -262,9 +319,16 @@ class FlowEngineService
             case 'send_file':
                 $config = $node['config'] ?? [];
                 $fileUrl = $config['file_url'] ?? '';
-                $fileName = $config['file_name'] ?? 'arquivo';
                 if ($fileUrl) {
-                    $this->dispatchOutboundMessage($conversationId, 'file', json_encode(['url' => $fileUrl, 'name' => $fileName], JSON_UNESCAPED_SLASHES));
+                    $meta = $this->buildMediaMetaFromFlowConfig($fileUrl, $config);
+                    if (empty($meta['name'])) {
+                        $meta['name'] = basename(parse_url($fileUrl, PHP_URL_PATH) ?: '') ?: 'arquivo';
+                    }
+                    $caption = $this->processTemplate((string) ($config['caption'] ?? $config['text'] ?? ''), $conv);
+                    if ($caption !== '') {
+                        $meta['caption'] = $caption;
+                    }
+                    $this->dispatchOutboundMessage($conversationId, 'file', json_encode($meta, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE));
                 }
                 $this->goToNextNode($conversationId, $node);
                 break;
@@ -295,34 +359,13 @@ class FlowEngineService
                     $answer = Flow::getLastAnswer($conversationId, $node['id']);
                     $fieldValue = $answer['answer_text'] ?? '';
                     $matched = $this->evaluateCondition($fieldValue, $expected, $operator);
-                    $this->logExecution($conversationId, $node['flow_id'], $node['id'], 'condition_evaluated', [
-                        'variable' => $variable,
-                        'value' => $fieldValue,
-                        'expected' => $expected,
-                        'operator' => $operator,
-                        'matched' => $matched
-                    ]);
                 }
-
-                if ($matched && !empty($node['options'])) {
-                    $nextNodeId = $node['options'][0]['next_node_id'];
-                } else {
-                    $nextNodeId = $node['options'][1]['next_node_id'] ?? ($node['options'][0]['next_node_id'] ?? null);
-                }
-
-                if ($nextNodeId) {
-                    $condFlow = Flow::find($node['flow_id']);
-                    if ($condFlow) {
-                        foreach ($condFlow['nodes'] as $n) {
-                            if ($n['id'] === $nextNodeId) {
-                                Flow::saveFlowState($conversationId, $condFlow['id'], $nextNodeId);
-                                $this->executeNode($conversationId, $n);
-                                return;
-                            }
-                        }
-                    }
-                }
-                Flow::completeFlowState($conversationId);
+                $this->routeBinaryDecision($conversationId, $node, $matched, 'condition_evaluated', [
+                    'variable' => $variable,
+                    'expected' => $expected,
+                    'operator' => $operator,
+                    'matched' => $matched,
+                ]);
                 break;
 
             case 'day_of_week':
@@ -330,29 +373,11 @@ class FlowEngineService
                 $selectedDays = $config['days'] ?? [1,2,3,4,5];
                 $currentDay = (int) date('w');
                 $matched = in_array($currentDay, $selectedDays);
-                $this->logExecution($conversationId, $node['flow_id'], $node['id'], 'day_of_week', [
+                $this->routeBinaryDecision($conversationId, $node, $matched, 'day_of_week', [
                     'current' => $currentDay,
                     'selected' => $selectedDays,
                     'matched' => $matched,
                 ]);
-                if ($matched && !empty($node['options'])) {
-                    $nextNodeId = $node['options'][0]['next_node_id'];
-                } else {
-                    $nextNodeId = $node['options'][1]['next_node_id'] ?? ($node['options'][0]['next_node_id'] ?? null);
-                }
-                if ($nextNodeId) {
-                    $f = Flow::find($node['flow_id']);
-                    if ($f) {
-                        foreach ($f['nodes'] as $n) {
-                            if ($n['id'] === $nextNodeId) {
-                                Flow::saveFlowState($conversationId, $f['id'], $nextNodeId);
-                                $this->executeNode($conversationId, $n);
-                                return;
-                            }
-                        }
-                    }
-                }
-                Flow::completeFlowState($conversationId);
                 break;
 
             case 'time_range':
@@ -360,41 +385,40 @@ class FlowEngineService
                 $start = $config['start_time'] ?? '08:00';
                 $end = $config['end_time'] ?? '18:00';
                 $now = date('H:i');
-                $matched = $now >= $start && $now <= $end;
-                $this->logExecution($conversationId, $node['flow_id'], $node['id'], 'time_range', [
+                // Suporta intervalos que cruzam meia-noite: se end <= start,
+                // o intervalo é válido quando $now >= start OU $now <= end.
+                $matched = ($start <= $end)
+                    ? ($now >= $start && $now <= $end)
+                    : ($now >= $start || $now <= $end);
+                $this->routeBinaryDecision($conversationId, $node, $matched, 'time_range', [
                     'now' => $now,
                     'start' => $start,
                     'end' => $end,
                     'matched' => $matched,
                 ]);
-                if ($matched && !empty($node['options'])) {
-                    $nextNodeId = $node['options'][0]['next_node_id'];
-                } else {
-                    $nextNodeId = $node['options'][1]['next_node_id'] ?? ($node['options'][0]['next_node_id'] ?? null);
-                }
-                if ($nextNodeId) {
-                    $f = Flow::find($node['flow_id']);
-                    if ($f) {
-                        foreach ($f['nodes'] as $n) {
-                            if ($n['id'] === $nextNodeId) {
-                                Flow::saveFlowState($conversationId, $f['id'], $nextNodeId);
-                                $this->executeNode($conversationId, $n);
-                                return;
-                            }
-                        }
-                    }
-                }
-                Flow::completeFlowState($conversationId);
                 break;
 
             case 'assign_department':
                 $config = $node['config'] ?? [];
                 $departmentId = $config['department_id'] ?? null;
                 if ($departmentId) {
-                    Conversation::update($conversationId, ['department_id' => $departmentId]);
+                    $conv = Conversation::find($conversationId);
+                    $update = ['department_id' => $departmentId];
+                    $resolved = \App\Models\Inbox::resolveInboxForDepartment(
+                        (int) $departmentId,
+                        isset($conv['inbox_id']) ? (int) $conv['inbox_id'] : null
+                    );
+                    if ($resolved && $resolved !== (int) ($conv['inbox_id'] ?? 0)) {
+                        $update['inbox_id'] = $resolved;
+                    }
+                    Conversation::update($conversationId, $update);
                     $dept = Department::find($departmentId);
-                    Conversation::addEvent($conversationId, 'department_changed',
-                        "Departamento definido como: {$dept['name']}");
+                    $msg = "Departamento definido como: " . ($dept['name'] ?? ('#' . $departmentId));
+                    if (!empty($update['inbox_id'])) {
+                        $newInbox = \App\Models\Inbox::find((int) $update['inbox_id']);
+                        $msg .= " (caixa " . ($newInbox['name'] ?? ('#' . $update['inbox_id'])) . ")";
+                    }
+                    Conversation::addEvent($conversationId, 'department_changed', $msg);
                 }
                 $this->goToNextNode($conversationId, $node);
                 break;
@@ -426,25 +450,43 @@ class FlowEngineService
                 $phones = $config['phones'] ?? (isset($config['phone_number']) ? [$config['phone_number']] : []);
                 $template = $config['message_template'] ?? '';
 
-                if (!empty($phones) && $template) {
+                if (empty($phones)) {
+                    $this->logExecution($conversationId, $node['flow_id'] ?? 0, $node['id'], 'notify_skipped', ['reason' => 'no_phones']);
+                    Conversation::addEvent($conversationId, 'flow_notification', "Notificação ignorada: nenhum telefone destino configurado");
+                } elseif (empty($template)) {
+                    $this->logExecution($conversationId, $node['flow_id'] ?? 0, $node['id'], 'notify_skipped', ['reason' => 'no_template']);
+                    Conversation::addEvent($conversationId, 'flow_notification', "Notificação ignorada: mensagem vazia");
+                } else {
                     $message = $this->processTemplate($template, $conv);
                     $channelId = $config['notify_channel_id'] ?? $conv['channel_id'] ?? null;
 
-                    if ($channelId) {
+                    if (!$channelId) {
+                        $this->logExecution($conversationId, $node['flow_id'] ?? 0, $node['id'], 'notify_skipped', ['reason' => 'no_channel']);
+                        Conversation::addEvent($conversationId, 'flow_notification', "Notificação ignorada: sem canal WhatsApp disponível");
+                    } else {
                         $waService = new \App\Services\WhatsAppService();
                         $sent = [];
+                        $invalid = [];
                         foreach ($phones as $phone) {
                             $phoneClean = preg_replace('/\D/', '', $phone);
-                            if (strlen($phoneClean) < 10) continue;
+                            if (strlen($phoneClean) < 10) {
+                                $invalid[] = $phone;
+                                continue;
+                            }
                             $result = $waService->sendToPhone((int) $channelId, $phoneClean, $message);
-                            if ($result) $sent[] = $phoneClean;
+                            if ($result) {
+                                $sent[] = $phoneClean;
+                            } else {
+                                $invalid[] = $phone;
+                            }
                         }
                         $this->logExecution($conversationId, $node['flow_id'] ?? 0, $node['id'], 'notify_sent', [
                             'phones' => $phones,
                             'sent_count' => count($sent),
+                            'invalid_count' => count($invalid),
                         ]);
                         Conversation::addEvent($conversationId, 'flow_notification',
-                            "Notificação enviada para " . count($sent) . " número(s)");
+                            "Notificação enviada para " . count($sent) . " número(s)" . (count($invalid) > 0 ? " (" . count($invalid) . " inválido(s))" : ''));
                     }
                 }
                 $this->goToNextNode($conversationId, $node);
@@ -464,13 +506,14 @@ class FlowEngineService
                 break;
 
             case 'finish':
-                Flow::completeFlowState($conversationId);
-                $updResult = Conversation::update($conversationId, [
+                // Fecha a conversa PRIMEIRO para que completeFlowState não
+                // aplique a tag "Aberto" em uma conversa encerrada.
+                Conversation::update($conversationId, [
                     'status' => 'closed',
                     'close_reason' => 'system',
                     'closed_at' => date('Y-m-d H:i:s'),
                 ]);
-                error_log("FINISH_NODE: conversation #{$conversationId} update result={$updResult}");
+                Flow::completeFlowState($conversationId);
                 Conversation::addEvent($conversationId, 'flow_completed', 'Fluxo finalizado, conversa encerrada pelo sistema');
                 break;
         }
@@ -495,6 +538,46 @@ class FlowEngineService
         }
 
         Flow::completeFlowState($conversationId);
+    }
+
+    /**
+     * Envia a apresentação do nó de menu conforme o tipo:
+     * button_list => botões interativos, list_menu => lista interativa,
+     * menu => texto + lista numerada.
+     */
+    private function dispatchMenuPresentation(int $conversationId, array $node, array $conv): void
+    {
+        $content = $this->processTemplate($node['content'] ?? '', $conv);
+        if (trim($content) === '') {
+            $content = 'Escolha uma opção:';
+        }
+
+        if ($node['node_type'] === 'button_list') {
+            $buttons = [];
+            foreach ($node['options'] ?? [] as $opt) {
+                $buttons[] = ['id' => $opt['value'] ?? $opt['label'], 'label' => $opt['label']];
+            }
+            $this->dispatchOutboundMessage($conversationId, 'button_list', json_encode(['text' => $content, 'buttons' => $buttons], JSON_UNESCAPED_UNICODE));
+            return;
+        }
+
+        if ($node['node_type'] === 'list_menu') {
+            $items = [];
+            foreach ($node['options'] ?? [] as $opt) {
+                $items[] = ['id' => $opt['value'] ?? $opt['label'], 'label' => $opt['label']];
+            }
+            $listTitle = $node['config']['list_title'] ?? 'Opções';
+            $this->dispatchOutboundMessage($conversationId, 'list_menu', json_encode(['text' => $content, 'title' => $listTitle, 'items' => $items], JSON_UNESCAPED_UNICODE));
+            return;
+        }
+
+        $this->dispatchOutboundMessage($conversationId, 'text', $content);
+
+        $optionsList = [];
+        foreach ($node['options'] as $i => $opt) {
+            $optionsList[] = ($i + 1) . ' - ' . $opt['label'];
+        }
+        $this->dispatchOutboundMessage($conversationId, 'text', implode("\n", $optionsList));
     }
 
     private function dispatchOutboundMessage(int $conversationId, string $type, string $content): int
@@ -700,10 +783,102 @@ class FlowEngineService
             }
 
             if ($currentNode && $currentNode['node_type'] === 'delay') {
+                // Delay agendado: avança o fluxo
                 $this->logExecution($state['conversation_id'], $flow['id'], $currentNode['id'], 'delay_completed');
                 $this->goToNextNode($state['conversation_id'], $currentNode);
+
+                // O timeout_at herdado do nó delay já expirou. Se o novo nó
+                // for de interação (aguardando resposta do cliente), renova o
+                // timeout — senão o próximo tick do worker fecharia o fluxo
+                // imediatamente (handoff prematuro).
+                $this->refreshInteractionTimeoutIfNeeded($state['conversation_id']);
+            } else {
+                // Timeout em nó de interação (pergunta/menu/coleta aguardando resposta):
+                // finaliza o fluxo automaticamente (handoff ou encaminhamento humano),
+                // o que troca a tag "Fluxo" pela "Aberto".
+                $this->handleTimeout($state['conversation_id'], $state);
             }
         }
+    }
+
+    /**
+     * Após avançar de um nó delay, renova o timeout de interação (flow_timeout_minutes)
+     * caso o fluxo tenha parado num nó que aguarda resposta do cliente.
+     */
+    private function refreshInteractionTimeoutIfNeeded(int $conversationId): void
+    {
+        $state = Flow::getActiveFlowState($conversationId);
+        if (!$state) {
+            return;
+        }
+        $flow = Flow::find((int) $state['flow_id']);
+        if (!$flow) {
+            return;
+        }
+        $currentNode = null;
+        foreach ($flow['nodes'] as $node) {
+            if ((int) $node['id'] === (int) $state['current_node_id']) {
+                $currentNode = $node;
+                break;
+            }
+        }
+        if (!$currentNode) {
+            return;
+        }
+        if (!in_array($currentNode['node_type'], ['question', 'menu', 'button_list', 'list_menu', 'collect_field'], true)) {
+            return;
+        }
+
+        $timeoutMinutes = (int) $this->getSetting('flow_timeout_minutes', '30');
+        Database::getInstance()->update(
+            'conversation_flow_states',
+            ['timeout_at' => date('Y-m-d H:i:s', strtotime("+{$timeoutMinutes} minutes"))],
+            'id = ?',
+            [(int) $state['id']]
+        );
+    }
+
+    /**
+     * Roteia um nó de decisão binária (condition / day_of_week / time_range)
+     * para o ramo "matched" (options[0]) ou "not_matched" (options[1]).
+     *
+     * - Loga a avaliação com o event_type e payload fornecidos.
+     * - Persiste o estado no próximo nó e o executa.
+     * - Se faltar a 2ª opção e a condição não for matched, fica na 1ª
+     *   (mantém compatibilidade com fluxos antigos de 1 opção só).
+     * - Se nenhum próximo nó existir, finaliza o fluxo.
+     */
+    private function routeBinaryDecision(int $conversationId, array $node, bool $matched, string $eventType, array $logData): void
+    {
+        $this->logExecution($conversationId, $node['flow_id'], $node['id'], $eventType, $logData);
+
+        $options = $node['options'] ?? [];
+        if ($matched) {
+            $nextNodeId = $options[0]['next_node_id'] ?? null;
+        } else {
+            $nextNodeId = $options[1]['next_node_id'] ?? ($options[0]['next_node_id'] ?? null);
+        }
+
+        if (!$nextNodeId) {
+            Flow::completeFlowState($conversationId);
+            return;
+        }
+
+        $flow = Flow::find($node['flow_id']);
+        if (!$flow) {
+            Flow::completeFlowState($conversationId);
+            return;
+        }
+
+        foreach ($flow['nodes'] as $n) {
+            if ($n['id'] === $nextNodeId) {
+                Flow::saveFlowState($conversationId, $flow['id'], $nextNodeId);
+                $this->executeNode($conversationId, $n);
+                return;
+            }
+        }
+
+        Flow::completeFlowState($conversationId);
     }
 
     private function evaluateCondition(string $actual, string $expected, string $operator): bool

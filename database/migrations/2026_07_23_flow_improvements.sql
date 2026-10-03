@@ -43,11 +43,14 @@ CREATE TABLE flow_execution_logs (
 );
 
 -- 5. Atualizar enum de flow_nodes para incluir novos tipos
+-- (inclui finish/notify/day_of_week/time_range; sem isso o MariaDB trunca
+-- esses tipos para '' ao salvar e os nós não executam)
 ALTER TABLE flow_nodes MODIFY COLUMN node_type ENUM(
     'start', 'message', 'menu', 'question', 'collect_field',
     'condition', 'assign_department', 'assign_user',
     'add_tag', 'handoff', 'end', 'delay', 'button_list',
-    'list_menu', 'image', 'audio', 'video', 'send_file'
+    'list_menu', 'image', 'audio', 'video', 'send_file',
+    'finish', 'notify', 'day_of_week', 'time_range'
 ) NOT NULL;
 
 -- 6. Adicionar configurações globais de fluxo

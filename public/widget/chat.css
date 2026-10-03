@@ -1,27 +1,27 @@
 /* ============================================================
-   AtendeFlow ChatWeb — Widget Styles
+   OminiDesk ChatWeb — Widget Styles
    Design: moderno, limpo, inspirado em Intercom/Crisp
    ============================================================ */
 
 #atendeflow-widget {
-    --afw-primary: #2f6fed;
-    --afw-primary-dark: #1f57c9;
+    --afw-primary: #0078d4;
+    --afw-primary-dark: #005a9e;
     --afw-surface: #ffffff;
-    --afw-bg: #f4f6fb;
-    --afw-bot-bubble: #f0f2f7;
-    --afw-bot-text: #1a2332;
+    --afw-bg: #f5f5f5;
+    --afw-bot-bubble: #f3f2f1;
+    --afw-bot-text: #201f1e;
     --afw-user-text: #ffffff;
-    --afw-text: #1a2332;
-    --afw-text-soft: #6b7488;
-    --afw-border: #e7eaf1;
-    --afw-radius: 22px;
-    --afw-shadow: 0 18px 50px rgba(20, 30, 60, .18);
+    --afw-text: #201f1e;
+    --afw-text-soft: #605e5c;
+    --afw-border: #edebe9;
+    --afw-radius: 8px;
+    --afw-shadow: 0 6.4px 14.4px rgba(0,0,0,.13), 0 1.2px 3.6px rgba(0,0,0,.11);
 
     position: fixed;
     inset: 0;
     pointer-events: none;
     z-index: 2147483000;
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    font-family: "Segoe UI", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
     font-size: 14px;
     line-height: 1.5;
     color: var(--afw-text);
@@ -79,7 +79,7 @@
     100% { transform: scale(1.9); opacity: 0;   }
 }
 
-.afw-launcher:hover { transform: scale(1.07); box-shadow: 0 14px 32px rgba(47,111,237,.5); }
+.afw-launcher:hover { transform: scale(1.07); box-shadow: 0 6px 14px rgba(0,0,0,.24); }
 .afw-launcher:active { transform: scale(.95); }
 
 .afw-launcher .afw-ico { width: 28px; height: 28px; fill: #fff; transition: opacity .2s, transform .25s; }
@@ -134,7 +134,7 @@
 
 /* ── Cabeçalho ───────────────────────────────────────────── */
 .afw-header {
-    background: linear-gradient(135deg, var(--afw-primary), var(--afw-primary-dark));
+    background: var(--afw-primary);
     color: #fff;
     padding: 16px 18px;
     display: flex;
@@ -154,7 +154,7 @@
 .afw-status-dot {
     position: absolute; bottom: 1px; right: 1px;
     width: 11px; height: 11px; border-radius: 50%;
-    background: #2ecc71; border: 2px solid var(--afw-primary-dark);
+    background: #107c10; border: 2px solid var(--afw-primary-dark);
 }
 .afw-agent-info { min-width: 0; }
 .afw-agent-name {
@@ -222,7 +222,7 @@
 
 .afw-bubble {
     padding: 11px 15px;
-    border-radius: 18px;
+    border-radius: 8px;
     font-size: 13.5px;
     line-height: 1.5;
     word-wrap: break-word;
@@ -232,13 +232,13 @@
 .afw-msg--bot .afw-bubble {
     background: var(--afw-bot-bubble);
     color: var(--afw-bot-text);
-    border-bottom-left-radius: 5px;
+    border-bottom-left-radius: 2px;
 }
 .afw-msg--user .afw-bubble {
     background: var(--afw-user, var(--afw-primary));
     color: var(--afw-user-text, #fff);
-    border-bottom-right-radius: 5px;
-    box-shadow: 0 4px 12px rgba(47,111,237,.22);
+    border-bottom-right-radius: 2px;
+    box-shadow: none;
 }
 .afw-bubble a { color: inherit; text-decoration: underline; }
 
@@ -284,7 +284,7 @@
     border: 1.5px solid var(--afw-primary);
     color: var(--afw-primary);
     background: #fff;
-    padding: 7px 14px; border-radius: 18px;
+    padding: 7px 14px; border-radius: 4px;
     font-size: 12.5px; font-weight: 600;
     transition: background .15s, color .15s, transform .1s;
 }
@@ -306,25 +306,25 @@
 .afw-input {
     width: 100%;
     padding: 12px 15px;
-    border: 1.5px solid var(--afw-border);
-    border-radius: 12px;
+    border: 1px solid var(--afw-border);
+    border-radius: 4px;
     font-size: 14px;
     font-family: inherit;
     color: var(--afw-text);
-    background: #fbfcfe;
+    background: #ffffff;
     outline: none;
     transition: border-color .18s, box-shadow .18s, background .18s;
 }
 .afw-input:focus {
     border-color: var(--afw-primary);
     background: #fff;
-    box-shadow: 0 0 0 3px rgba(47,111,237,.13);
+    box-shadow: 0 0 0 3px rgba(0,120,212,.13);
 }
 .afw-input::placeholder { color: #aab1c0; }
 .afw-start {
     margin-top: 2px;
     padding: 12px;
-    border-radius: 12px;
+    border-radius: 4px;
     background: var(--afw-primary);
     color: #fff;
     font-size: 14px; font-weight: 600;
@@ -350,15 +350,15 @@
     flex: 1;
     display: flex;
     align-items: flex-end;
-    border: 1.5px solid var(--afw-border);
-    border-radius: 22px;
+    border: 1px solid var(--afw-border);
+    border-radius: 8px;
     padding: 4px 6px 4px 16px;
-    background: #fbfcfe;
+    background: #ffffff;
     transition: border-color .18s, box-shadow .18s;
 }
 .afw-input-wrap:focus-within {
     border-color: var(--afw-primary);
-    box-shadow: 0 0 0 3px rgba(47,111,237,.13);
+    box-shadow: 0 0 0 3px rgba(0,120,212,.13);
 }
 .afw-textarea {
     flex: 1;
@@ -391,7 +391,69 @@
     display: flex; align-items: center; justify-content: center;
     color: #8a93a6; transition: background .15s, color .15s;
 }
-.afw-attach:hover { background: rgba(47,111,237,.1); color: var(--afw-primary); }
+.afw-attach:hover { background: rgba(0,120,212,.1); color: var(--afw-primary); }
+.afw-attach svg, .afw-mic svg { width: 20px; height: 20px; fill: currentColor; }
+.afw-mic {
+    flex-shrink: 0;
+    width: 36px; height: 36px;
+    border: none; background: transparent; cursor: pointer;
+    border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    color: #8a93a6; transition: background .15s, color .15s;
+}
+.afw-mic:hover { background: rgba(192,57,43,.1); color: #c0392b; }
+.afw-mic.recording { color: #c0392b; }
+.afw-record {
+    flex: 1;
+    display: flex; align-items: center; gap: 10px;
+    padding: 6px 8px;
+    background: #ffffff;
+    border: 1px solid var(--afw-border);
+    border-radius: 8px;
+    min-height: 40px;
+}
+.afw-rec-indicator {
+    width: 10px; height: 10px;
+    border-radius: 50%;
+    background: #c0392b;
+    box-shadow: 0 0 0 0 rgba(192,57,43,.7);
+    flex-shrink: 0;
+    transition: .2s;
+}
+.afw-rec-indicator.recording {
+    animation: afw-rec-pulse 1.2s ease-in-out infinite;
+}
+@keyframes afw-rec-pulse {
+    0% { box-shadow: 0 0 0 0 rgba(192,57,43,.7); }
+    70% { box-shadow: 0 0 0 10px rgba(192,57,43,0); }
+    100% { box-shadow: 0 0 0 0 rgba(192,57,43,0); }
+}
+.afw-rec-timer {
+    font-variant-numeric: tabular-nums;
+    font-weight: 600;
+    letter-spacing: .5px;
+    min-width: 48px;
+    font-size: 13px;
+    color: #c0392b;
+}
+.afw-rec-btn {
+    border: none; background: transparent; cursor: pointer;
+    width: 32px; height: 32px;
+    border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    color: #8a93a6;
+    transition: background .15s, color .15s;
+    margin-left: auto;
+}
+.afw-rec-btn:hover { background: rgba(0,120,212,.1); color: var(--afw-primary); }
+.afw-rec-cancel:hover { background: rgba(192,57,43,.12); color: #c0392b; }
+.afw-rec-stop {
+    background: var(--afw-primary, #0078d4);
+    color: #fff;
+    margin-left: 4px;
+}
+.afw-rec-stop:hover { background: #005a9e; color: #fff; }
+.afw-rec-btn svg { width: 14px; height: 14px; fill: currentColor; }
 .afw-attach svg { width: 20px; height: 20px; fill: currentColor; }
 .afw-attach-preview {
     flex-basis: 100%; display: flex; gap: 6px; flex-wrap: wrap;
@@ -399,7 +461,7 @@
 }
 .afw-chip--file {
     display: inline-flex; align-items: center; gap: 6px;
-    background: rgba(47,111,237,.1); color: var(--afw-primary);
+    background: rgba(0,120,212,.1); color: var(--afw-primary);
     border-radius: 14px; padding: 4px 8px 4px 6px; font-size: 12px; max-width: 100%;
 }
 .afw-chip--file svg { width: 14px; height: 14px; fill: currentColor; flex-shrink: 0; }
@@ -407,15 +469,15 @@
 .afw-chip-x { border: none; background: transparent; color: inherit; font-size: 16px; line-height: 1; cursor: pointer; padding: 0 2px; }
 
 .afw-file-img-link { display: block; }
-.afw-file-img { max-width: 220px; max-height: 220px; border-radius: 12px; display: block; cursor: zoom-in; }
+.afw-file-img { max-width: 220px; max-height: 220px; border-radius: 8px; display: block; cursor: zoom-in; }
 .afw-file-media { max-width: 240px; width: 100%; margin-top: 2px; }
 .afw-file-link {
     display: inline-flex; align-items: center; gap: 10px;
-    background: rgba(47,111,237,.08); border: 1px solid rgba(47,111,237,.18);
-    border-radius: 12px; padding: 10px 14px; color: var(--afw-primary);
+    background: rgba(0,120,212,.08); border: 1px solid rgba(0,120,212,.18);
+    border-radius: 8px; padding: 10px 14px; color: var(--afw-primary);
     text-decoration: none; max-width: 240px;
 }
-.afw-file-link:hover { background: rgba(47,111,237,.14); }
+.afw-file-link:hover { background: rgba(0,120,212,.14); }
 .afw-file-ico svg { width: 22px; height: 22px; fill: currentColor; flex-shrink: 0; }
 .afw-file-meta { display: flex; flex-direction: column; min-width: 0; }
 .afw-file-name { font-size: 13px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -448,7 +510,7 @@
 .afw-start-new-btn {
     display: inline-block;
     padding: 12px 28px;
-    border-radius: 12px;
+    border-radius: 4px;
     background: var(--afw-primary);
     color: #fff;
     font-size: 14px;
@@ -461,6 +523,36 @@
 }
 .afw-start-new-btn:hover { background: var(--afw-primary-dark); }
 .afw-start-new-btn:active { transform: scale(.985); }
+
+/* ── Ações da mensagem (editar/excluir/reagir — próprias do cliente) ── */
+.afw-msg-actions { display: flex; gap: 2px; margin: 2px 4px 0; opacity: 0; transition: opacity .15s; }
+.afw-msg:hover .afw-msg-actions, .afw-msg-actions.afw-show { opacity: 1; }
+.afw-msg--user .afw-msg-actions { justify-content: flex-end; }
+.afw-act-btn { border: 0; background: transparent; cursor: pointer; font-size: 12px; color: var(--afw-text-soft); padding: 3px 5px; border-radius: 6px; line-height: 1; }
+.afw-act-btn:hover { background: rgba(0,0,0,.07); }
+.afw-react-row { display: flex; gap: 4px; flex-wrap: wrap; margin: 4px 4px 0; padding: 4px 6px; background: rgba(0,0,0,.04); border-radius: 10px; }
+.afw-msg--user .afw-react-row { justify-content: flex-end; }
+.afw-react-emoji { border: 0; background: transparent; cursor: pointer; font-size: 17px; padding: 2px 4px; border-radius: 6px; line-height: 1.2; }
+.afw-react-emoji:hover { background: rgba(0,0,0,.09); transform: scale(1.15); }
+.afw-react-pills { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 4px; }
+.afw-msg--user .afw-react-pills { justify-content: flex-end; }
+.afw-react-pill { font-size: 12px; background: rgba(0,0,0,.06); border-radius: 12px; padding: 1px 7px; line-height: 1.6; }
+.afw-edited { font-size: 10px; opacity: .6; font-style: italic; margin-left: 4px; }
+.afw-deleted { font-style: italic; opacity: .65; }
+.afw-sticker { max-width: 128px; max-height: 128px; border-radius: 8px; display: block; }
+.afw-edit-box { width: 100%; min-height: 52px; border: 1px solid var(--afw-primary); border-radius: 8px; padding: 6px; font: inherit; font-size: 13px; resize: vertical; }
+.afw-edit-btns { display: flex; gap: 6px; margin-top: 4px; justify-content: flex-end; }
+.afw-edit-btns button { border: 0; border-radius: 8px; padding: 5px 12px; font-size: 12px; font-weight: 600; cursor: pointer; }
+.afw-edit-save { background: var(--afw-primary); color: #fff; }
+.afw-edit-cancel { background: rgba(0,0,0,.08); color: inherit; }
+
+/* ── Citação (responder) ───────────────────────────────────── */
+.afw-quote { border-left: 3px solid var(--afw-primary); background: rgba(0,0,0,.05); border-radius: 0 8px 8px 0; padding: 6px 10px; margin: 0 4px 6px; max-width: 100%; }
+.afw-quote-name { font-size: 11px; font-weight: 700; color: var(--afw-primary); margin-bottom: 2px; }
+.afw-quote-text { font-size: 12px; color: var(--afw-text-soft); white-space: pre-wrap; word-break: break-word; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.afw-quote-bar { display: flex; align-items: center; gap: 8px; border-left: 3px solid var(--afw-primary); background: rgba(0,0,0,.04); border-radius: 0 8px 8px 0; padding: 6px 10px; margin: 6px 8px 0; font-size: 12px; }
+.afw-quote-bar-text { flex: 1; color: var(--afw-text-soft); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.afw-quote-bar-x { border: 0; background: none; cursor: pointer; font-size: 16px; color: var(--afw-text-soft); line-height: 1; padding: 2px 6px; }
 
 /* ── Mobile (bottom sheet) ───────────────────────────────── */
 @media (max-width: 480px) {

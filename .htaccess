@@ -1,2 +1,7 @@
 RewriteEngine On
+
+# Bloqueia acesso direto a arquivos sensíveis fora de public/
+RewriteRule ^(env|storage|vendor|database|config|scripts|workers|lib)(/.*)?$ - [F,L]
+RewriteRule ^(\.git|composer\.(json|lock)|.*\.sql|.*\.log|.*\.backup)(/.*)?$ - [F,L]
+
 RewriteRule ^(.*)$ public/$1 [L]

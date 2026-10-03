@@ -3,38 +3,59 @@
 namespace App\Services;
 
 use App\Core\Database;
-use App\Models\Setting;
 
 /**
- * Verifica o horário de funcionamento e fornece a mensagem de ausência.
+ * Horário de funcionamento 100% por departamento.
  *
- * Suporta regras gerais (department_id NULL) e por departamento. O horário é
- * avaliado no fuso configurado em `business_hours_timezone`.
+ * Cada departamento tem sua grade em `business_hours` (department_id = id)
+ * e seu config em `departments` (business_hours_enabled, business_hours_timezone,
+ * absence_message). Não há mais fallback global: conversa sem departamento
+ * ou departamento sem regra é considerada em horário (aberta).
  */
 class BusinessHoursService
 {
-    public static function isEnabled(): bool
+    public const DEFAULT_MESSAGE = 'Olá! Estamos fora do nosso horário de atendimento. Retornaremos assim que possível.';
+
+    private static function deptConfig(?int $departmentId): ?array
     {
-        return Setting::get('business_hours_enabled', '0') === '1';
+        if (!$departmentId) {
+            return null;
+        }
+        return Database::getInstance()->fetch(
+            "SELECT business_hours_enabled, business_hours_timezone, absence_message
+             FROM departments WHERE id = ?",
+            [$departmentId]
+        ) ?: null;
     }
 
-    public static function timezone(): string
+    public static function isEnabled(?int $departmentId = null): bool
     {
-        return trim((string) Setting::get('business_hours_timezone', 'America/Sao_Paulo')) ?: 'America/Sao_Paulo';
+        $cfg = self::deptConfig($departmentId);
+        if (!$cfg) {
+            return false;
+        }
+        return (int) ($cfg['business_hours_enabled'] ?? 0) === 1;
+    }
+
+    public static function timezone(?int $departmentId = null): string
+    {
+        $cfg = self::deptConfig($departmentId);
+        $tz = trim((string) ($cfg['business_hours_timezone'] ?? ''));
+        return $tz ?: 'America/Sao_Paulo';
     }
 
     /**
      * Retorna true se o atendimento está aberto agora para o departamento.
-     * Quando o recurso está desativado, considera-se sempre aberto.
+     * Sem departamento, recurso desativado ou sem regra => sempre aberto.
      */
     public static function isOpen(?int $departmentId): bool
     {
-        if (!self::isEnabled()) {
+        if (!self::isEnabled($departmentId)) {
             return true;
         }
 
         try {
-            $now = new \DateTime('now', new \DateTimeZone(self::timezone()));
+            $now = new \DateTime('now', new \DateTimeZone(self::timezone($departmentId)));
         } catch (\Throwable $e) {
             $now = new \DateTime();
         }
@@ -42,7 +63,7 @@ class BusinessHoursService
         $day = (int) $now->format('w'); // 0=Dom .. 6=Sáb
         $cur = $now->format('H:i:s');
 
-        $rule = self::ruleFor($departmentId, $day) ?? self::ruleFor(null, $day);
+        $rule = self::ruleFor($departmentId, $day);
         if (!$rule) {
             return true; // sem regra cadastrada => aberto
         }
@@ -50,36 +71,35 @@ class BusinessHoursService
             return false;
         }
 
-        return $cur >= $rule['open_time'] && $cur <= $rule['close_time'];
+        $open = substr((string) ($rule['open_time'] ?? '00:00:00'), 0, 8);
+        $close = substr((string) ($rule['close_time'] ?? '23:59:59'), 0, 8);
+        return $cur >= $open && $cur <= $close;
     }
 
     private static function ruleFor(?int $departmentId, int $day): ?array
     {
-        $db = Database::getInstance();
-        if ($departmentId) {
-            $r = $db->fetch(
-                "SELECT * FROM business_hours WHERE department_id = ? AND day_of_week = ?",
-                [$departmentId, $day]
-            );
-            if ($r) {
-                return $r;
-            }
+        if (!$departmentId) {
+            return null;
         }
-        return $db->fetch(
-            "SELECT * FROM business_hours WHERE department_id IS NULL AND day_of_week = ?",
-            [$day]
-        );
+        return Database::getInstance()->fetch(
+            "SELECT * FROM business_hours WHERE department_id = ? AND day_of_week = ?",
+            [$departmentId, $day]
+        ) ?: null;
     }
 
     /**
-     * Carrega as 7 regras (0..6) de um escopo (departamento ou global).
+     * Carrega as 7 regras (0..6) do departamento.
      */
     public static function scheduleFor(?int $departmentId): array
     {
+        if (!$departmentId) {
+            return [];
+        }
         $db = Database::getInstance();
-        $rows = $departmentId
-            ? $db->fetchAll("SELECT * FROM business_hours WHERE department_id = ? ORDER BY day_of_week", [$departmentId])
-            : $db->fetchAll("SELECT * FROM business_hours WHERE department_id IS NULL ORDER BY day_of_week");
+        $rows = $db->fetchAll(
+            "SELECT * FROM business_hours WHERE department_id = ? ORDER BY day_of_week",
+            [$departmentId]
+        );
         $map = [];
         foreach ($rows as $r) {
             $map[(int) $r['day_of_week']] = $r;
@@ -87,9 +107,32 @@ class BusinessHoursService
         return $map;
     }
 
-    public static function absenceMessage(): string
+    /**
+     * Grava a grade semanal do departamento (substitui os 7 dias).
+     * @param array $days [0..6 => ['is_open'=>bool,'open_time'=>'HH:MM','close_time'=>'HH:MM']]
+     */
+    public static function saveSchedule(int $departmentId, array $days): void
     {
-        $msg = trim((string) Setting::get('absence_message', ''));
-        return $msg ?: 'Olá! Estamos fora do nosso horário de atendimento. Retornaremos assim que possível.';
+        $db = Database::getInstance();
+        $db->delete('business_hours', 'department_id = ?', [$departmentId]);
+        foreach (range(0, 6) as $d) {
+            $row = $days[$d] ?? [];
+            $open = trim((string) ($row['open_time'] ?? '08:00'));
+            $close = trim((string) ($row['close_time'] ?? '18:00'));
+            $db->insert('business_hours', [
+                'department_id' => $departmentId,
+                'day_of_week' => $d,
+                'open_time' => strlen($open) === 5 ? $open . ':00' : ($open ?: '08:00:00'),
+                'close_time' => strlen($close) === 5 ? $close . ':00' : ($close ?: '18:00:00'),
+                'is_open' => !empty($row['is_open']) ? 1 : 0,
+            ]);
+        }
+    }
+
+    public static function absenceMessage(?int $departmentId = null): string
+    {
+        $cfg = self::deptConfig($departmentId);
+        $msg = trim((string) ($cfg['absence_message'] ?? ''));
+        return $msg ?: self::DEFAULT_MESSAGE;
     }
 }

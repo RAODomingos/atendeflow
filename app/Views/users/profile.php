@@ -1,9 +1,5 @@
 <div class="page-form">
-    <div class="page-toolbar">
-        <div>
-            <h2 class="page-title" style="margin:0"><i class="fas fa-user-circle"></i> Meu Perfil</h2>
-            <p class="page-subtitle">Gerencie suas informações pessoais e preferências</p>
-        </div>
+    <div class="page-actions">
         <a href="<?= url('dashboard') ?>" class="btn btn-outline btn-sm"><i class="fas fa-arrow-left"></i> Dashboard</a>
     </div>
 
@@ -130,10 +126,10 @@
 .profile-layout{display:grid;grid-template-columns:340px 1fr;gap:20px;margin-top:18px}
 @media(max-width:900px){.profile-layout{grid-template-columns:1fr}}
 .profile-card{background:var(--bg-panel);border:1px solid var(--border-soft);border-radius:var(--radius-xl);overflow:hidden;box-shadow:var(--shadow-sm);height:100%}
-.profile-cover{height:96px;background:linear-gradient(135deg,var(--brand) 0%,#a78bfa 50%,#60a5fa 100%);position:relative}
+.profile-cover{height:96px;background:var(--brand);position:relative}
 .profile-cover::after{content:'';position:absolute;top:-60%;right:-10%;width:220px;height:220px;border-radius:50%;background:rgba(255,255,255,.08)}
 .profile-avatar-section{text-align:center;margin-top:-42px;position:relative;z-index:1;padding:0 20px}
-.profile-avatar{width:84px;height:84px;border-radius:22px;margin:0 auto 10px;overflow:hidden;background:linear-gradient(135deg,var(--brand),#a78bfa);display:flex;align-items:center;justify-content:center;box-shadow:0 8px 24px rgba(124,92,255,.35);border:4px solid var(--bg-panel)}
+.profile-avatar{width:84px;height:84px;border-radius:50%;margin:0 auto 10px;overflow:hidden;background:var(--brand);display:flex;align-items:center;justify-content:center;box-shadow:none;border:4px solid var(--bg-panel)}
 .profile-avatar img{width:100%;height:100%;object-fit:cover;display:block}
 .avatar-ph-lg{width:100%;height:100%;display:flex;align-items:center;justify-content:center;font-size:30px;font-weight:800;color:#fff}
 .profile-name{font-size:19px;font-weight:800;margin:0;letter-spacing:-.3px;color:var(--text-primary)}

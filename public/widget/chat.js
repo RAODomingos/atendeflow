@@ -4,12 +4,12 @@
     var C = window.ATENDIMENTO_CONFIG || {};
     var WIDGET_KEY = C.widgetId || '';
     var API_BASE = C.apiUrl || (window.location.origin + (window.AF_BASE || ''));
-    var PRIMARY = C.color || '#2f6fed';
+    var PRIMARY = C.color || '#0078d4';
     var POSITION = C.position || 'right';
     var TITLE = C.title || 'Atendimento';
     var WELCOME = C.welcomeMessage || 'Olá! Como podemos ajudar?';
     var AVATAR = C.avatarUrl || '';
-    var QUICK_REPLIES = Array.isArray(C.quickReplies) ? C.quickReplies : ['Olá 👋', 'Falar com atendente', 'Ver planos'];
+    var QUICK_REPLIES = Array.isArray(C.quickReplies) ? C.quickReplies : [];
 
     // Período em que a conversa é retomada após atualizar a página (ms)
     var RESUME_MS = (typeof C.resumeHours === 'number' ? C.resumeHours : 24) * 3600 * 1000;
@@ -56,7 +56,7 @@
         };
     });
 
-    if (!WIDGET_KEY) { console.warn('[AtendeFlow] widgetId não configurado.'); return; }
+    if (!WIDGET_KEY) { console.warn('[OminiDesk] widgetId não configurado.'); return; }
 
     var sessionId = null, lastPoll = null, isPolling = false, unread = 0, started = false;
     var root, panel, messagesEl, composer, input, sendBtn, badge, scrollFab, quickEl, typingEl;
@@ -91,9 +91,9 @@
         '.afw-csat-stars .afw-star{border:0;background:none;font-size:24px;color:#d0d7de;cursor:pointer;padding:0 2px;line-height:1}' +
         '.afw-csat-stars .afw-star.on{color:#ffb400}' +
         '.afw-csat-comment{width:100%;margin-top:8px;border:1px solid #d0d7de;border-radius:8px;padding:6px;font:inherit;resize:vertical}' +
-        '.afw-csat-send{margin-top:8px;width:100%;background:var(--afw-primary,#2f6fed);color:#fff;border:0;border-radius:8px;padding:8px;cursor:pointer}' +
+        '.afw-csat-send{margin-top:8px;width:100%;background:var(--afw-primary,#0078d4);color:#fff;border:0;border-radius:8px;padding:8px;cursor:pointer}' +
         '.afw-csat-thanks{color:#16a34a;font-weight:600;margin-top:6px}' +
-        '.afw-csat-link{display:block;margin-top:8px;text-align:center;color:var(--afw-primary,#2f6fed);font-weight:600;text-decoration:none}' +
+        '.afw-csat-link{display:block;margin-top:8px;text-align:center;color:var(--afw-primary,#0078d4);font-weight:600;text-decoration:none}' +
         '.afw-csat-link:hover{text-decoration:underline}';
     document.head.appendChild(csatStyle);
 
@@ -107,16 +107,29 @@
         attach: '<svg viewBox="0 0 24 24"><path d="M16.5 6.5l-7 7a2.5 2.5 0 0 0 3.5 3.5l7-7a4.5 4.5 0 0 0-6.4-6.4l-7 7a6.5 6.5 0 0 0 9.2 9.2l6.3-6.3"/></svg>',
         file: '<svg viewBox="0 0 24 24"><path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9l-7-7zm0 2.5L18.5 9H13V4.5z"/></svg>',
         soundOn: '<svg viewBox="0 0 24 24"><path d="M4 9v6h4l5 5V4L8 9H4z"/><path d="M16 8a5 5 0 0 1 0 8" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>',
-        soundOff: '<svg viewBox="0 0 24 24"><path d="M4 9v6h4l5 5V4L8 9H4z"/><path d="M16 9l5 6m0-6l-5 6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>'
+        soundOff: '<svg viewBox="0 0 24 24"><path d="M4 9v6h4l5 5V4L8 9H4z"/><path d="M16 9l5 6m0-6l-5 6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>',
+        mic: '<svg viewBox="0 0 24 24"><path d="M12 14a3 3 0 0 0 3-3V5a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3z"/><path d="M19 11a1 1 0 1 0-2 0 5 5 0 1 1-10 0 1 1 0 1 0-2 0 7 7 0 0 0 6 6.92V21h2v-3.08A7 7 0 0 0 19 11z"/></svg>',
+        stop: '<svg viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="1.5"/></svg>',
+        trash: '<svg viewBox="0 0 24 24"><path d="M9 3l-1 1H4v2h16V4h-4l-1-1H9zm-3 5v12a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V8H6z"/></svg>'
     };
 
     var agentAvatar = AVATAR
-        ? '<img src="' + AVATAR + '" alt="">'
+        ? '<img src="' + esc(absUrl(AVATAR)) + '" alt="">'
         : '<div class="afw-avatar-fallback">' + esc(TITLE.charAt(0)) + '</div>';
 
+    // Avatares vêm do banco como caminho relativo (ex.: "avatars/x.png"):
+    // resolve para URL absoluta igual ao painel do atendente.
+    function avatarUrl(u) {
+        if (!u) return u;
+        if (u.indexOf('http://') === 0 || u.indexOf('https://') === 0) return u;
+        var p = String(u).replace(/^\/+/, '');
+        if (p.indexOf('uploads/') === 0) return API_BASE + '/' + p;
+        return API_BASE + '/uploads/' + p;
+    }
+
     var msgAvatar = function (src) {
-        if (src) return '<img class="afw-msg-avatar" src="' + src + '" alt="">';
-        if (AVATAR) return '<img class="afw-msg-avatar" src="' + AVATAR + '" alt="">';
+        if (src) return '<img class="afw-msg-avatar" src="' + esc(avatarUrl(src)) + '" alt="">';
+        if (AVATAR) return '<img class="afw-msg-avatar" src="' + esc(avatarUrl(AVATAR)) + '" alt="">';
         return '<div class="afw-msg-avatar" style="background:rgba(0,0,0,.08);display:flex;align-items:center;justify-content:center;font-size:12px;color:#6b7488">' + esc(TITLE.charAt(0)) + '</div>';
     };
 
@@ -155,8 +168,16 @@
                 '</div>' +
                 '<div class="afw-composer" id="afwComposer">' +
                     '<button class="afw-attach" id="afwAttach" type="button" aria-label="Anexar arquivo" title="Anexar arquivo">' + ICON.attach + '</button>' +
+                    '<button class="afw-mic" id="afwMic" type="button" aria-label="Gravar áudio" title="Gravar áudio">' + ICON.mic + '</button>' +
                     '<input type="file" id="afwFile" accept="image/*,audio/*,video/*,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.zip" hidden>' +
                     '<div class="afw-attach-preview" id="afwAttachPreview" style="display:none"></div>' +
+                    '<div class="afw-quote-bar" id="afwQuoteBar" style="display:none"><span class="afw-quote-bar-text" id="afwQuoteText"></span><button type="button" class="afw-quote-bar-x" id="afwQuoteX" aria-label="Remover citação">×</button></div>' +
+                    '<div class="afw-record" id="afwRecord" style="display:none">' +
+                        '<span class="afw-rec-indicator" id="afwRecIndicator"></span>' +
+                        '<span class="afw-rec-timer" id="afwRecTimer">00:00</span>' +
+                        '<button type="button" class="afw-rec-btn afw-rec-cancel" id="afwRecCancel" title="Cancelar">' + ICON.trash + '</button>' +
+                        '<button type="button" class="afw-rec-btn afw-rec-stop" id="afwRecStop" title="Parar">' + ICON.stop + '</button>' +
+                    '</div>' +
                     '<div class="afw-input-wrap">' +
                         '<textarea class="afw-textarea" id="afwInput" rows="1" placeholder="Escreva sua mensagem…" autocomplete="off"></textarea>' +
                     '</div>' +
@@ -180,6 +201,7 @@
     // ── Helpers ──
     function g(id) { return document.getElementById(id); }
     function esc(s) { var d = document.createElement('div'); d.textContent = s == null ? '' : s; return d.innerHTML; }
+    function linkify(s) { return esc(s).replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1" target="_blank" rel="noopener">$1</a>'); }
     function isOpen() { return root.classList.contains('afw-open'); }
 
     function shade(hex, amt) {
@@ -281,6 +303,10 @@
         if (type === 'video') {
             return '<video class="afw-file-media" controls preload="metadata" src="' + esc(url) + '"></video>';
         }
+        if (type === 'sticker') {
+            return '<a class="afw-file-img-link" href="' + esc(url) + '" target="_blank" rel="noopener">' +
+                '<img class="afw-sticker" src="' + esc(url) + '" alt="sticker"></a>';
+        }
         var name = (meta && meta.name) ? meta.name : 'arquivo';
         var size = (meta && meta.size) ? formatBytesJS(meta.size) : '';
         return '<a class="afw-file-link" href="' + esc(url) + '" target="_blank" rel="noopener" download>' +
@@ -290,7 +316,84 @@
                 (size ? '<span class="afw-file-size">' + esc(size) + '</span>' : '') +
             '</span></a>';
     }
-    function renderMsg(text, isUser, author, avatar, type, fileContent, time) {
+    var CLIENT_EMOJIS = ['👍', '❤️', '😂', '😮', '😢', '🙏', '🔥', '👏', '😍'];
+
+    function parseReactions(m) {
+        if (!m || !m.reactions) return [];
+        try {
+            var r = (typeof m.reactions === 'string') ? JSON.parse(m.reactions) : m.reactions;
+            return Array.isArray(r) ? r : [];
+        } catch (e) { return []; }
+    }
+    function reactionsHtml(m) {
+        var list = parseReactions(m);
+        if (!list.length) return '';
+        var groups = {};
+        list.forEach(function (r) {
+            if (!r || !r.emoji) return;
+            if (!groups[r.emoji]) groups[r.emoji] = 0;
+            groups[r.emoji]++;
+        });
+        var pills = Object.keys(groups).map(function (em) {
+            return '<span class="afw-react-pill" title="' + groups[em] + '">' + esc(em) + (groups[em] > 1 ? ' ' + groups[em] : '') + '</span>';
+        }).join('');
+        return pills ? '<div class="afw-react-pills">' + pills + '</div>' : '';
+    }
+    function isMsgDeleted(m) { return !!(m && m.deleted_at); }
+    function isMsgEdited(m) {
+        return !!(m && !m.deleted_at && m.updated_at && m.created_at && m.updated_at !== m.created_at);
+    }
+    function quotePreviewText(q) {
+        if (!q) return '';
+        var t = q.type || 'text';
+        if (t !== 'text') {
+            var labels = { image: '🖼️ Imagem', video: '🎬 Vídeo', audio: '🎵 Áudio', file: '📎 Arquivo', sticker: '🖼️ Sticker' };
+            return labels[t] || 'Anexo';
+        }
+        var s = String(q.content || '');
+        try {
+            var p = JSON.parse(s);
+            if (p && typeof p.text === 'string') s = p.text;
+        } catch (e) {}
+        s = s.replace(/<[^>]+>/g, '');
+        return s.length > 120 ? s.substring(0, 120) + '…' : s;
+    }
+    function quoteBlockHtml(m, isUser) {
+        var q = m && m.reply_to_data;
+        if (!q) return '';
+        var who = (q.direction === 'inbound') ? 'Você' : (TITLE || 'Atendente');
+        return '<div class="afw-quote"><div class="afw-quote-name">' + esc(who) + '</div>' +
+            '<div class="afw-quote-text">' + esc(quotePreviewText(q)) + '</div></div>';
+    }
+    // Barra de ações do cliente: reagir (todas), citar (mensagens do atendente),
+    // editar/excluir (próprias).
+    function msgActionsHtml(m, isUser) {
+        if (!m || !m.id || m.deleted_at) return '';
+        var t = m.type || 'text';
+        if (t === 'system' || t === 'internal_note' || t === 'csat_request') return '';
+        var h = '<div class="afw-msg-actions">' +
+            '<button type="button" class="afw-act-btn" data-act="react-toggle" title="Reagir">😊</button>';
+        if (!isUser) {
+            h += '<button type="button" class="afw-act-btn" data-act="quote" title="Responder">↩️</button>';
+        }
+        if (isUser && t === 'text') {
+            h += '<button type="button" class="afw-act-btn" data-act="edit" title="Editar">✏️</button>' +
+                 '<button type="button" class="afw-act-btn" data-act="del" title="Apagar">🗑️</button>';
+        } else if (isUser) {
+            h += '<button type="button" class="afw-act-btn" data-act="del" title="Apagar">🗑️</button>';
+        }
+        return h + '</div>';
+    }
+    function bubbleBodyHtml(m, text, isUser, type, fileContent) {
+        if (isMsgDeleted(m)) return '<span class="afw-deleted">🚫 Mensagem apagada</span>';
+        var t = (m && m.type) || type;
+        var body = (t && t !== 'text') ? renderFileContent(t, fileContent || text, isUser) : linkify(text == null ? '' : String(text));
+        if (isMsgEdited(m) && (!t || t === 'text')) {
+            body += '<span class="afw-edited">editada</span>';
+        }
+        return body;
+    }
+    function renderMsg(text, isUser, author, avatar, type, fileContent, time, m) {
         if (type === 'csat_request' && !isUser) {
             return renderCsatCard(text, avatar, time);
         }
@@ -299,16 +402,150 @@
         }
         var wrap = document.createElement('div');
         wrap.className = 'afw-msg ' + (isUser ? 'afw-msg--user' : 'afw-msg--bot');
-        var body = (type && type !== 'text') ? renderFileContent(type, fileContent || text, isUser) : esc(text);
+        if (m && m.id) wrap.setAttribute('data-mid', m.id);
         wrap.innerHTML =
             msgAvatar(avatar) +
             '<div class="afw-msg-content">' +
                 (isUser ? '' : '<span class="afw-msg-author">' + esc(author || TITLE) + '</span>') +
-                '<div class="afw-bubble">' + body + '</div>' +
+                quoteBlockHtml(m, isUser) +
+                '<div class="afw-bubble">' + bubbleBodyHtml(m, text, isUser, type, fileContent) + '</div>' +
+                reactionsHtml(m) +
+                msgActionsHtml(m, isUser) +
+                '<div class="afw-react-row" style="display:none"></div>' +
                 '<span class="afw-time">' + (time || nowTime()) + '</span>' +
             '</div>';
         messagesEl.appendChild(wrap);
         return wrap;
+    }
+    // Atualiza um balão já renderizado (edição/reações/citação via poll).
+    function updateMsgNode(wrap, m) {
+        var isUserU = wrap.classList.contains('afw-msg--user');
+        var oldQ = wrap.querySelector('.afw-quote');
+        if (oldQ) oldQ.remove();
+        var qHtml = quoteBlockHtml(m, isUserU);
+        if (qHtml) {
+            var contentQ = wrap.querySelector('.afw-msg-content');
+            var bubQ = wrap.querySelector('.afw-bubble');
+            if (contentQ && bubQ) {
+                var tmpQ = document.createElement('div');
+                tmpQ.innerHTML = qHtml;
+                if (tmpQ.firstChild) contentQ.insertBefore(tmpQ.firstChild, bubQ);
+            }
+        }
+        var bubble = wrap.querySelector('.afw-bubble');
+        if (bubble) {
+            var isUser = wrap.classList.contains('afw-msg--user');
+            bubble.innerHTML = bubbleBodyHtml(m, m.content, isUser, m.type, m.content);
+        }
+        var content = wrap.querySelector('.afw-msg-content');
+        if (content) {
+            var oldPills = content.querySelector('.afw-react-pills');
+            if (oldPills) oldPills.remove();
+            var tmp = document.createElement('div');
+            tmp.innerHTML = reactionsHtml(m);
+            var pills = tmp.firstChild;
+            var acts = content.querySelector('.afw-msg-actions');
+            if (pills) content.insertBefore(pills, acts || content.querySelector('.afw-react-row'));
+            var oldActs = content.querySelector('.afw-msg-actions');
+            if (oldActs) oldActs.remove();
+            var isUser2 = wrap.classList.contains('afw-msg--user');
+            var tmp2 = document.createElement('div');
+            tmp2.innerHTML = msgActionsHtml(m, isUser2);
+            var acts2 = tmp2.firstChild;
+            if (acts2) content.insertBefore(acts2, content.querySelector('.afw-react-row'));
+        }
+    }
+
+    function webchatPost(mid, action, extra) {
+        var fd = new FormData();
+        fd.append('session_id', sessionId);
+        Object.keys(extra || {}).forEach(function (k) { fd.append(k, extra[k]); });
+        return fetch(API_BASE + '/api/webchat/messages/' + mid + '/' + action, { method: 'POST', body: fd })
+            .then(function (r) { return r.json().then(function (j) { return { status: r.status, body: j }; }); });
+    }
+    function toggleReactRow(wrap) {
+        var row = wrap.querySelector('.afw-react-row');
+        if (!row) return;
+        if (row.style.display === 'none' || !row.innerHTML) {
+            row.innerHTML = CLIENT_EMOJIS.map(function (em) {
+                return '<button type="button" class="afw-react-emoji" data-act="react" data-emoji="' + em + '">' + em + '</button>';
+            }).join('');
+            row.style.display = 'flex';
+        } else {
+            row.style.display = 'none';
+        }
+    }
+    messagesEl.addEventListener('click', function (e) {
+        var b = e.target.closest ? e.target.closest('[data-act]') : null;
+        if (!b || !messagesEl.contains(b)) return;
+        var wrap = b.closest('.afw-msg');
+        if (!wrap) return;
+        var mid = wrap.getAttribute('data-mid');
+        if (!mid) return;
+        var act = b.getAttribute('data-act');
+        if (act === 'react-toggle') {
+            toggleReactRow(wrap);
+        } else if (act === 'react') {
+            var emoji = b.getAttribute('data-emoji');
+            b.disabled = true;
+            webchatPost(mid, 'reaction', { reaction: emoji }).then(function (res) {
+                b.disabled = false;
+                if (res.body && res.body.success && res.body.message) {
+                    updateMsgNode(wrap, res.body.message);
+                }
+                var row = wrap.querySelector('.afw-react-row');
+                if (row) row.style.display = 'none';
+            }).catch(function () { b.disabled = false; });
+        } else if (act === 'quote') {
+            setQuoteTarget(mid, wrap);
+        } else if (act === 'edit') {
+            startClientEdit(wrap, mid);
+        } else if (act === 'del') {
+            if (!confirm('Apagar esta mensagem?')) return;
+            webchatPost(mid, 'delete', {}).then(function (res) {
+                if (res.body && res.body.success) {
+                    updateMsgNode(wrap, { id: parseInt(mid, 10), content: '', type: 'text', deleted_at: '1', reactions: null });
+                }
+            }).catch(function () {});
+        }
+    });
+    function startClientEdit(wrap, mid) {
+        var bubble = wrap.querySelector('.afw-bubble');
+        if (!bubble || bubble.querySelector('.afw-edit-box')) return;
+        var current = bubble.textContent.replace(/editada\s*$/, '').trim();
+        bubble.innerHTML = '<textarea class="afw-edit-box"></textarea>' +
+            '<div class="afw-edit-btns"><button type="button" class="afw-edit-cancel">Cancelar</button>' +
+            '<button type="button" class="afw-edit-save">Salvar</button></div>';
+        var ta = bubble.querySelector('.afw-edit-box');
+        ta.value = current;
+        ta.focus();
+        bubble.querySelector('.afw-edit-cancel').addEventListener('click', function () {
+            webchatRefreshOne(mid);
+        });
+        bubble.querySelector('.afw-edit-save').addEventListener('click', function () {
+            var v = ta.value.trim();
+            if (!v) return;
+            webchatPost(mid, 'edit', { content: v }).then(function (res) {
+                if (res.body && res.body.success && res.body.message) {
+                    updateMsgNode(wrap, res.body.message);
+                } else {
+                    alert((res.body && res.body.error) || 'Não foi possível editar.');
+                    webchatRefreshOne(mid);
+                }
+            }).catch(function () { webchatRefreshOne(mid); });
+        });
+    }
+    function webchatRefreshOne(mid) {
+        fetch(API_BASE + '/api/webchat/messages?' + new URLSearchParams({ session_id: sessionId, since: '1970-01-01 00:00:00' }))
+            .then(function (r) { return r.json(); })
+            .then(function (data) {
+                var found = null;
+                (data.messages || []).forEach(function (m) {
+                    if (String(m.id) === String(mid)) found = m;
+                });
+                var wrap = messagesEl.querySelector('.afw-msg[data-mid="' + mid + '"]');
+                if (found && wrap) updateMsgNode(wrap, found);
+            }).catch(function () {});
     }
 
     function renderInteractiveMsg(type, content, avatar, time) {
@@ -318,7 +555,7 @@
         wrap.className = 'afw-msg afw-msg--bot';
         var html = msgAvatar(avatar) +
             '<div class="afw-msg-content">' +
-            '<div class="afw-bubble">' + esc(data.text || '') + '</div>';
+            '<div class="afw-bubble">' + linkify(data.text || '') + '</div>';
 
         if (type === 'button_list') {
             html += '<div class="afw-buttons">';
@@ -363,7 +600,7 @@
             '<div class="afw-msg-content">' +
                 '<div class="afw-csat">' +
                     '<div class="afw-csat-title">' + esc(data.title || 'Avalie seu atendimento') + '</div>' +
-                    '<div class="afw-csat-prompt">' + esc(data.prompt || '') + '</div>' +
+                    '<div class="afw-csat-prompt">' + linkify(data.prompt || '') + '</div>' +
                     '<div class="afw-csat-stars" role="radiogroup">' +
                         '<button type="button" class="afw-star" data-v="1">★</button>' +
                         '<button type="button" class="afw-star" data-v="2">★</button>' +
@@ -429,9 +666,29 @@
         messages.forEach(function (m) {
             if (m.type === 'system' || m.type === 'internal_note') return;
             var isUser = m.direction === 'inbound';
-            if (m.direction === 'outbound' && !m.content) return;
-            renderMsg(m.content, isUser, m.user_name || TITLE, m.avatar_url || AVATAR, m.type, m.content, fmtTime(m.created_at));
+            if (m.direction === 'outbound' && !m.content && !m.deleted_at) return;
+            renderMsg(m.content, isUser, m.user_name || TITLE, m.avatar_url || AVATAR, m.type, m.content, fmtTime(m.created_at), m);
         });
+    }
+    // Devolve a mensagem ao DOM: atualiza o balão se já existe (edição/
+    // reação/remoção do atendente), senão anexa como novidade (quando nova).
+    // Retorna 'updated', 'appended' ou null (ignorada).
+    function upsertPollMessage(m, opts) {
+        opts = opts || {};
+        if (!m || m.type === 'system' || m.type === 'internal_note') return null;
+        var existing = (m.id != null) ? messagesEl.querySelector('.afw-msg[data-mid="' + m.id + '"]') : null;
+        if (existing) {
+            updateMsgNode(existing, m);
+            return 'updated';
+        }
+        if (opts.onlyUpdate) return null;
+        if (m.direction === 'outbound' && !m.content && !m.deleted_at) return null;
+        if (opts.outboundOnly && m.direction !== 'outbound') return null;
+        if (opts.since && !(m.created_at > opts.since)) return null;
+        var isUser = m.direction === 'inbound';
+        if (!m.content && (m.type === 'text' || !m.type) && !m.deleted_at) return null;
+        renderMsg(m.content, isUser, m.user_name || TITLE, m.avatar_url || AVATAR, m.type, m.content, fmtTime(m.created_at), m);
+        return 'appended';
     }
 
     function showTyping() {
@@ -631,8 +888,8 @@
                     d2.messages
                         .filter(function (m) { return m.type !== 'system' && m.type !== 'internal_note'; })
                         .forEach(function (m) {
-                            if (m.direction === 'outbound' && !m.content) return;
-                            renderMsg(m.content, m.direction === 'inbound', m.user_name || TITLE, m.avatar_url || AVATAR, m.type, m.content, fmtTime(m.created_at));
+                            if (m.direction === 'outbound' && !m.content && !m.deleted_at) return;
+                            renderMsg(m.content, m.direction === 'inbound', m.user_name || TITLE, m.avatar_url || AVATAR, m.type, m.content, fmtTime(m.created_at), m);
                         });
                     lastPoll = d2.messages[d2.messages.length - 1].created_at;
                 }
@@ -652,6 +909,24 @@
             renderMsg('Não consegui conectar. Tente novamente em instantes.', false, TITLE);
             btn.disabled = false; btn.textContent = 'Iniciar conversa';
         }
+    }
+
+    // ── Citação (responder mensagem do atendente) ──
+    var quoteTargetId = null;
+    function setQuoteTarget(mid, wrap) {
+        var bubble = wrap ? wrap.querySelector('.afw-bubble') : null;
+        var preview = bubble ? bubble.textContent.trim().substring(0, 80) : '';
+        quoteTargetId = mid;
+        var bar = g('afwQuoteBar');
+        var txt = g('afwQuoteText');
+        if (txt) txt.textContent = preview || 'Mensagem';
+        if (bar) bar.style.display = 'flex';
+        try { input.focus(); } catch (e) {}
+    }
+    function clearQuoteTarget() {
+        quoteTargetId = null;
+        var bar = g('afwQuoteBar');
+        if (bar) bar.style.display = 'none';
     }
 
     // ── Envio ──
@@ -699,29 +974,110 @@
     fileInput.addEventListener('change', function () {
         if (fileInput.files && fileInput.files[0]) showAttach(fileInput.files[0]);
     });
+    var quoteX = g('afwQuoteX');
+    if (quoteX) quoteX.addEventListener('click', clearQuoteTarget);
+
+    // ── Gravação de áudio no widget ──
+    var micBtn = g('afwMic');
+    var recBox = g('afwRecord');
+    if (micBtn && recBox && window.AudioRecorder) {
+        var rec = AudioRecorder.create('afwComposer', {
+            startBtn: micBtn,
+            stopBtn: g('afwRecStop'),
+            cancelBtn: g('afwRecCancel'),
+            timer: g('afwRecTimer'),
+            indicator: g('afwRecIndicator'),
+            fileInput: fileInput,
+            fileChip: attachPreview,
+            fileName: null,
+            fileRemove: null,
+            onState: function (state) {
+                if (state === 'recording') {
+                    recBox.style.display = 'flex';
+                    micBtn.style.display = 'none';
+                    attachBtn.style.display = 'none';
+                    input.parentElement.style.display = 'none';
+                    sendBtn.style.display = 'none';
+                } else {
+                    recBox.style.display = 'none';
+                    micBtn.style.display = '';
+                    attachBtn.style.display = '';
+                    input.parentElement.style.display = '';
+                    sendBtn.style.display = '';
+                }
+                if (state === 'ready') {
+                    var f = (fileInput.files && fileInput.files[0])
+                        || (window.AudioRecorder.getActiveFile && window.AudioRecorder.getActiveFile('afwComposer'));
+                    if (f) showAttach(f);
+                }
+            }
+        });
+        rec.bind();
+    }
 
     function send(forcedText) {
-        var text = (forcedText != null ? forcedText : input.value).trim();
+        // O listener de clique passa o MouseEvent: só usa forcedText se for string.
+        var text = (typeof forcedText === 'string' ? forcedText : input.value).trim();
         if ((!text && !pendingFile) || !sessionId) return;
 
+        // Fallback: se o input file ficou vazio (DataTransfer não funcionou),
+        // usa o arquivo gravado pelo AudioRecorder.
+        if (!pendingFile && window.AudioRecorder && window.AudioRecorder.getActiveFile) {
+            var recorded = window.AudioRecorder.getActiveFile('afwComposer');
+            if (recorded) {
+                pendingFile = recorded;
+                try { showAttach(recorded); } catch (e) {}
+            }
+        }
         var fileToSend = pendingFile;
+        var prevPoll = lastPoll;
 
-        if (text) renderMsg(text, true);
+        var pendingOwn = [];
+        var quoteIdToSend = quoteTargetId;
+        var quotePreview = '';
+        if (quoteIdToSend) {
+            var qw = messagesEl.querySelector('.afw-msg[data-mid="' + quoteIdToSend + '"] .afw-bubble');
+            quotePreview = qw ? qw.textContent.trim().substring(0, 120) : '';
+        }
+        if (text) {
+            var fakeM = quoteIdToSend ? { reply_to: quoteIdToSend, reply_to_data: { direction: 'outbound', type: 'text', content: quotePreview } } : null;
+            var tw = renderMsg(text, true, null, null, 'text', text, null, fakeM);
+            tw.classList.add('afw-pending');
+            pendingOwn.push(tw);
+        }
         if (fileToSend) {
             var kind = fileKind(fileToSend);
             var localUrl = URL.createObjectURL(fileToSend);
             var wrap = document.createElement('div');
-            wrap.className = 'afw-msg afw-msg--user';
+            wrap.className = 'afw-msg afw-msg--user afw-pending';
+            var fileQuote = quoteIdToSend ? '<div class="afw-quote"><div class="afw-quote-name">Atendente</div><div class="afw-quote-text">' + esc(quotePreview) + '</div></div>' : '';
             wrap.innerHTML = msgAvatar() +
-                '<div class="afw-msg-content"><div class="afw-bubble">' +
+                '<div class="afw-msg-content">' + fileQuote + '<div class="afw-bubble">' +
                 renderFileContent(kind, JSON.stringify({ url: localUrl, name: fileToSend.name, size: fileToSend.size }), true) +
                 '</div><span class="afw-time">' + nowTime() + '</span></div>';
             messagesEl.appendChild(wrap);
+            pendingOwn.push(wrap);
+        }
+        // Quando o servidor responder, vincula os balões otimistas às
+        // mensagens reais (id + citação + ações de editar/apagar/reagir).
+        function hydrateOwn(list) {
+            var ownNews = (list || []).filter(function (m) {
+                return m.direction === 'inbound' && (!prevPoll || m.created_at > prevPoll);
+            });
+            ownNews.forEach(function (m) {
+                var w = pendingOwn.shift();
+                if (!w || !m.id) return;
+                w.classList.remove('afw-pending');
+                w.setAttribute('data-mid', m.id);
+                updateMsgNode(w, m);
+            });
+            pendingOwn.length = 0;
         }
 
         quickEl.style.display = 'none';
         input.value = ''; autoGrow(); sendBtn.disabled = true;
         clearAttach();
+        clearQuoteTarget();
         scrollToBottom();
         try { playSendSound(); } catch (e) {}
 
@@ -729,6 +1085,7 @@
         fd.append('session_id', sessionId);
         if (text) fd.append('message', text);
         if (fileToSend) fd.append('file', fileToSend, fileToSend.name);
+        if (quoteIdToSend) fd.append('reply_to', quoteIdToSend);
 
         fetch(API_BASE + '/api/webchat/messages', { method: 'POST', body: fd })
             .then(function (r) { return r.json(); })
@@ -756,14 +1113,17 @@
                     return;
                 }
                 touchSession();
+                hydrateOwn(data.messages);
                 if (data.messages && data.messages.length) {
-                    var news = data.messages.filter(function (m) {
-                        return m.direction === 'outbound' && m.type !== 'system' && m.type !== 'internal_note' && (!lastPoll || m.created_at > lastPoll);
+                    var added = 0;
+                    data.messages.forEach(function (m) {
+                        if (m.direction !== 'outbound') return;
+                        var r = upsertPollMessage(m, { since: lastPoll, outboundOnly: true });
+                        if (r === 'appended') added++;
                     });
-                    if (news.length) {
+                    if (added) {
                         hideTyping();
                         var near = isNearBottom();
-                        news.forEach(function (m) { if (m.content) renderMsg(m.content, false, m.user_name || TITLE, m.avatar_url || AVATAR, m.type, m.content); });
                         if (near) scrollToBottom(); else bumpUnread();
                         showQuick(QUICK_REPLIES);
                         playReceiveSound();
@@ -785,8 +1145,9 @@
                 .then(function (r) { return r.json(); })
                 .then(function (data) {
                     if (data.conversation && (data.conversation.status === 'closed' || data.conversation.status === 'resolved')) {
+                        // Encerra o polling, mas MANTÉM o sessionId em memória:
+                        // o cartão de avaliação (CSAT) precisa dele para enviar.
                         clearSession();
-                        sessionId = null;
                         started = false;
                         isPolling = false;
                         composer.classList.remove('show');
@@ -807,14 +1168,16 @@
                         return;
                     }
                     if (data.messages && data.messages.length) {
-                        var news = data.messages.filter(function (m) {
-                            return m.direction === 'outbound' && m.type !== 'system' && m.type !== 'internal_note' && (!lastPoll || m.created_at > lastPoll);
+                        var added2 = 0;
+                        data.messages.forEach(function (m) {
+                            if (m.direction !== 'outbound') return;
+                            var r2 = upsertPollMessage(m, { since: lastPoll, outboundOnly: true });
+                            if (r2 === 'appended') added2++;
                         });
-                        if (news.length) {
+                        if (added2) {
                             hideTyping();
-                            var near = isNearBottom();
-                            news.forEach(function (m) { if (m.content) renderMsg(m.content, false, m.user_name || TITLE, m.avatar_url || AVATAR, m.type, m.content); });
-                            if (near) scrollToBottom(); else bumpUnread();
+                            var near2 = isNearBottom();
+                            if (near2) scrollToBottom(); else bumpUnread();
                             showQuick(QUICK_REPLIES);
                             playReceiveSound();
                             lastPoll = data.messages[data.messages.length - 1].created_at;

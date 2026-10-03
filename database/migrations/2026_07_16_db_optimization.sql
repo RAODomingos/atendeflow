@@ -36,8 +36,8 @@ ALTER TABLE notifications ADD INDEX IF NOT EXISTS idx_notif_created (`created_at
 ALTER TABLE conversation_events ADD INDEX IF NOT EXISTS idx_ce_conv (`conversation_id`, `created_at`);
 
 -- CSAT: faster lookups
-ALTER TABLE csat_ratings ADD INDEX IF NOT EXISTS idx_csat_conv (`conversation_id`);
-ALTER TABLE csat_ratings ADD INDEX IF NOT EXISTS idx_csat_created (`created_at`);
+ALTER TABLE conversation_csats ADD INDEX IF NOT EXISTS idx_csat_conv (`conversation_id`);
+ALTER TABLE conversation_csats ADD INDEX IF NOT EXISTS idx_csat_created (`created_at`);
 
 -- Add message_count as a computed column (if not exists)
 -- This avoids COUNT(*) queries on large message tables

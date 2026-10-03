@@ -1,6 +1,7 @@
 <div class="channels-page">
-    <div class="page-toolbar">
-        <h2 class="page-title"><i class="fas fa-network-wired"></i> Canais de Atendimento</h2>
+    <?php $subPage = 'channels'; require __DIR__ . '/_tabs.php'; ?>
+
+    <div class="page-actions">
         <button class="btn btn-primary btn-sm" onclick="openDrawer('webchat')">
             <i class="fas fa-plus"></i> Novo Canal
         </button>
@@ -39,7 +40,7 @@
                                         <?= csrf_field() ?>
                                         <button type="submit" class="btn btn-sm btn-outline" title="Nova chave"><i class="fas fa-key"></i></button>
                                     </form>
-                                    <form action="<?= url('channels/') ?><?= $w['channel_id'] ?>/delete" method="POST" style="display:inline" onsubmit="return confirm('Excluir este canal?')">
+                                    <form action="<?= url('channels/') ?><?= $w['channel_id'] ?>/delete" method="POST" style="display:inline" data-confirm="Excluir este canal?">
                                         <?= csrf_field() ?>
                                         <button type="submit" class="btn btn-sm btn-danger" title="Excluir"><i class="fas fa-trash"></i></button>
                                     </form>
@@ -56,7 +57,10 @@
     <div class="card mt-2">
         <div class="card-header d-flex between">
             <h3><i class="fab fa-whatsapp"></i> WhatsApp</h3>
-            <button class="btn btn-sm btn-outline" onclick="openDrawer('whatsapp')"><i class="fas fa-plus"></i> Adicionar</button>
+            <div>
+                <a href="<?= url('whatsapp/groups') ?>" class="btn btn-sm btn-outline" title="Gerenciar grupos e alertas de menção"><i class="fas fa-users"></i> Grupos</a>
+                <button class="btn btn-sm btn-outline" onclick="openDrawer('whatsapp')"><i class="fas fa-plus"></i> Adicionar</button>
+            </div>
         </div>
         <div class="card-body p-0">
             <?php if (empty($whatsappConnections)): ?>
@@ -88,12 +92,12 @@
                                         <i class="fas fa-edit"></i>
                                     </button>
                                     <?php if ($wc['status'] === 'connected'): ?>
-                                        <form action="<?= url('whatsapp/') ?><?= (int) $wc['channel_id'] ?>/disconnect" method="POST" style="display:inline" onsubmit="return confirm('Desconectar este número?');">
+                                        <form action="<?= url('whatsapp/') ?><?= (int) $wc['channel_id'] ?>/disconnect" method="POST" style="display:inline" data-confirm="Desconectar este número?">
                                             <?= csrf_field() ?>
                                             <button type="submit" class="btn btn-sm btn-outline" title="Desconectar"><i class="fas fa-power-off"></i></button>
                                         </form>
                                     <?php endif; ?>
-                                    <form action="<?= url('channels/') ?><?= (int) $wc['channel_id'] ?>/delete" method="POST" style="display:inline" onsubmit="return confirm('Excluir este canal?')">
+                                    <form action="<?= url('channels/') ?><?= (int) $wc['channel_id'] ?>/delete" method="POST" style="display:inline" data-confirm="Excluir este canal?">
                                         <?= csrf_field() ?>
                                         <button type="submit" class="btn btn-sm btn-danger" title="Excluir"><i class="fas fa-trash"></i></button>
                                     </form>
@@ -482,13 +486,22 @@ function updateCodePreview() {
 
     const widget = WIDGETS[Object.keys(WIDGETS).find(k => WIDGETS[k] && WIDGETS[k].widget_key === key)];
     const avatarUrl = widget && widget.avatar_url ? widget.avatar_url : '';
+    const fields = {};
+    ['name', 'email', 'phone', 'cnpj'].forEach(k => {
+        fields[k] = {
+            ask: !!(widget && widget['ask_' + k]),
+            required: !!(widget && widget['require_' + k])
+        };
+    });
     const code = `<script>
  window.ATENDIMENTO_CONFIG = {
      widgetId: "${key}",
      title: "${title}",
      color: "${color}",
      position: "${pos}",
-     avatarUrl: "${avatarUrl}"
+     avatarUrl: "${avatarUrl}",
+     apiUrl: "${BASE_URL}",
+     fields: ${JSON.stringify(fields)}
  };
  <\/script>
  <script async src="${baseUrl}"><\/script>`;
@@ -645,8 +658,6 @@ function closeQrModal() {
 </script>
 
 <style>
-.page-toolbar { display: flex; align-items: center; justify-content: space-between; margin-bottom: 18px; }
-.page-title { font-size: 20px; font-weight: 600; display: flex; align-items: center; gap: 10px; }
 .card-header.d-flex { display: flex; align-items: center; justify-content: space-between; }
 .card-header.d-flex h3 { margin: 0; }
 .mt-2 { margin-top: 16px; }
@@ -695,7 +706,7 @@ code.copy-target { background: #f0f2f5; padding: 2px 6px; border-radius: 4px; fo
     flex: 1; border: none; background: transparent; padding: 9px; border-radius: 7px;
     font-size: 13px; font-weight: 600; color: #6c757d; cursor: pointer; transition: all .15s;
 }
-.af-type-tab.active { background: var(--bg-card, #fff); color: var(--primary-blue, #2f6fed); box-shadow: 0 1px 3px rgba(0,0,0,.08); }
+.af-type-tab.active { background: var(--bg-card, #fff); color: var(--brand); box-shadow: 0 1px 3px rgba(0,0,0,.08); }
 
 .af-subform { display: flex; flex-direction: column; gap: 16px; }
 .af-section-title { font-size: 13px; font-weight: 700; color: var(--text-main, #1a2332); margin-top: 4px; text-transform: uppercase; letter-spacing: .4px; }
@@ -709,28 +720,28 @@ code.copy-target { background: #f0f2f5; padding: 2px 6px; border-radius: 4px; fo
 .af-field-row:last-child { border-bottom: none; }
 .af-field-info { display: flex; align-items: center; gap: 8px; }
 .af-field-name { font-size: 14px; font-weight: 600; color: var(--text-main, #1a2332); }
-.af-field-note { font-size: 10px; font-weight: 600; color: #2f6fed; background: #eaf1fe; padding: 2px 7px; border-radius: 10px; }
+.af-field-note { font-size: 10px; font-weight: 600; color: var(--brand-dark); background: var(--brand-soft); padding: 2px 7px; border-radius: 10px; }
 .af-field-toggles { display: flex; align-items: center; gap: 14px; }
 
 /* switch */
 .af-switch { position: relative; display: inline-block; width: 42px; height: 24px; cursor: pointer; }
 .af-switch input { opacity: 0; width: 0; height: 0; }
 .af-slider {
-    position: absolute; inset: 0; background: #cfd4dd; border-radius: 24px; transition: .2s;
+    position: absolute; inset: 0; background: #8a8886; border-radius: 24px; transition: .2s;
 }
 .af-slider::before {
     content: ""; position: absolute; height: 18px; width: 18px; left: 3px; top: 3px;
     background: #fff; border-radius: 50%; transition: .2s; box-shadow: 0 1px 3px rgba(0,0,0,.2);
 }
-.af-switch input:checked + .af-slider { background: var(--primary-blue, #2f6fed); }
+.af-switch input:checked + .af-slider { background: var(--brand); }
 .af-switch input:checked + .af-slider::before { transform: translateX(18px); }
 
 .af-req-check { display: flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--text-muted, #495057); cursor: pointer; user-select: none; }
-.af-req-check input { width: 15px; height: 15px; accent-color: var(--primary-blue, #2f6fed); }
+.af-req-check input { width: 15px; height: 15px; accent-color: var(--brand); }
 .af-req-check input:disabled { opacity: .4; cursor: not-allowed; }
 
 .af-inline-check { display: flex; align-items: center; gap: 8px; font-size: 14px; font-weight: 500; cursor: pointer; margin-top: 4px; }
-.af-inline-check input { width: 16px; height: 16px; accent-color: var(--primary-blue, #2f6fed); }
+.af-inline-check input { width: 16px; height: 16px; accent-color: var(--brand); }
 
 /* ── QR modal ── */
 .qr-image-wrap { min-height: 200px; display: flex; align-items: center; justify-content: center; padding: 12px; }

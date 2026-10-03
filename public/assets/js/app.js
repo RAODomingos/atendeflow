@@ -1,4 +1,4 @@
-// AtendeFlow - Application Scripts
+// OminiDesk - Application Scripts
 
 // ============================
 // 🚀 Utility Functions

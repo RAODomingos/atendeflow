@@ -9,11 +9,14 @@ class Session
     public static function start(): void
     {
         if (!self::$started && session_status() === PHP_SESSION_NONE) {
+            $isHttps = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')
+                || (($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? '') === 'https');
             session_set_cookie_params([
                 'lifetime' => (int) env('SESSION_LIFETIME', 120) * 60,
                 'path' => '/',
                 'httponly' => true,
                 'samesite' => 'Lax',
+                'secure' => $isHttps,
             ]);
             session_name('ATENDEFLOW_SESSION');
             session_start();
@@ -44,7 +47,14 @@ class Session
     public static function destroy(): void
     {
         $_SESSION = [];
-        session_destroy();
+        if (session_status() === PHP_SESSION_ACTIVE) {
+            session_destroy();
+        }
+        // Apaga o cookie de sessão no navegador.
+        if (!headers_sent() && isset($_COOKIE[session_name()])) {
+            setcookie(session_name(), '', ['expires' => 1, 'path' => '/', 'httponly' => true, 'samesite' => 'Lax']);
+        }
+        self::$started = false;
     }
 
     public static function setFlash(string $key, mixed $value): void

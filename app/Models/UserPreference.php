@@ -24,18 +24,35 @@ class UserPreference
     {
         $db = Database::getInstance();
         $str = is_bool($value) ? ($value ? 'true' : 'false') : (string) $value;
-        $affected = $db->update(
-            'user_preferences',
-            ['preference_value' => $str],
-            'user_id = ? AND preference_key = ?',
+        // UPDATE retorna 0 linhas quando o valor não mudou — por isso a
+        // existência é checada com SELECT (evita INSERT duplicado → 500).
+        $exists = $db->fetch(
+            "SELECT id FROM user_preferences WHERE user_id = ? AND preference_key = ?",
             [$userId, $key]
         );
-        if ($affected === 0) {
+        if ($exists) {
+            $db->update(
+                'user_preferences',
+                ['preference_value' => $str],
+                'user_id = ? AND preference_key = ?',
+                [$userId, $key]
+            );
+            return;
+        }
+        try {
             $db->insert('user_preferences', [
                 'user_id' => $userId,
                 'preference_key' => $key,
                 'preference_value' => $str,
             ]);
+        } catch (\Throwable $e) {
+            // Corrida (outra requisição inseriu): atualiza em vez de estourar 500.
+            $db->update(
+                'user_preferences',
+                ['preference_value' => $str],
+                'user_id = ? AND preference_key = ?',
+                [$userId, $key]
+            );
         }
     }
 

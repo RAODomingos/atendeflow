@@ -19,11 +19,42 @@ use App\Services\ConversationService;
 
 class InboxController
 {
+    /**
+     * Checagem central de acesso a conversa: admin vê tudo; demais precisam
+     * ser responsável, membro da inbox ou do departamento.
+     */
+    private function canUserSeeConversation(int $conversationId, int $userId): bool
+    {
+        $conv = Conversation::find($conversationId);
+        if (!$conv) {
+            return false;
+        }
+        if (Auth::isAdmin()) {
+            return true;
+        }
+        if (!empty($conv['assigned_user_id']) && (int) $conv['assigned_user_id'] === $userId) {
+            return true;
+        }
+        if (!empty($conv['inbox_id']) && Inbox::canAccess((int) $conv['inbox_id'], $userId)) {
+            return true;
+        }
+        if (!empty($conv['department_id'])) {
+            $row = Database::getInstance()->fetch(
+                "SELECT 1 FROM department_users WHERE department_id = ? AND user_id = ? LIMIT 1",
+                [$conv['department_id'], $userId]
+            );
+            if ($row) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     private function conversationData(int $id): ?array
     {
         $conversation = Conversation::find($id);
         if (!$conversation) return null;
-        if ($conversation['inbox_id'] && !Inbox::canAccess((int) $conversation['inbox_id'], Auth::id())) return null;
+        if (!$this->canUserSeeConversation($id, Auth::id())) return null;
 
         return [
             'conversation' => $conversation,
@@ -65,6 +96,8 @@ class InboxController
             $detail = $this->getConversationDetail((int) $convId);
             if ($detail) {
                 Conversation::markMessagesAsRead((int) $convId, Auth::id());
+                \App\Models\Notification::markConversationNotificationsRead((int) $convId, Auth::id());
+                $this->markGroupMentionRead($detail['conversation'] ?? null);
                 $convStatus = $detail['conversation']['status'] ?? '';
                 if (in_array($convStatus, ['resolved', 'closed', 'spam']) && $statusFilter === 'active') {
                     $statusFilter = 'resolved_closed';
@@ -123,7 +156,7 @@ class InboxController
         if (!$conversation) {
             return null;
         }
-        if ($conversation['inbox_id'] && !Inbox::canAccess((int) $conversation['inbox_id'], Auth::id())) {
+        if (!$this->canUserSeeConversation($id, Auth::id())) {
             return null;
         }
         $conversation['csat'] = Conversation::getCsat($id);
@@ -131,6 +164,14 @@ class InboxController
         $hasOlder = count($allMessages) > 30;
         $messages = $hasOlder ? array_slice($allMessages, -30) : $allMessages;
         $firstMid = $hasOlder ? (int) $messages[0]['id'] : 0;
+
+        $internalNotes = [];
+        try {
+            $internalNotes = Database::getInstance()->fetchAll(
+                "SELECT n.*, u.name AS user_name FROM internal_notes n LEFT JOIN users u ON u.id = n.user_id WHERE n.conversation_id = ? ORDER BY n.created_at DESC",
+                [$id]
+            );
+        } catch (\Throwable $e) {}
 
         return [
             'conversation' => $conversation,
@@ -144,7 +185,20 @@ class InboxController
             'allTags' => Tag::all(),
             'signature' => Auth::user()['signature'] ?? '',
             'csat' => Conversation::getCsat($id),
+            'internalNotes' => $internalNotes,
         ];
+    }
+
+    /**
+     * Ao abrir conversa de grupo, zera também menções/sino do grupo.
+     */
+    private function markGroupMentionRead(?array $conversation): void
+    {
+        $groupId = (int) ($conversation['group_id'] ?? 0);
+        if ($groupId > 0) {
+            \App\Models\WhatsAppGroup::markMentionsRead($groupId);
+            \App\Services\NotificationService::markGroupNotificationsRead($groupId, (int) Auth::id());
+        }
     }
 
     /**
@@ -160,6 +214,7 @@ class InboxController
         }
         Conversation::markMessagesAsRead($id, Auth::id());
         \App\Models\Notification::markConversationNotificationsRead($id, Auth::id());
+        $this->markGroupMentionRead($detail['conversation'] ?? null);
         View::render('inbox/panel', $detail);
     }
 
@@ -171,7 +226,7 @@ class InboxController
 
         View::renderWithLayout('inbox/index', 'main', [
             'title' => 'Minha Caixa',
-            'activePage' => 'inbox',
+            'activePage' => 'inbox_mine',
             'conversations' => $conversations,
             'counts' => Conversation::countByStatus(Auth::id()),
             'unread' => Conversation::getUnreadCount(Auth::id()),
@@ -196,31 +251,14 @@ class InboxController
         ]);
     }
 
+    /**
+     * A aba "Chatbot" foi removida: todas as conversas (inclusive com fluxo
+     * ativo) aparecem na caixa de entrada. Mantemos a rota apenas para
+     * redirecionar visitas antigas para a caixa principal.
+     */
     public function chatbot(Request $request): void
     {
-        $conversations = Conversation::getChatbotConversations(Auth::id());
-        $botCount = 0;
-        $attendingCount = 0;
-        foreach ($conversations as $c) {
-            if (empty($c['assigned_user_id'])) {
-                $botCount++;
-            } else {
-                $attendingCount++;
-            }
-        }
-        View::renderWithLayout('inbox/index', 'main', [
-            'title' => 'Chatbot',
-            'activePage' => 'chatbot',
-            'conversations' => $conversations,
-            'counts' => Conversation::countByStatus(Auth::id()),
-            'unread' => Conversation::getUnreadCount(Auth::id()),
-            'departments' => Department::all(),
-            'activeTab' => 'chatbot',
-            'inboxes' => Inbox::getUserInboxes(Auth::id()),
-            'channels' => \App\Models\Channel::getWhatsapp(),
-            'botCount' => $botCount,
-            'attendingCount' => $attendingCount,
-        ]);
+        View::redirect('/inbox');
     }
 
     public function createPersonal(Request $request): void
@@ -248,7 +286,7 @@ class InboxController
             View::redirect('/inbox');
         }
 
-        if ($conversation['inbox_id'] && !Inbox::canAccess((int) $conversation['inbox_id'], Auth::id())) {
+        if (!$this->canUserSeeConversation($id, Auth::id())) {
             Session::setFlash('error', 'Voce nao tem acesso a esta conversa.');
             View::redirect('/inbox');
         }
@@ -259,6 +297,7 @@ class InboxController
 
         Conversation::markMessagesAsRead($id, Auth::id());
         \App\Models\Notification::markConversationNotificationsRead($id, Auth::id());
+        $this->markGroupMentionRead($conversation);
 
         $unread = Conversation::getUnreadCount(Auth::id());
 
@@ -300,14 +339,16 @@ class InboxController
             ob_end_clean();
         }
 
-        $dompdf->stream("conversa-{$id}.pdf", ['Attachment' => true]);
+        $protocol = format_protocol((string) ($data['conversation']['protocol'] ?? ''));
+        $filename = $protocol !== '' ? "conversa-{$protocol}.pdf" : "conversa-{$id}.pdf";
+        $dompdf->stream($filename, ['Attachment' => true]);
         exit;
     }
 
     public function sendMessage(Request $request, int $id): void
     {
         $content = $request->post('content');
-        $hasText = !empty(trim($content ?? ''));
+        $hasText = !empty(trim((string) ($content ?? '')));
         $uploaded = null;
         $createdIds = [];
         $replyTo = $request->post('reply_to') ? (int) $request->post('reply_to') : null;
@@ -317,6 +358,10 @@ class InboxController
         $file = $request->file('file');
         if (!empty($file['tmp_name'])) {
             $uploaded = save_uploaded_file('file');
+            // Não convertemos a imagem aqui. A Uazapi é capaz de aceitar PNG e
+            // JPEG nativamente via /send/media (com o campo mimetype). WebP é
+            // tentado como image primeiro; se a Uazapi rejeitar, o provider
+            // faz fallback de conversão para JPEG automaticamente.
         }
 
         if (!$hasText && !$uploaded) {
@@ -328,17 +373,34 @@ class InboxController
             View::back();
         }
 
+        $text = $hasText ? trim((string) $content) : '';
+        $delivery = [];
+
         if ($uploaded) {
+            // Quando há arquivo E texto, o texto vira a legenda (caption) da mídia
+            // e tudo vai em UMA ÚNICA mensagem — é o comportamento padrão do WhatsApp.
+            // Notas internas: nunca recebem anexo, então a regra de caption não se aplica.
+            $messageType = $isInternal ? 'internal_note' : $uploaded['type'];
+            $caption = (!$isInternal && $text !== '') ? $this->applyWhatsAppSignature($id, $text) : null;
             $meta = [
                 'url'  => $uploaded['url'],
                 'name' => $uploaded['name'],
                 'size' => $uploaded['size'],
                 'mime' => $uploaded['mime'],
+                // 'path' é o caminho relativo no disco (ex.: messages/abc.webm).
+                // Necessário para o provedor Uazapi/WAHA ler o arquivo local e enviar
+                // em base64, já que o servidor deles não alcança a URL pública do app
+                // (ngrok, IP dinâmico, domínios internos, etc).
+                'path' => $uploaded['path'] ?? null,
             ];
-            $messageType = $isInternal ? 'internal_note' : $uploaded['type'];
+            if ($caption !== null && $caption !== '') {
+                $meta['caption'] = $caption;
+            }
+            $metaJson = json_encode($meta, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+
             $msgId = $this->conversationService->sendMessage(
                 $id,
-                json_encode($meta),
+                $metaJson,
                 $messageType,
                 Auth::id(),
                 null,
@@ -346,12 +408,13 @@ class InboxController
             );
             $createdIds[] = $msgId;
             if ($messageType !== 'internal_note') {
-                $this->dispatchWhatsApp($id, $msgId, $messageType, json_encode($meta));
+                $delivery[$msgId] = $this->dispatchWhatsApp($id, $msgId, $messageType, $metaJson);
             }
+            // Texto já foi consumido como caption
+            $text = '';
         }
 
-        if ($hasText) {
-            $text = trim($content);
+        if ($text !== '') {
             $type = $isInternal ? 'internal_note' : 'text';
             if ($type === 'text') {
                 $text = $this->applyWhatsAppSignature($id, $text);
@@ -359,23 +422,33 @@ class InboxController
             $msgId = $this->conversationService->sendMessage($id, $text, $type, Auth::id(), null, $replyTo);
             $createdIds[] = $msgId;
             if ($type !== 'internal_note') {
-                $this->dispatchWhatsApp($id, $msgId, $type, $text);
+                $delivery[$msgId] = $this->dispatchWhatsApp($id, $msgId, $type, $text);
             }
         }
 
+        $failed = array_filter($delivery, fn($d) => empty($d['delivered']));
         if ($request->isAjax()) {
             $messages = [];
             foreach ($createdIds as $mid) {
                 $m = Conversation::getMessage($mid);
                 if ($m) {
                     $m['user_avatar'] = Auth::user()['avatar'] ?? null;
+                    $m['delivered'] = !isset($delivery[$mid]) || !empty($delivery[$mid]['delivered']);
                     $messages[] = $m;
                 }
             }
-            View::json(['ok' => true, 'messages' => $messages]);
+            View::json([
+                'ok' => true,
+                'messages' => $messages,
+                'delivery_failed' => !empty($failed),
+                'delivery_error' => !empty($failed) ? (string) reset($failed)['error'] : null,
+            ]);
             return;
         }
 
+        if (!empty($failed)) {
+            Session::setFlash('error', (string) reset($failed)['error']);
+        }
         View::redirect("/inbox?conv={$id}");
     }
 
@@ -429,13 +502,6 @@ class InboxController
         View::json(['ok' => true, 'unit' => $unit]);
     }
 
-    public function updateSubstatus(Request $request, int $id): void
-    {
-        $substatus = $request->post('substatus', '');
-        Conversation::update($id, ['substatus' => $substatus]);
-        View::json(['ok' => true, 'substatus' => $substatus]);
-    }
-
     public function assign(Request $request, int $id): void
     {
         $userId = $request->post('user_id');
@@ -466,7 +532,17 @@ class InboxController
         if ($status && in_array($status, ['new', 'open', 'waiting_customer', 'waiting_internal', 'resolved', 'closed', 'spam'])) {
             $reason = trim((string) $request->post('reason'));
             $description = trim((string) $request->post('description'));
-            $this->conversationService->changeStatus($id, $status, $reason ?: null, $description ?: null);
+            try {
+                $this->conversationService->changeStatus($id, $status, $reason ?: null, $description ?: null);
+            } catch (\Throwable $e) {
+                if ($request->isAjax() || $request->wantsJson()) {
+                    View::json(['error' => $e->getMessage()], 422);
+                    return;
+                }
+                Session::setFlash('error', $e->getMessage());
+                View::redirect("/inbox?conv={$id}");
+                return;
+            }
         }
         if ($request->isAjax() || $request->wantsJson()) {
             View::json(['ok' => true, 'status' => $status]);
@@ -477,14 +553,22 @@ class InboxController
 
     public function addInternalNote(Request $request, int $id): void
     {
-        $content = $request->post('content');
-        if (!empty(trim($content ?? ''))) {
+        $content = trim($request->post('content') ?? '');
+        if ($content !== '') {
             Database::getInstance()->insert('internal_notes', [
                 'conversation_id' => $id,
                 'content' => $content,
                 'user_id' => Auth::id(),
             ]);
             Conversation::addEvent($id, 'note_added', 'Nota interna adicionada', Auth::id());
+        }
+        if ($request->isAjax() || $request->wantsJson()) {
+            $note = Database::getInstance()->fetch(
+                "SELECT n.*, u.name AS user_name FROM internal_notes n LEFT JOIN users u ON u.id = n.user_id WHERE n.conversation_id = ? ORDER BY n.id DESC LIMIT 1",
+                [$id]
+            );
+            View::json(['success' => $content !== '', 'note' => $note ?: null]);
+            return;
         }
         View::redirect("/inbox/{$id}");
     }
@@ -563,10 +647,36 @@ class InboxController
         View::json($conversations);
     }
 
-    public function apiChatbotConversations(Request $request): void
+    /**
+     * Fragmento HTML apenas da lista de conversas (usado para atualização
+     * periódica sem recarregar a página inteira).
+     */
+    public function conversationsListFragment(Request $request): void
     {
-        $conversations = Conversation::getChatbotConversations(Auth::id());
-        View::json($conversations);
+        $search = trim((string) $request->input('search'));
+        $inboxId = $request->input('inbox');
+        $statusFilter = $request->input('fstatus');
+
+        $inboxes = Inbox::getUserInboxes(Auth::id());
+        $ids = array_column($inboxes, 'id');
+        if ($inboxId && in_array((int) $inboxId, $ids)) {
+            $ids = [(int) $inboxId];
+        }
+        $filters = [];
+        if ($search) {
+            $filters['search'] = $search;
+        }
+        if ($statusFilter && $statusFilter !== 'all') {
+            $filters['status'] = $statusFilter;
+        }
+        $conversations = Conversation::getConversationsForInboxes($ids, Auth::id(), $filters);
+
+        View::render('inbox/_conv_list', [
+            'conversations' => $conversations,
+            'activeInbox' => $inboxId ? (int) $inboxId : null,
+            'fstatus' => $statusFilter,
+            'activeConvId' => $request->input('conv') ? (int) $request->input('conv') : null,
+        ]);
     }
 
     public function apiCreateConversation(Request $request): void
@@ -603,6 +713,14 @@ class InboxController
         if (!empty(trim($messageText ?? ''))) {
             $msgId = $this->conversationService->sendMessage($conversationId, $messageText, 'text', Auth::id());
             $this->dispatchWhatsApp($conversationId, $msgId, 'text', $messageText);
+        } else {
+            // Conversa manual sem mensagem inicial: ainda avisa a caixa
+            // (antes era silenciosa e só aparecia no próximo inbound).
+            try {
+                \App\Services\NotificationService::notifyNewMessage($conversationId, 0, $subject ?: 'Nova conversa manual', Auth::id());
+            } catch (\Throwable $e) {
+                error_log('apiCreateConversation notify error: ' . $e->getMessage());
+            }
         }
 
         View::json(['id' => $conversationId]);
@@ -610,19 +728,86 @@ class InboxController
 
     /**
      * Entrega a mensagem outbound ao provedor de WhatsApp (se aplicável).
+     * Retorna ['delivered' => bool, 'error' => ?string]. Falhas nunca
+     * estouram: ficam registradas na mensagem (delivery_status=failed)
+     * e o painel oferece "tentar de novo".
+     *
+     * @return array{delivered: bool, error: ?string}
      */
-    private function dispatchWhatsApp(int $conversationId, int $messageId, string $type, string $content): void
+    private function dispatchWhatsApp(int $conversationId, int $messageId, string $type, string $content): array
     {
+        $conv = Conversation::find($conversationId);
+        if (($conv['channel_type'] ?? '') !== 'whatsapp') {
+            return ['delivered' => true, 'error' => null];
+        }
         try {
             $service = new \App\Services\WhatsAppService();
-            $service->sendOutbound($conversationId, $messageId, $type, $content);
+            $providerId = $service->sendOutbound($conversationId, $messageId, $type, $content);
         } catch (\Throwable $e) {
             error_log('WhatsApp outbound error: ' . $e->getMessage());
+            Database::getInstance()->update(
+                'messages',
+                ['delivery_status' => 'failed'],
+                'id = ?',
+                [$messageId]
+            );
+            return ['delivered' => false, 'error' => 'Falha ao enviar: ' . $e->getMessage()];
         }
+        if (!$providerId) {
+            Database::getInstance()->update(
+                'messages',
+                ['delivery_status' => 'failed'],
+                'id = ? AND (delivery_status IS NULL OR delivery_status <> ?)',
+                [$messageId, 'sent']
+            );
+            $conn = \App\Models\WhatsAppConnection::findByChannel((int) ($conv['channel_id'] ?? 0));
+            $detail = ($conn && ($conn['status'] ?? '') !== 'connected')
+                ? 'Conexão WhatsApp desconectada. Reconecte e use "Tentar de novo".'
+                : 'Provedor não confirmou o envio. Use "Tentar de novo".';
+            return ['delivered' => false, 'error' => $detail];
+        }
+        return ['delivered' => true, 'error' => null];
+    }
+
+    /**
+     * Reenvia uma mensagem outbound que falhou (sem channel_message_id).
+     * POST /inbox/{id}/messages/{mid}/retry
+     */
+    public function retryMessage(Request $request, int $id, int $mid): void
+    {
+        $msg = Conversation::getMessage($mid);
+        if (!$msg || (int) $msg['conversation_id'] !== $id) {
+            View::json(['success' => false, 'error' => 'Mensagem não encontrada.'], 404);
+            return;
+        }
+        if (($msg['direction'] ?? '') !== 'outbound'
+            || ($msg['type'] ?? '') === 'internal_note'
+            || !empty($msg['channel_message_id'])
+        ) {
+            View::json(['success' => false, 'error' => 'Nada a reenviar.'], 422);
+            return;
+        }
+        Database::getInstance()->update(
+            'messages',
+            ['delivery_status' => 'pending'],
+            'id = ?',
+            [$mid]
+        );
+        $res = $this->dispatchWhatsApp($id, $mid, $msg['type'], $msg['content']);
+        View::json([
+            'success' => $res['delivered'],
+            'delivered' => $res['delivered'],
+            'error' => $res['error'],
+            'message' => Conversation::getMessage($mid),
+        ]);
     }
 
     public function apiMessages(Request $request, int $id): void
     {
+        if (!$this->canUserSeeConversation($id, Auth::id())) {
+            View::json(['error' => 'Sem acesso a esta conversa.'], 403);
+            return;
+        }
         $before = $request->input('before');
         $opts = [];
         if ($before) {
@@ -633,6 +818,7 @@ class InboxController
         if (!$before) {
             Conversation::markMessagesAsRead($id, Auth::id());
             \App\Models\Notification::markConversationNotificationsRead($id, Auth::id());
+            $this->markGroupMentionRead(Conversation::find($id));
         }
         View::json($messages);
     }
@@ -645,6 +831,10 @@ class InboxController
 
     public function apiConversation(Request $request, int $id): void
     {
+        if (!$this->canUserSeeConversation($id, Auth::id())) {
+            View::json(['error' => 'Sem acesso a esta conversa.'], 403);
+            return;
+        }
         $conv = Conversation::find($id);
         if ($conv) {
             $conv['csat'] = Conversation::getCsat($id);
@@ -722,7 +912,7 @@ class InboxController
                 error_log('sendReaction: ' . $e->getMessage());
             }
         }
-        View::json(['success' => $ok]);
+        View::json(['success' => $ok, 'reactions' => $ok ? (Conversation::getMessage($mid)['reactions'] ?? null) : null]);
     }
 
     public function editMessage(Request $request, int $id, int $mid): void
@@ -807,11 +997,14 @@ class InboxController
             $ids = [$ids];
         }
         $ids = array_filter(array_map('intval', $ids));
+        $skippedGroups = 0;
         foreach ($ids as $cid) {
             if ($action === 'close') {
-                $this->conversationService->changeStatus($cid, 'closed');
+                try { $this->conversationService->changeStatus($cid, 'closed'); }
+                catch (\Throwable $e) { $skippedGroups++; }
             } elseif ($action === 'resolve') {
-                $this->conversationService->changeStatus($cid, 'resolved');
+                try { $this->conversationService->changeStatus($cid, 'resolved'); }
+                catch (\Throwable $e) { $skippedGroups++; }
             } elseif ($action === 'assign') {
                 $uid = (int) $request->post('user_id');
                 if ($uid) {
@@ -823,10 +1016,14 @@ class InboxController
             }
         }
         if ($this->isAjax($request)) {
-            View::json(['success' => true, 'count' => count($ids)]);
+            View::json(['success' => true, 'count' => count($ids), 'skipped_groups' => $skippedGroups]);
             return;
         }
-        Session::setFlash('success', 'Ação aplicada em ' . count($ids) . ' conversa(s).');
+        $msg = 'Ação aplicada em ' . count($ids) . ' conversa(s).';
+        if ($skippedGroups > 0) {
+            $msg .= ' Grupos não podem ser encerrados (' . $skippedGroups . ' ignorado(s)).';
+        }
+        Session::setFlash('success', $msg);
         View::redirect('/inbox');
     }
 
@@ -835,14 +1032,61 @@ class InboxController
         $macroId = (int) $request->post('macro_id');
         $macro = Macro::find($macroId);
         $ok = false;
+        $sent = 0;
         if ($macro) {
-            if (!empty($macro['content'])) {
-                $this->conversationService->sendMessage($id, $macro['content'], 'text', Auth::id());
+            // Multi-mensagens: itens ordenados (texto e/ou mídia). Legado: content único.
+            $items = $macro['items'] ?? [];
+            if (empty($items) && !empty(trim((string) ($macro['content'] ?? '')))) {
+                $items = [['type' => 'text', 'content' => $macro['content']]];
+            }
+            foreach ($items as $it) {
+                $type = strtolower(trim((string) ($it['type'] ?? 'text')));
+                if (!in_array($type, ['text', 'image', 'video', 'audio', 'file'], true)) {
+                    $type = 'text';
+                }
+                try {
+                    if ($type === 'text') {
+                        $text = trim((string) ($it['content'] ?? ''));
+                        if ($text === '') {
+                            continue;
+                        }
+                        $text = $this->applyWhatsAppSignature($id, $text);
+                        $msgId = $this->conversationService->sendMessage($id, $text, 'text', Auth::id());
+                        $this->dispatchWhatsApp($id, $msgId, 'text', $text);
+                        $sent++;
+                    } else {
+                        $mediaUrl = trim((string) ($it['media_url'] ?? ''));
+                        if ($mediaUrl === '') {
+                            continue;
+                        }
+                        $caption = trim((string) ($it['content'] ?? ''));
+                        if ($caption !== '') {
+                            $caption = $this->applyWhatsAppSignature($id, $caption);
+                        }
+                        $meta = [
+                            'url' => $mediaUrl,
+                            'name' => $it['media_name'] ?? basename(parse_url($mediaUrl, PHP_URL_PATH) ?: $mediaUrl),
+                            'size' => (int) ($it['media_size'] ?? 0),
+                            'mime' => $it['media_mime'] ?? '',
+                            'path' => $it['media_path'] ?? null,
+                        ];
+                        if ($caption !== '') {
+                            $meta['caption'] = $caption;
+                        }
+                        $metaJson = json_encode($meta, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+                        $msgId = $this->conversationService->sendMessage($id, $metaJson, $type, Auth::id());
+                        $this->dispatchWhatsApp($id, $msgId, $type, $metaJson);
+                        $sent++;
+                    }
+                } catch (\Throwable $e) {
+                    error_log('applyMacro item error: ' . $e->getMessage());
+                }
             }
             $actions = $macro['actions'] ? json_decode($macro['actions'], true) : null;
             if (is_array($actions)) {
                 if (!empty($actions['status'])) {
-                    $this->conversationService->changeStatus($id, $actions['status']);
+                    try { $this->conversationService->changeStatus($id, $actions['status']); }
+                    catch (\Throwable $e) { /* grupo: ignora status final */ }
                 }
                 if (!empty($actions['tag_id'])) {
                     Conversation::addTag($id, (int) $actions['tag_id']);
@@ -857,7 +1101,7 @@ class InboxController
             $ok = true;
         }
         if ($this->isAjax($request)) {
-            View::json(['success' => $ok]);
+            View::json(['success' => $ok, 'sent' => $sent]);
             return;
         }
         View::redirect("/inbox?conv={$id}");
@@ -871,20 +1115,115 @@ class InboxController
 
     public function macros(Request $request): void
     {
-        View::renderWithLayout('inbox/macros', 'main', [
+        View::renderWithLayout('macros/index', 'main', [
             'title' => 'Macros',
+            'activePage' => 'macros',
             'macros' => Macro::all(),
             'departments' => Department::all(),
             'tags' => Tag::all(),
             'inboxes' => Inbox::getUserInboxes(Auth::id()),
+            'variables' => \App\Services\TemplateService::availableVariables(),
+            'editMacro' => null,
         ]);
     }
 
-    public function storeMacro(Request $request): void
+    public function editMacro(Request $request, int $id): void
     {
-        $title = trim((string) $request->post('title'));
-        $content = trim((string) $request->post('content'));
-        $departmentId = $request->post('department_id') ? (int) $request->post('department_id') : null;
+        $macro = Macro::find($id);
+        if (!$macro) {
+            Session::setFlash('error', 'Macro não encontrada.');
+            View::redirect('/macros');
+        }
+        View::renderWithLayout('macros/index', 'main', [
+            'title' => 'Editar Macro',
+            'activePage' => 'macros',
+            'macros' => Macro::all(),
+            'departments' => Department::all(),
+            'tags' => Tag::all(),
+            'inboxes' => Inbox::getUserInboxes(Auth::id()),
+            'variables' => \App\Services\TemplateService::availableVariables(),
+            'editMacro' => $macro,
+        ]);
+    }
+
+    /**
+     * Normaliza os itens da macro vindos do formulário (multi-mensagens).
+     * Aceita tanto arrays paralelos (item_type[], item_content[], ...) quanto
+     * JSON em 'items_json' (montado pelo JS). Mantém compat com 'content' legado.
+     */
+    private function parseMacroItems(Request $request): array
+    {
+        $json = trim((string) $request->post('items_json', ''));
+        if ($json !== '') {
+            $decoded = json_decode($json, true);
+            if (is_array($decoded)) {
+                return $this->sanitizeMacroItems($decoded);
+            }
+        }
+        $types = (array) ($request->post('item_type') ?? []);
+        $contents = (array) ($request->post('item_content') ?? []);
+        $urls = (array) ($request->post('item_media_url') ?? []);
+        $names = (array) ($request->post('item_media_name') ?? []);
+        $mimes = (array) ($request->post('item_media_mime') ?? []);
+        $sizes = (array) ($request->post('item_media_size') ?? []);
+        $paths = (array) ($request->post('item_media_path') ?? []);
+        $n = max(count($types), count($contents), count($urls));
+        $items = [];
+        for ($i = 0; $i < $n; $i++) {
+            $items[] = [
+                'type' => $types[$i] ?? 'text',
+                'content' => $contents[$i] ?? '',
+                'media_url' => $urls[$i] ?? '',
+                'media_name' => $names[$i] ?? '',
+                'media_mime' => $mimes[$i] ?? '',
+                'media_size' => $sizes[$i] ?? 0,
+                'media_path' => $paths[$i] ?? '',
+            ];
+        }
+        // Legado: textarea única 'content' sem itens
+        if (empty(array_filter($items, fn($it) => trim((string) ($it['content'] ?? '')) !== '' || trim((string) ($it['media_url'] ?? '')) !== ''))) {
+            $legacy = trim((string) $request->post('content', ''));
+            if ($legacy !== '') {
+                return [['type' => 'text', 'content' => $legacy]];
+            }
+        }
+        return $this->sanitizeMacroItems($items);
+    }
+
+    private function sanitizeMacroItems(array $items): array
+    {
+        $out = [];
+        foreach ($items as $it) {
+            if (!is_array($it)) {
+                continue;
+            }
+            $type = strtolower(trim((string) ($it['type'] ?? 'text')));
+            if (!in_array($type, ['text', 'image', 'video', 'audio', 'file'], true)) {
+                $type = 'text';
+            }
+            $content = trim((string) ($it['content'] ?? ''));
+            $mediaUrl = trim((string) ($it['media_url'] ?? ''));
+            if ($content === '' && $mediaUrl === '') {
+                continue;
+            }
+            $out[] = [
+                'type' => $type,
+                'content' => $content,
+                'media_url' => $mediaUrl,
+                'media_name' => trim((string) ($it['media_name'] ?? '')),
+                'media_mime' => trim((string) ($it['media_mime'] ?? '')),
+                'media_size' => (int) ($it['media_size'] ?? 0),
+                'media_path' => trim((string) ($it['media_path'] ?? '')),
+            ];
+            if (count($out) >= 10) {
+                break; // limite de segurança: 10 mensagens por macro
+            }
+        }
+        return $out;
+    }
+
+    private function macroActionsFromRequest(Request $request): ?string
+    {
         $actions = [];
         if ($request->post('action_status')) {
             $actions['status'] = $request->post('action_status');
@@ -898,21 +1237,98 @@ class InboxController
         if ($request->post('action_transfer_inbox_id')) {
             $actions['transfer_inbox_id'] = (int) $request->post('action_transfer_inbox_id');
         }
+        return $actions ? json_encode($actions) : null;
+    }
+
+    public function storeMacro(Request $request): void
+    {
+        $title = trim((string) $request->post('title'));
+        $departmentId = $request->post('department_id') ? (int) $request->post('department_id') : null;
 
         if ($title === '') {
             Session::setFlash('error', 'Informe um título para a macro.');
             View::redirect('/macros');
         }
 
-        Macro::create([
+        $items = $this->parseMacroItems($request);
+        $firstText = '';
+        foreach ($items as $it) {
+            if (($it['type'] ?? 'text') === 'text' && !empty($it['content'])) {
+                $firstText = $it['content'];
+                break;
+            }
+        }
+
+        $macroId = Macro::create([
             'title' => $title,
-            'content' => $content,
+            'content' => $firstText !== '' ? $firstText : ($items[0]['content'] ?? ''),
             'department_id' => $departmentId,
             'user_id' => Auth::id(),
-            'actions' => $actions ? json_encode($actions) : null,
+            'actions' => $this->macroActionsFromRequest($request),
         ]);
+        Macro::replaceItems($macroId, $items);
 
-        Session::setFlash('success', 'Macro criada.');
+        Session::setFlash('success', 'Macro criada com ' . count($items) . ' mensagem(ns).');
         View::redirect('/macros');
+    }
+
+    public function updateMacro(Request $request, int $id): void
+    {
+        $macro = Macro::find($id);
+        if (!$macro) {
+            Session::setFlash('error', 'Macro não encontrada.');
+            View::redirect('/macros');
+        }
+        $title = trim((string) $request->post('title'));
+        if ($title === '') {
+            Session::setFlash('error', 'Informe um título para a macro.');
+            View::redirect('/macros/' . $id . '/edit');
+        }
+        $departmentId = $request->post('department_id') ? (int) $request->post('department_id') : null;
+        $items = $this->parseMacroItems($request);
+        $firstText = '';
+        foreach ($items as $it) {
+            if (($it['type'] ?? 'text') === 'text' && !empty($it['content'])) {
+                $firstText = $it['content'];
+                break;
+            }
+        }
+        Macro::update($id, [
+            'title' => $title,
+            'content' => $firstText !== '' ? $firstText : ($items[0]['content'] ?? ''),
+            'department_id' => $departmentId,
+            'actions' => $this->macroActionsFromRequest($request),
+        ]);
+        Macro::replaceItems($id, $items);
+        Session::setFlash('success', 'Macro atualizada.');
+        View::redirect('/macros');
+    }
+
+    public function deleteMacro(Request $request, int $id): void
+    {
+        Macro::delete($id);
+        Session::setFlash('success', 'Macro removida.');
+        View::redirect('/macros');
+    }
+
+    /**
+     * Upload de mídia p/ itens da macro (foto, vídeo, arquivo, áudio).
+     * POST /api/macros/upload — retorna {url,name,size,type,mime,path}.
+     */
+    public function uploadMacroMedia(Request $request): void
+    {
+        $uploaded = save_uploaded_file('file', null, 'macros');
+        if (!$uploaded) {
+            View::json(['error' => 'Arquivo inválido ou tipo não permitido.'], 422);
+            return;
+        }
+        View::json([
+            'url' => $uploaded['url'],
+            'name' => $uploaded['name'],
+            'size' => $uploaded['size'],
+            'type' => $uploaded['type'],
+            'mime' => $uploaded['mime'] ?? '',
+            'path' => $uploaded['path'] ?? null,
+        ]);
     }
 }

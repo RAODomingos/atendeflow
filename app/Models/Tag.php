@@ -16,6 +16,24 @@ class Tag
         return Database::getInstance()->fetch("SELECT * FROM tags WHERE id = ?", [$id]);
     }
 
+    public static function findByName(string $name): ?array
+    {
+        return Database::getInstance()->fetch("SELECT * FROM tags WHERE name = ? LIMIT 1", [$name]);
+    }
+
+    /**
+     * Retorna o ID da etiqueta com o nome informado, criando-a (com a cor)
+     * caso ainda não exista. Usado para etiquetas de sistema ("Fluxo", "Aberto").
+     */
+    public static function ensureByName(string $name, string $color = '#6c757d'): int
+    {
+        $existing = self::findByName($name);
+        if ($existing) {
+            return (int) $existing['id'];
+        }
+        return self::create(['name' => $name, 'color' => $color]);
+    }
+
     public static function create(array $data): int
     {
         return Database::getInstance()->insert('tags', $data);

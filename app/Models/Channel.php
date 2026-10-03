@@ -37,4 +37,22 @@ class Channel
              ORDER BY ch.type, ch.name"
         );
     }
+
+    /**
+     * Todos os canais ativos para VINCULAÇÃO (form da caixa): inclui WhatsApp
+     * desconectado — vínculo é configuração e não deve sumir quando a sessão
+     * cai. Traz status da conexão para a UI sinalizar.
+     */
+    public static function allActiveForLinking(): array
+    {
+        return Database::getInstance()->fetchAll(
+            "SELECT ch.id, ch.type, ch.name, ch.is_active,
+                    wc.status as connection_status, wc.phone_number
+             FROM channels ch
+             LEFT JOIN whatsapp_connections wc ON wc.channel_id = ch.id AND ch.type = 'whatsapp'
+             LEFT JOIN webchat_widgets w ON w.channel_id = ch.id AND ch.type = 'webchat'
+             WHERE ch.is_active = 1
+             ORDER BY ch.type, ch.name"
+        );
+    }
 }

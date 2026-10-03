@@ -114,9 +114,19 @@ interface WhatsAppProviderInterface
      * @param array  $connection Linha de whatsapp_connections
      * @param string $messageId  ID da mensagem a ser reagida (channel_message_id)
      * @param string $reaction   Emoji da reação (string vazia para remover)
+     * @param string|null $to    Telefone/JID do chat (exigido pela Uazapi: number)
      * @return bool true se a reação foi aceita pelo provedor
      */
-    public function sendReaction(array $connection, string $messageId, string $reaction): bool;
+    public function sendReaction(array $connection, string $messageId, string $reaction, ?string $to = null): bool;
+
+    /**
+     * Envia texto para um grupo (JID @g.us preservado, sem normalizar dígitos).
+     *
+     * @param array  $connection Linha de whatsapp_connections
+     * @param string $groupJid   JID do grupo (ex.: 120363012345678@g.us)
+     * @return array{provider_message_id:?string, raw:mixed}
+     */
+    public function sendGroupText(array $connection, string $groupJid, string $text): array;
 
     /**
      * Obtém a URL da foto de perfil de um contato no WhatsApp.

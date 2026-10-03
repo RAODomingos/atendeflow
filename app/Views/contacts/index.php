@@ -1,123 +1,177 @@
+<?php
+$total = $stats['total'] ?? 0;
+$with = $stats['with_conversations'] ?? 0;
+$without = $stats['without_conversations'] ?? 0;
+$newToday = $stats['new_today'] ?? 0;
+?>
 <div class="contacts-page">
-    <div class="page-toolbar">
-        <form action="<?= url('contacts') ?>" method="GET" class="search-form">
-            <div class="search-box">
-                <i class="fas fa-search"></i>
-                <input type="text" name="search" class="search-input"
-                       placeholder="Buscar por nome, e-mail ou telefone..."
-                       value="<?= e($_GET['search'] ?? '') ?>"
-                       oninput="debounceContactSearch(this)">
+    <div class="contact-stats">
+        <div class="contact-stat">
+            <div class="contact-stat-icon" style="background:var(--brand-soft);color:var(--brand)">
+                <i class="fas fa-address-book"></i>
             </div>
-        </form>
-        <div style="display:flex;gap:8px;align-items:center">
-            <span class="badge badge-info" style="font-size:13px;padding:6px 12px">
-                <i class="fas fa-users"></i> <?= count($contacts) ?> contatos
-            </span>
-            <a href="<?= url('contacts/create') ?>" class="btn btn-primary btn-sm">
-                <i class="fas fa-plus"></i> Novo Contato
-            </a>
+            <div class="contact-stat-body">
+                <div class="contact-stat-value"><?= $total ?></div>
+                <div class="contact-stat-label">Total</div>
+            </div>
+        </div>
+        <div class="contact-stat">
+            <div class="contact-stat-icon" style="background:var(--success-soft);color:var(--success)">
+                <i class="fas fa-comments"></i>
+            </div>
+            <div class="contact-stat-body">
+                <div class="contact-stat-value"><?= $with ?></div>
+                <div class="contact-stat-label">Com conversa</div>
+            </div>
+        </div>
+        <div class="contact-stat">
+            <div class="contact-stat-icon" style="background:var(--warning-soft);color:var(--warning)">
+                <i class="fas fa-user-plus"></i>
+            </div>
+            <div class="contact-stat-body">
+                <div class="contact-stat-value"><?= $without ?></div>
+                <div class="contact-stat-label">Sem conversa</div>
+            </div>
+        </div>
+        <div class="contact-stat">
+            <div class="contact-stat-icon" style="background:var(--info-soft);color:var(--info)">
+                <i class="fas fa-sparkles"></i>
+            </div>
+            <div class="contact-stat-body">
+                <div class="contact-stat-value"><?= $newToday ?></div>
+                <div class="contact-stat-label">Novos hoje</div>
+            </div>
         </div>
     </div>
 
-    <div class="card" style="border-radius:12px;overflow:hidden">
-        <div class="card-body p-0">
-            <?php if (empty($contacts)): ?>
+    <form action="<?= url('contacts') ?>" method="GET" class="contact-search-form contact-search-row">
+        <div class="contact-search-box">
+            <i class="fas fa-search"></i>
+            <input type="text" name="search" class="contact-search-input"
+                   placeholder="Buscar por nome, e-mail ou telefone..."
+                   value="<?= e($search ?? '') ?>"
+                   oninput="debounceContactSearch(this)">
+        </div>
+        <button type="button" class="btn btn-primary" onclick="openCreateDrawer()">
+            <i class="fas fa-plus"></i> Novo Contato
+        </button>
+    </form>
+
+    <?php if (empty($contacts)): ?>
+        <div class="card" style="border-radius:12px;overflow:hidden">
+            <div class="card-body" style="padding:0">
                 <div class="empty-state-enhanced">
                     <div class="empty-icon"><i class="fas fa-address-book"></i></div>
-                    <h3>Nenhum contato encontrado</h3>
-                    <p>Crie um novo contato para começar.</p>
-                    <a href="<?= url('contacts/create') ?>" class="btn btn-primary mt-2">
-                        <i class="fas fa-plus"></i> Criar Contato
-                    </a>
+                    <?php if (!empty($search)): ?>
+                        <h3>Nenhum contato encontrado</h3>
+                        <p>Tente ajustar a busca ou <a href="<?= url('contacts') ?>">limpar filtros</a>.</p>
+                    <?php else: ?>
+                        <h3>Nenhum contato cadastrado</h3>
+                        <p>Crie um novo contato para começar.</p>
+                        <button type="button" class="btn btn-primary mt-2" onclick="openCreateDrawer()">
+                            <i class="fas fa-plus"></i> Criar Contato
+                        </button>
+                    <?php endif; ?>
                 </div>
-            <?php else: ?>
-                <div class="table-responsive">
-                    <table class="table" id="contactsTable">
-                        <thead>
-                            <tr>
-                                <th onclick="sortTable(0)" style="cursor:pointer">
-                                    Nome <i class="fas fa-sort" style="font-size:10px;opacity:0.5"></i>
-                                </th>
-                                <th onclick="sortTable(1)" style="cursor:pointer">
-                                    E-mail <i class="fas fa-sort" style="font-size:10px;opacity:0.5"></i>
-                                </th>
-                                <th>Telefone</th>
-                                <th>Empresa</th>
-                                <th style="text-align:center">Conversas</th>
-                                <th>Último contato</th>
-                                <th style="text-align:center">Ações</th>
+            </div>
+        </div>
+    <?php else: ?>
+        <div class="card" style="border-radius:12px;overflow:hidden">
+            <div class="card-body" style="padding:0">
+                <table class="table contact-table">
+                    <thead>
+                        <tr><th>Contato</th><th>E-mail</th><th>Telefone</th><th>Conversas</th><th>Último contato</th><th style="width:130px">Ações</th></tr>
+                    </thead>
+                    <tbody>
+                        <?php foreach ($contacts as $contact):
+                            $cId = (int) $contact['id'];
+                            $cName = e($contact['name']);
+                            $cEmail = e($contact['email'] ?? '');
+                            $cPhone = e($contact['phone'] ?? '');
+                            $cCompany = e($contact['company'] ?? '');
+                            $cDoc = e($contact['document'] ?? '');
+                            $cNotes = e($contact['notes'] ?? '');
+                            $cAvatar = $contact['avatar'] ?? '';
+                            $cAvatarUrl = $cAvatar ? (str_starts_with($cAvatar, 'http') ? $cAvatar : upload_url($cAvatar)) : '';
+                            $cInitial = mb_strtoupper(mb_substr($contact['name'], 0, 1));
+                            $cConvCount = (int)($contact['conversation_count'] ?? 0);
+                            $cLastMsg = $contact['last_message_at'] ?? '';
+                        ?>
+                            <tr class="contact-row"
+                                 data-id="<?= $cId ?>"
+                                 data-name="<?= $cName ?>"
+                                 data-email="<?= $cEmail ?>"
+                                 data-phone="<?= $cPhone ?>"
+                                 data-company="<?= $cCompany ?>"
+                                 data-document="<?= $cDoc ?>"
+                                 data-notes="<?= $cNotes ?>"
+                                 data-avatar="<?= e($cAvatar) ?>"
+                                 onclick="if(event.target.closest('[data-action]'))return;window.location='<?= url('contacts/') ?><?= $cId ?>'"
+                                 style="cursor:pointer">
+                                <td>
+                                    <div style="display:flex;align-items:center;gap:10px">
+                                        <div class="contact-list-avatar">
+                                            <?php if ($cAvatarUrl): ?>
+                                                <img src="<?= e($cAvatarUrl) ?>" alt="<?= $cName ?>">
+                                            <?php else: ?>
+                                                <div class="avatar-ph"><?= e($cInitial) ?></div>
+                                            <?php endif; ?>
+                                        </div>
+                                        <div>
+                                            <div class="contact-row-name" title="<?= $cName ?>"><?= $cName ?></div>
+                                            <?php if ($cCompany): ?>
+                                                <small class="form-hint"><i class="fas fa-building"></i> <?= $cCompany ?></small>
+                                            <?php endif; ?>
+                                        </div>
+                                    </div>
+                                </td>
+                                <td><?= $cEmail ?: '<span class="text-muted">—</span>' ?></td>
+                                <td style="white-space:nowrap"><?= $cPhone ?: '<span class="text-muted">—</span>' ?></td>
+                                <td><span class="badge badge-secondary"><?= $cConvCount ?></span></td>
+                                <td style="white-space:nowrap"><?= $cLastMsg ? time_elapsed($cLastMsg) : '<span class="text-muted">Nunca</span>' ?></td>
+                                <td class="action-cell">
+                                    <a href="<?= url('contacts/') ?><?= $cId ?>" class="btn btn-sm btn-outline btn-icon" title="Ver detalhes"><i class="fas fa-eye"></i></a>
+                                    <button type="button" class="btn btn-sm btn-outline btn-icon" title="Editar" data-action="edit-contact" data-id="<?= $cId ?>">
+                                        <i class="fas fa-pen"></i>
+                                    </button>
+                                    <button type="button" class="btn btn-sm btn-outline btn-icon btn-icon-danger" title="Excluir" data-action="delete-contact" data-id="<?= $cId ?>" data-name="<?= e($contact['name']) ?>">
+                                        <i class="fas fa-trash"></i>
+                                    </button>
+                                </td>
                             </tr>
-                        </thead>
-                        <tbody>
-                            <?php foreach ($contacts as $contact): ?>
-                            <?php
-                                $cId = (int) $contact['id'];
-                                $cName = e($contact['name']);
-                                $cEmail = e($contact['email'] ?? '');
-                                $cPhone = e($contact['phone'] ?? '');
-                                $cCompany = e($contact['company'] ?? '');
-                                $cDoc = e($contact['document'] ?? '');
-                                $cNotes = e($contact['notes'] ?? '');
-                                $cAvatar = $contact['avatar'] ?? '';
-                                $cAvatarUrl = $cAvatar ? (str_starts_with($cAvatar, 'http') ? $cAvatar : upload_url($cAvatar)) : '';
-                                $cInitial = mb_strtoupper(mb_substr($contact['name'], 0, 1));
-                                $cConvCount = (int)($contact['conversation_count'] ?? 0);
-                                $cLastMsg = $contact['last_message_at'] ?? '';
-                            ?>
-                                <tr data-id="<?= $cId ?>"
-                                    data-name="<?= $cName ?>"
-                                    data-email="<?= $cEmail ?>"
-                                    data-phone="<?= $cPhone ?>"
-                                    data-company="<?= $cCompany ?>"
-                                    data-document="<?= $cDoc ?>"
-                                    data-notes="<?= $cNotes ?>"
-                                    data-avatar="<?= e($cAvatar) ?>">
-                                    <td>
-                                        <div class="user-cell">
-                                            <div class="avatar-sm contact-list-avatar" style="background:linear-gradient(135deg,var(--primary),#667eea);overflow:hidden">
-                                                <?php if ($cAvatarUrl): ?>
-                                                    <img src="<?= $cAvatarUrl ?>" alt="<?= $cName ?>" style="width:100%;height:100%;object-fit:cover">
-                                                <?php else: ?>
-                                                    <?= $cInitial ?>
-                                                <?php endif; ?>
-                                            </div>
-                                            <a href="<?= url('contacts/') ?><?= $cId ?>" style="font-weight:500">
-                                                <?= $cName ?>
-                                            </a>
-                                        </div>
-                                    </td>
-                                    <td><?= $cEmail ?: '<span class="text-muted">-</span>' ?></td>
-                                    <td><?= $cPhone ?: '<span class="text-muted">-</span>' ?></td>
-                                    <td><?= $cCompany ?: '<span class="text-muted">-</span>' ?></td>
-                                    <td style="text-align:center">
-                                        <span class="badge badge-info" style="font-size:12px;min-width:28px">
-                                            <?= $cConvCount ?>
-                                        </span>
-                                    </td>
-                                    <td style="font-size:13px;color:var(--text-muted)">
-                                        <?= $cLastMsg ? time_elapsed($cLastMsg) : '-' ?>
-                                    </td>
-                                    <td style="text-align:center">
-                                        <div class="action-cell" style="display:flex;gap:4px;justify-content:center">
-                                            <a href="<?= url('contacts/') ?><?= $cId ?>" class="btn btn-sm btn-outline" title="Visualizar">
-                                                <i class="fas fa-eye"></i>
-                                            </a>
-                                            <button type="button" class="btn btn-sm btn-outline" title="Editar" onclick="openListDrawer(this)">
-                                                <i class="fas fa-edit"></i>
-                                            </button>
-                                            <button type="button" class="btn btn-sm btn-outline btn-icon-danger" title="Excluir" onclick="confirmDeleteContact(<?= $cId ?>, <?= htmlspecialchars(json_encode($contact['name'], JSON_UNESCAPED_UNICODE), ENT_QUOTES) ?>)">
-                                                <i class="fas fa-trash"></i>
-                                            </button>
-                                        </div>
-                                    </td>
-                                </tr>
-                            <?php endforeach; ?>
-                        </tbody>
-                    </table>
-                </div>
+                        <?php endforeach; ?>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        <style>
+        .contact-table .contact-list-avatar { width:36px;height:36px;border-radius:50%;overflow:hidden;flex-shrink:0;background:var(--brand-soft);display:flex;align-items:center;justify-content:center;font-weight:700;color:var(--brand); }
+        .contact-table .contact-list-avatar img { width:100%;height:100%;object-fit:cover; }
+        .contact-table .contact-row-name { font-weight:600; }
+        .contact-table .form-hint { font-size:12px;color:#6c757d; }
+        .contact-table .action-cell { white-space:nowrap; }
+        .contact-table tbody tr:hover { background:var(--bg-content); }
+        .contact-search-row { display:flex;gap:10px;align-items:center; }
+        .contact-search-row .contact-search-box { flex:1;max-width:none; }
+        .contact-search-row .btn { flex-shrink:0; }
+        </style>
+        <?php
+        $pg = $pagination ?? ['page' => 1, 'pages' => 1, 'total' => count($contacts)];
+        if ($pg['pages'] > 1):
+            $pgBase = url('contacts') . '?' . http_build_query(array_filter(['search' => $search ?? null])) ;
+            $pgBase .= empty($search) ? 'page=' : '&page=';
+        ?>
+        <div class="pager" style="display:flex;align-items:center;justify-content:center;gap:12px;margin:22px 0 8px">
+            <?php if ($pg['page'] > 1): ?>
+                <a href="<?= $pgBase . ($pg['page'] - 1) ?>" class="btn btn-sm btn-outline"><i class="fas fa-chevron-left"></i> Anterior</a>
+            <?php endif; ?>
+            <span style="font-size:13px;color:var(--text-muted)">Página <?= (int) $pg['page'] ?> de <?= (int) $pg['pages'] ?> · <?= (int) $pg['total'] ?> contatos</span>
+            <?php if ($pg['page'] < $pg['pages']): ?>
+                <a href="<?= $pgBase . ($pg['page'] + 1) ?>" class="btn btn-sm btn-outline">Próxima <i class="fas fa-chevron-right"></i></a>
             <?php endif; ?>
         </div>
-    </div>
+        <?php endif; ?>
+    <?php endif; ?>
 </div>
 
 <div class="contact-drawer-overlay" id="listDrawerOverlay" onclick="closeListDrawer()"></div>
@@ -172,108 +226,180 @@
     </div>
 </div>
 
+<div class="contact-drawer-overlay" id="createDrawerOverlay" onclick="closeCreateDrawer()"></div>
+<div class="contact-drawer" id="createDrawer">
+    <div class="contact-drawer-header">
+        <h3><i class="fas fa-user-plus" style="color:var(--brand)"></i> Novo Contato</h3>
+        <button class="contact-drawer-close" onclick="closeCreateDrawer()">&times;</button>
+    </div>
+    <div class="contact-drawer-body">
+        <form id="createContactForm" method="POST" action="<?= url('contacts/create') ?>">
+            <?= csrf_field() ?>
+            <div class="form-group">
+                <label><i class="fas fa-user"></i> Nome *</label>
+                <input type="text" name="name" class="form-control" required placeholder="Nome completo">
+            </div>
+            <div class="form-group">
+                <label><i class="fas fa-building"></i> Empresa</label>
+                <input type="text" name="company" class="form-control" placeholder="Empresa">
+            </div>
+            <div class="form-group">
+                <label><i class="fas fa-envelope"></i> E-mail</label>
+                <input type="email" name="email" class="form-control" placeholder="email@exemplo.com">
+            </div>
+            <div class="form-group">
+                <label><i class="fas fa-phone"></i> Telefone</label>
+                <input type="text" name="phone" class="form-control" placeholder="(11) 99999-9999">
+            </div>
+            <div class="form-group">
+                <label><i class="fas fa-id-card"></i> CPF/CNPJ</label>
+                <input type="text" name="document" class="form-control">
+            </div>
+            <div class="form-group">
+                <label><i class="fas fa-tags"></i> Etiquetas</label>
+                <select name="tag_ids[]" class="form-control" multiple>
+                    <?php foreach ($tags as $tag): ?>
+                        <option value="<?= $tag['id'] ?>"><?= e($tag['name']) ?></option>
+                    <?php endforeach; ?>
+                </select>
+            </div>
+            <div class="form-group">
+                <label><i class="fas fa-sticky-note"></i> Observações</label>
+                <textarea name="notes" rows="5" class="form-control" placeholder="Informações adicionais sobre o contato..."></textarea>
+            </div>
+        </form>
+    </div>
+    <div class="contact-drawer-footer">
+        <button type="button" class="btn btn-outline" onclick="closeCreateDrawer()">Cancelar</button>
+        <button type="submit" class="btn btn-primary" form="createContactForm">
+            <i class="fas fa-plus"></i> Criar Contato
+        </button>
+    </div>
+</div>
+
 <form id="deleteContactForm" method="POST" style="display:none">
     <?= csrf_field() ?>
 </form>
 
 <script>
-var contactSearchTimer;
-var contactsBaseUrl = <?= json_encode(url('contacts/'), JSON_UNESCAPED_SLASHES) ?>;
-function debounceContactSearch(input) {
-    clearTimeout(contactSearchTimer);
-    contactSearchTimer = setTimeout(function() { input.closest('form').submit(); }, 400);
-}
+(function() {
+    var searchTimer;
+    var contactsBaseUrl = <?= json_encode(url('contacts/'), JSON_UNESCAPED_SLASHES) ?>;
 
-function sortTable(col) {
-    var table = document.getElementById('contactsTable');
-    if (!table) return;
-    var tbody = table.querySelector('tbody');
-    var rows = Array.from(tbody.querySelectorAll('tr'));
-    var dir = table.getAttribute('data-sort-dir') === 'asc' ? 'desc' : 'asc';
-    table.setAttribute('data-sort-dir', dir);
-    rows.sort(function(a, b) {
-        var aVal = (a.cells[col]?.textContent || '').trim().toLowerCase();
-        var bVal = (b.cells[col]?.textContent || '').trim().toLowerCase();
-        if (col === 4) { aVal = parseInt(aVal) || 0; bVal = parseInt(bVal) || 0; return dir === 'asc' ? aVal - bVal : bVal - aVal; }
-        return dir === 'asc' ? aVal.localeCompare(bVal) : bVal.localeCompare(aVal);
-    });
-    rows.forEach(function(r) { tbody.appendChild(r); });
-    table.querySelectorAll('thead th i.fa-sort, thead th i.fa-sort-up, thead th i.fa-sort-down').forEach(function(i) {
-        i.className = 'fas fa-sort';
-        i.style.opacity = '0.3';
-    });
-    var icon = table.querySelector('thead th:nth-child(' + (col + 1) + ') i');
-    if (icon) { icon.className = 'fas fa-sort-' + (dir === 'asc' ? 'up' : 'down'); icon.style.opacity = '0.8'; }
-}
+    window.debounceContactSearch = function(input) {
+        clearTimeout(searchTimer);
+        searchTimer = setTimeout(function() { input.closest('form').submit(); }, 400);
+    };
 
-function confirmDeleteContact(id, name) {
-    if (confirm('Excluir contato "' + name + '"? Esta ação não pode ser desfeita.')) {
-        var form = document.getElementById('deleteContactForm');
-        form.action = contactsBaseUrl + id + '/delete';
-        form.submit();
-    }
-}
-
-function openListDrawer(btn) {
-    var tr = btn.closest('tr');
-    document.getElementById('listEditId').value = tr.dataset.id;
-    document.getElementById('listEditName').value = tr.dataset.name;
-    document.getElementById('listEditCompany').value = tr.dataset.company;
-    document.getElementById('listEditEmail').value = tr.dataset.email;
-    document.getElementById('listEditPhone').value = tr.dataset.phone;
-    document.getElementById('listEditDocument').value = tr.dataset.document;
-    document.getElementById('listEditNotes').value = tr.dataset.notes;
-    document.getElementById('listEditForm').action = contactsBaseUrl + tr.dataset.id + '/update';
-    document.getElementById('listDrawer').classList.add('open');
-    document.getElementById('listDrawerOverlay').classList.add('open');
-    document.body.style.overflow = 'hidden';
-}
-
-function closeListDrawer() {
-    document.getElementById('listDrawer').classList.remove('open');
-    document.getElementById('listDrawerOverlay').classList.remove('open');
-    document.body.style.overflow = '';
-}
-
-document.getElementById('listEditForm').addEventListener('submit', function(e) {
-    e.preventDefault();
-    var btn = this.querySelector('button[type="submit"]');
-    btn.disabled = true;
-    btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Salvando...';
-    var data = new FormData(this);
-    fetch(this.action, {
-        method: 'POST',
-        body: new URLSearchParams(data),
-        headers: {'X-Requested-With': 'XMLHttpRequest'}
-    })
-    .then(function(r) { return r.json(); })
-    .then(function(resp) {
-        if (resp.success) {
-            var id = document.getElementById('listEditId').value;
-            var tr = document.querySelector('tr[data-id="' + id + '"]');
-            if (tr) {
-                tr.dataset.name = document.getElementById('listEditName').value;
-                tr.dataset.company = document.getElementById('listEditCompany').value;
-                tr.dataset.email = document.getElementById('listEditEmail').value;
-                tr.dataset.phone = document.getElementById('listEditPhone').value;
-                tr.dataset.document = document.getElementById('listEditDocument').value;
-                tr.dataset.notes = document.getElementById('listEditNotes').value;
-                tr.querySelector('td:first-child a:last-child').textContent = document.getElementById('listEditName').value;
-                tr.cells[1].textContent = document.getElementById('listEditEmail').value || '-';
-                tr.cells[2].textContent = document.getElementById('listEditPhone').value || '-';
-                tr.cells[3].textContent = document.getElementById('listEditCompany').value || '-';
-            }
-            closeListDrawer();
-        } else {
-            alert(resp.error || 'Erro ao salvar contato.');
+    document.addEventListener('click', function(e) {
+        var editBtn = e.target.closest('[data-action="edit-contact"]');
+        if (editBtn) {
+            e.preventDefault();
+            e.stopPropagation();
+            var tr = document.querySelector('.contact-row[data-id="' + editBtn.dataset.id + '"]');
+            if (tr) openListDrawerFromCard(tr);
+            return;
         }
-    })
-    .catch(function() {
-        alert('Erro de rede. Tente novamente.');
-    })
-    .finally(function() {
-        btn.disabled = false;
-        btn.innerHTML = '<i class="fas fa-save"></i> Salvar';
+        var delBtn = e.target.closest('[data-action="delete-contact"]');
+        if (delBtn) {
+            e.preventDefault();
+            e.stopPropagation();
+            confirmDeleteContact(delBtn.dataset.id, delBtn.dataset.name);
+        }
     });
-});
+
+    window.confirmDeleteContact = function(id, name) {
+        OminiConfirm('Excluir contato "' + name + '"? Esta ação não pode ser desfeita.').then(function(ok) {
+            if (!ok) return;
+            var form = document.getElementById('deleteContactForm');
+            form.action = contactsBaseUrl + id + '/delete';
+            form.submit();
+        });
+    };
+
+    window.openListDrawerFromCard = function(card) {
+        document.getElementById('listEditId').value = card.dataset.id;
+        document.getElementById('listEditName').value = card.dataset.name;
+        document.getElementById('listEditCompany').value = card.dataset.company;
+        document.getElementById('listEditEmail').value = card.dataset.email;
+        document.getElementById('listEditPhone').value = card.dataset.phone;
+        document.getElementById('listEditDocument').value = card.dataset.document;
+        document.getElementById('listEditNotes').value = card.dataset.notes;
+        document.getElementById('listEditForm').action = contactsBaseUrl + card.dataset.id + '/update';
+        openListDrawer();
+    };
+
+    window.openListDrawer = function() {
+        document.getElementById('listDrawer').classList.add('open');
+        document.getElementById('listDrawerOverlay').classList.add('open');
+        document.body.style.overflow = 'hidden';
+    };
+
+    window.closeListDrawer = function() {
+        document.getElementById('listDrawer').classList.remove('open');
+        document.getElementById('listDrawerOverlay').classList.remove('open');
+        document.body.style.overflow = '';
+    };
+
+    window.openCreateDrawer = function() {
+        document.getElementById('createDrawer').classList.add('open');
+        document.getElementById('createDrawerOverlay').classList.add('open');
+        document.body.style.overflow = 'hidden';
+        setTimeout(function() {
+            var input = document.querySelector('#createContactForm input[name="name"]');
+            if (input) input.focus();
+        }, 100);
+    };
+
+    window.closeCreateDrawer = function() {
+        document.getElementById('createDrawer').classList.remove('open');
+        document.getElementById('createDrawerOverlay').classList.remove('open');
+        document.body.style.overflow = '';
+    };
+
+    document.addEventListener('keydown', function(e) {
+        if (e.key === 'Escape') closeCreateDrawer();
+    });
+
+    var form = document.getElementById('listEditForm');
+    if (form) {
+        form.addEventListener('submit', function(e) {
+            e.preventDefault();
+            var btn = this.querySelector('button[type="submit"]');
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Salvando...';
+            var data = new FormData(this);
+            fetch(this.action, {
+                method: 'POST',
+                body: new URLSearchParams(data),
+                headers: {'X-Requested-With': 'XMLHttpRequest'}
+            })
+            .then(function(r) { return r.json(); })
+            .then(function(resp) {
+                if (resp.success) {
+                    var id = document.getElementById('listEditId').value;
+                    var card = document.querySelector('.contact-row[data-id="' + id + '"]');
+                    if (card) {
+                        card.dataset.name = document.getElementById('listEditName').value;
+                        card.dataset.company = document.getElementById('listEditCompany').value;
+                        card.dataset.email = document.getElementById('listEditEmail').value;
+                        card.dataset.phone = document.getElementById('listEditPhone').value;
+                        card.dataset.document = document.getElementById('listEditDocument').value;
+                        card.dataset.notes = document.getElementById('listEditNotes').value;
+                        var nameEl = card.querySelector('.contact-row-name');
+                        if (nameEl) nameEl.textContent = document.getElementById('listEditName').value;
+                    }
+                    closeListDrawer();
+                } else {
+                    alert(resp.error || 'Erro ao salvar contato.');
+                }
+            })
+            .catch(function() { alert('Erro de rede. Tente novamente.'); })
+            .finally(function() {
+                btn.disabled = false;
+                btn.innerHTML = '<i class="fas fa-save"></i> Salvar';
+            });
+        });
+    }
+})();
 </script>

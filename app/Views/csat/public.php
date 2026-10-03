@@ -3,27 +3,30 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Avalie seu atendimento - AtendeFlow</title>
+    <title>Avalie seu atendimento - OminiDesk</title>
     <style>
         * { box-sizing: border-box; }
-        body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-               background: #f1f5f9; color: #1f2937; min-height: 100vh;
+        body { margin: 0; font-family: "Segoe UI", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+               background: #f5f5f5; color: #201f1e; min-height: 100vh;
                display: flex; align-items: center; justify-content: center; padding: 20px; }
-        .card { background: #fff; border-radius: 16px; box-shadow: 0 10px 30px rgba(0,0,0,.08);
+        .card { background: #fff; border: 1px solid #edebe9; border-radius: 8px; box-shadow: 0 2px 6px rgba(0,0,0,.08);
                 max-width: 440px; width: 100%; padding: 28px; text-align: center; }
-        .card h1 { font-size: 20px; margin: 0 0 6px; }
-        .sub { color: #6b7280; font-size: 14px; margin: 0 0 18px; }
-        .stars { font-size: 38px; color: #d1d5db; cursor: pointer; user-select: none; }
+        .card h1 { font-size: 20px; margin: 0 0 6px; font-weight: 600; }
+        .sub { color: #605e5c; font-size: 14px; margin: 0 0 18px; }
+        .stars { font-size: 38px; color: #8a8886; cursor: pointer; user-select: none; }
         .stars .star { transition: color .12s; padding: 0 3px; }
-        .stars .star.on { color: #fbbf24; }
+        .stars .star.on { color: #ffb900; }
         .stars.disabled { cursor: default; }
-        textarea { width: 100%; margin-top: 14px; border: 1px solid #d1d5db; border-radius: 10px;
-                   padding: 10px; font: inherit; resize: vertical; min-height: 70px; }
-        button.send { margin-top: 14px; width: 100%; background: #2f6fed; color: #fff; border: 0;
-                      border-radius: 10px; padding: 12px; font-size: 15px; cursor: pointer; }
+        textarea { width: 100%; margin-top: 14px; border: 1px solid #8a8886; border-radius: 4px;
+                   padding: 10px; font: inherit; resize: vertical; min-height: 70px; color: #201f1e; }
+        textarea:focus { outline: none; border-color: #0078d4; box-shadow: 0 0 0 1px #0078d4; }
+        button.send { margin-top: 14px; width: 100%; background: #0078d4; color: #fff; border: 0;
+                      border-radius: 4px; padding: 12px; font-size: 15px; font-weight: 600; cursor: pointer;
+                      transition: background .12s; }
+        button.send:hover { background: #106ebe; }
         button.send:disabled { opacity: .5; cursor: not-allowed; }
-        .thanks { color: #16a34a; font-weight: 600; font-size: 16px; margin-top: 10px; }
-        .existing { color: #6b7280; font-size: 14px; margin-top: 8px; }
+        .thanks { color: #107c10; font-weight: 600; font-size: 16px; margin-top: 10px; }
+        .existing { color: #605e5c; font-size: 14px; margin-top: 8px; }
     </style>
 </head>
 <body>

@@ -50,6 +50,21 @@ class WhatsAppConnection
     }
 
     /**
+     * Conexões WhatsApp fora do ar (status diferente de 'connected'),
+     * com o nome do canal — alimenta a barra de alerta do topo.
+     */
+    public static function disconnected(): array
+    {
+        return Database::getInstance()->fetchAll(
+            "SELECT wc.id, wc.status, wc.phone_number, ch.name as channel_name
+              FROM whatsapp_connections wc
+              JOIN channels ch ON ch.id = wc.channel_id
+              WHERE wc.status IS NULL OR wc.status <> 'connected'
+              ORDER BY ch.name"
+        );
+    }
+
+    /**
      * Lista de conexões já com o nome do canal e do departamento (para a UI).
      */
     public static function allWithDetails(): array

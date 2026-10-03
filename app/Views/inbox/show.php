@@ -69,6 +69,10 @@
 
             <div class="conv-meta-info">
                 <div class="meta-row">
+                    <span class="meta-label">Protocolo:</span>
+                    <span class="meta-value" style="font-weight:700">#<?= e(format_protocol($conversation['protocol'] ?? '')) ?></span>
+                </div>
+                <div class="meta-row">
                     <span class="meta-label">Canal:</span>
                     <span class="meta-value">
                         <i class="<?= channel_icon($conversation['channel_type'] ?? 'webchat') ?>"></i>
@@ -185,11 +189,18 @@
                                 <?php endif; ?>
                             </div>
                         <?php elseif ($isFile && $meta): ?>
+                                <?php
+                                    $cap = (string) ($meta['caption'] ?? '');
+                                    $capHtml = '';
+                                    if ($cap !== '') {
+                                        $capHtml = '<div class="message-caption">' . linkify_br($cap) . '</div>';
+                                    }
+                                ?>
                             <div class="message-content">
                                 <?php if ($mediaType === 'image' || $mediaType === 'sticker'): ?>
                                     <a href="<?= e($meta['url']) ?>" target="_blank" rel="noopener" class="msg-lightbox">
                                         <img class="msg-img" src="<?= e($meta['url']) ?>" alt="<?= e($meta['name']) ?>" loading="lazy"></a>
-                                    
+                                     
                                 <?php elseif ($mediaType === 'audio'): ?>
                                     <audio controls preload="metadata" src="<?= e($meta['url']) ?>"></audio>
                                 <?php elseif ($mediaType === 'video'): ?>
@@ -203,6 +214,7 @@
                                         <?php if ($meta['size']): ?><span class="msg-file-size">(<?= format_bytes($meta['size']) ?>)</span><?php endif; ?>
                                     </a>
                                 <?php endif; ?>
+                                <?= $capHtml ?>
                             </div>
                         <?php else: ?>
                             <div class="message-content"><?= e($msg['content']) ?></div>
@@ -232,6 +244,9 @@
                     <input type="file" name="file" id="attachInput"
                            accept="image/*,audio/*,video/*,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.zip" hidden <?= $convFinished ? 'disabled' : '' ?>>
                 </label>
+                <button type="button" class="btn btn-sm btn-outline composer-mic" id="micToggle" title="Gravar áudio" <?= $convFinished ? 'disabled' : '' ?>>
+                    <i class="fas fa-microphone"></i>
+                </button>
                 <textarea name="content" id="messageInput" rows="2"
                           placeholder="<?= $convFinished ? 'Conversa finalizada' : 'Digite sua mensagem... (Enter para enviar)' ?>"
                           <?= $convFinished ? 'disabled' : '' ?>></textarea>
@@ -241,6 +256,9 @@
                     </button>
                     <button type="button" class="btn btn-sm btn-outline" title="Macros" onclick="openMacrosModal()" <?= $convFinished ? 'disabled' : '' ?>>
                         <i class="fas fa-bolt"></i>
+                    </button>
+                    <button type="button" class="btn btn-sm btn-outline" title="Sugerir artigo da Wiki (envia o link do portal do cliente)" onclick="openWikiModalS()" <?= $convFinished ? 'disabled' : '' ?>>
+                        <i class="fas fa-book-open"></i>
                     </button>
                     <?php if (($conversation['channel_type'] ?? '') === 'whatsapp'): ?>
                     <button type="button" class="btn btn-sm btn-outline composer-signature <?= empty($conversation['signature_enabled']) ? '' : 'active' ?>" id="signatureToggle"
@@ -256,7 +274,31 @@
                     <i class="fas fa-file"></i> <span id="composerFileName"></span>
                     <button type="button" class="composer-file-x" id="composerFileX" title="Remover">&times;</button>
                 </div>
+                <div class="composer-record" id="composerRecord" style="display:none">
+                    <span class="rec-indicator" id="recIndicator"></span>
+                    <span class="rec-timer" id="recTimer">00:00</span>
+                    <button type="button" class="rec-btn rec-cancel" id="recCancel" title="Cancelar">
+                        <i class="fas fa-trash"></i>
+                    </button>
+                    <button type="button" class="rec-btn rec-stop" id="recStop" title="Parar e enviar">
+                        <i class="fas fa-stop"></i>
+                    </button>
+                </div>
             </form>
+        </div>
+    </div>
+
+    <div id="wikiModalS" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:9999;align-items:center;justify-content:center" onclick="if(event.target===this)closeWikiModalS()">
+        <div style="background:#fff;border-radius:12px;max-width:480px;width:calc(100% - 32px);max-height:80vh;display:flex;flex-direction:column">
+            <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 16px;border-bottom:1px solid #eee">
+                <h3 style="margin:0;font-size:16px"><i class="fas fa-book-open"></i> Sugerir artigo da Wiki</h3>
+                <button type="button" onclick="closeWikiModalS()" style="border:none;background:none;font-size:22px;cursor:pointer;line-height:1">&times;</button>
+            </div>
+            <div style="padding:14px 16px;overflow-y:auto">
+                <input type="text" id="wikiSearchS" class="form-control" placeholder="Buscar artigo..." onkeyup="filterWikiSuggestS()">
+                <div id="wikiListS" style="margin-top:10px;display:flex;flex-direction:column;gap:8px"></div>
+                <p style="margin:12px 0 0;font-size:12px;color:#6c757d">Insere no campo de mensagem o <strong>link do portal do cliente</strong>.</p>
+            </div>
         </div>
     </div>
 
@@ -344,14 +386,20 @@
         </div>
         <form action="<?= url('inbox/') ?><?= $conversation['id'] ?>/status" method="POST">
             <?= csrf_field() ?>
+            <?php $isGroupConvShow = !empty($conversation['group_id']); ?>
+            <?php if ($isGroupConvShow): ?>
+            <p class="form-hint"><i class="fas fa-users"></i> Conversa de grupo: fica sempre aberta, não pode ser encerrada.</p>
+            <?php endif; ?>
             <div class="form-group">
                 <label>Novo status</label>
                 <select name="status" class="form-control">
                     <option value="open" <?= $conversation['status'] === 'open' ? 'selected' : '' ?>>Aberto</option>
                     <option value="waiting_customer" <?= $conversation['status'] === 'waiting_customer' ? 'selected' : '' ?>>Em atendimento</option>
                     <option value="waiting_internal" <?= $conversation['status'] === 'waiting_internal' ? 'selected' : '' ?>>Aguardando Interno</option>
+                    <?php if (!$isGroupConvShow): ?>
                     <option value="resolved" <?= $conversation['status'] === 'resolved' ? 'selected' : '' ?>>Resolvido</option>
                     <option value="closed" <?= $conversation['status'] === 'closed' ? 'selected' : '' ?>>Fechado</option>
+                    <?php endif; ?>
                 </select>
             </div>
             <div id="closeFields" style="display:none">
@@ -404,6 +452,7 @@
     </div>
 </div>
 
+<script src="<?= url('assets/js/audio_recorder.js') ?>"></script>
 <script>
 function openTransferModal() { document.getElementById('transferModal').style.display = 'flex'; }
 function closeTransferModal() { document.getElementById('transferModal').style.display = 'none'; }
@@ -461,7 +510,8 @@ document.getElementById('messageInput')?.addEventListener('keydown', function(e)
     var uploadsBase = '<?= rtrim(base_url('uploads'), '/') ?>';
 
     function esc(s) { var d = document.createElement('div'); d.textContent = s == null ? '' : s; return d.innerHTML; }
-    function nl2br(s) { return esc(s); }
+    function nl2br(s) { return esc(s).replace(/\n/g, '<br>'); }
+    function linkify(text) { return String(text).replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1" target="_blank" rel="noopener">$1</a>'); }
     function fmtBytes(b) { var u = ['B','KB','MB','GB'], i = 0; b = b || 0; while (b >= 1024 && i < u.length - 1) { b /= 1024; i++; } return Math.round(b * 10) / 10 + ' ' + u[i]; }
     function fmtDt(s) {
         if (!s) return '';
@@ -499,12 +549,39 @@ document.getElementById('messageInput')?.addEventListener('keydown', function(e)
     function fileContentHtml(type, content) {
         var m = fileMeta(content);
         var url = /^https?:\/\//i.test(m.url) ? m.url : (uploadsBase + '/' + m.url);
-        if (type === 'image' || type === 'sticker') return '<a href="' + esc(url) + '" target="_blank" rel="noopener" class="msg-lightbox"><img class="msg-img" src="' + esc(url) + '" alt="' + esc(m.name || 'imagem') + '" loading="lazy"></a>';
-        if (type === 'audio') return '<audio controls preload="metadata" src="' + esc(url) + '"></audio>';
-        if (type === 'video') return '<a href="' + esc(url) + '" target="_blank" rel="noopener" class="msg-lightbox"><video controls preload="metadata" src="' + esc(url) + '" class="msg-video" data-alt="' + esc(m.name || 'vídeo') + '"></video></a>';
+        var cap = m.caption ? '<div class="message-caption">' + linkify(nl2br(String(m.caption))) + '</div>' : '';
+        if (type === 'image' || type === 'sticker') return '<a href="' + esc(url) + '" target="_blank" rel="noopener" class="msg-lightbox"><img class="msg-img" src="' + esc(url) + '" alt="' + esc(m.name || 'imagem') + '" loading="lazy"></a>' + cap;
+        if (type === 'audio') return '<audio controls preload="metadata" src="' + esc(url) + '"></audio>' + cap;
+        if (type === 'video') return '<a href="' + esc(url) + '" target="_blank" rel="noopener" class="msg-lightbox"><video controls preload="metadata" src="' + esc(url) + '" class="msg-video" data-alt="' + esc(m.name || 'vídeo') + '"></video></a>' + cap;
         var name = m.name || 'arquivo';
         var size = m.size ? ' (' + fmtBytes(m.size) + ')' : '';
-        return '<a class="msg-file" href="' + esc(url) + '" target="_blank" rel="noopener" download><i class="fas fa-file-download"></i><span class="msg-file-name">' + esc(name) + '</span><span class="msg-file-size">' + esc(size) + '</span></a>';
+        return '<a class="msg-file" href="' + esc(url) + '" target="_blank" rel="noopener" download><i class="fas fa-file-download"></i><span class="msg-file-name">' + esc(name) + '</span><span class="msg-file-size">' + esc(size) + '</span></a>' + cap;
+    }
+    function appendTempMessageShow(text, file) {
+        var wrap = document.createElement('div');
+        wrap.className = 'message message-out';
+        wrap.setAttribute('data-temp', '1');
+        var body = '';
+        if (file) {
+            var kind = 'file';
+            var mt = file.type || '';
+            if (mt.indexOf('image/') === 0) kind = 'image';
+            else if (mt.indexOf('audio/') === 0) kind = 'audio';
+            else if (mt.indexOf('video/') === 0) kind = 'video';
+            var url = URL.createObjectURL(file);
+            if (kind === 'image') body = '<div class="message-content"><img src="' + url + '" style="max-width:220px;border-radius:8px"></div>';
+            else if (kind === 'audio') body = '<div class="message-content"><audio controls src="' + url + '"></audio></div>';
+            else if (kind === 'video') body = '<div class="message-content"><video controls src="' + url + '" style="max-width:240px"></video></div>';
+            else body = '<div class="message-content">📎 ' + esc(file.name) + '</div>';
+            if (text) body += '<div class="message-content">' + nl2br(text) + '</div>';
+        } else {
+            body = '<div class="message-content">' + nl2br(text) + '</div>';
+        }
+        wrap.innerHTML = '<div class="message-body">' + body + '<div class="message-time">agora ⏳</div></div>';
+        convEl.appendChild(wrap);
+    }
+    function clearTempMessagesShow() {
+        convEl.querySelectorAll('.message[data-temp]').forEach(function(n) { n.remove(); });
     }
     function appendMessage(msg) {
         var wrap = document.createElement('div');
@@ -528,6 +605,9 @@ document.getElementById('messageInput')?.addEventListener('keydown', function(e)
         }
         var time = fmtDt(msg.created_at);
         if (msg.user_name && msg.direction === 'outbound') time += ' - ' + esc(msg.user_name);
+        if (msg.direction === 'outbound' && (msg.delivery_status === 'failed' || msg.delivered === false)) {
+            time += ' <span style="color:#dc2626;font-weight:600" title="Não entregue ao WhatsApp">· ⚠️ Não entregue — reenvie pelo inbox</span>';
+        }
         body += '<div class="message-time">' + time + '</div>';
         wrap.innerHTML = '<div class="message-body">' + body + '</div>';
         convEl.appendChild(wrap);
@@ -595,6 +675,32 @@ document.getElementById('messageInput')?.addEventListener('keydown', function(e)
     convEl.scrollTop = convEl.scrollHeight;
     if ('Notification' in window && Notification.permission === 'default') { Notification.requestPermission(); }
 
+    // ── Gravação de áudio no composer (legado) ──
+    (function() {
+        var micBtn = document.getElementById('micToggle');
+        var recBox = document.getElementById('composerRecord');
+        if (!micBtn || !recBox || !window.AudioRecorder) return;
+        var recorder = AudioRecorder.create('composerForm', {
+            startBtn: micBtn,
+            stopBtn: document.getElementById('recStop'),
+            cancelBtn: document.getElementById('recCancel'),
+            timer: document.getElementById('recTimer'),
+            indicator: document.getElementById('recIndicator'),
+            fileInput: document.getElementById('attachInput'),
+            fileChip: document.getElementById('composerFile'),
+            fileName: document.getElementById('composerFileName'),
+            fileRemove: document.getElementById('composerFileX'),
+            onState: function(state) {
+                if (state === 'recording') {
+                    recBox.style.display = 'flex';
+                } else {
+                    recBox.style.display = 'none';
+                }
+            }
+        });
+        recorder.bind();
+    })();
+
     var composerForm = document.getElementById('composerForm');
     if (composerForm) {
         composerForm.addEventListener('submit', function(e) {
@@ -602,26 +708,48 @@ document.getElementById('messageInput')?.addEventListener('keydown', function(e)
             var ta = document.getElementById('messageInput');
             var fileInput = document.getElementById('attachInput');
             var btn = composerForm.querySelector('button[type=submit]');
-            if (!ta.value.trim() && !(fileInput && fileInput.files.length)) return;
+            var recordedFile = (window.AudioRecorder && window.AudioRecorder.getActiveFile)
+                ? window.AudioRecorder.getActiveFile('composerForm') : null;
+            var hasFile = (fileInput && fileInput.files && fileInput.files.length) || recordedFile;
+            if (!ta.value.trim() && !hasFile) return;
             if (btn) btn.disabled = true;
             var fd = new FormData(composerForm);
+            if (recordedFile && !(fileInput && fileInput.files && fileInput.files.length)) {
+                fd.delete('file');
+                fd.append('file', recordedFile, recordedFile.name);
+            }
+            var sendFile = (fileInput && fileInput.files && fileInput.files[0]) || recordedFile || null;
+            var sendText = ta.value;
+            if (sendText.trim()) appendTempMessageShow(sendText, null);
+            if (sendFile) appendTempMessageShow(sendText.trim(), sendFile);
+            convEl.scrollTop = convEl.scrollHeight;
+            ta.value = '';
             fetch(composerForm.action, {
                 method: 'POST',
                 headers: { 'X-Requested-With': 'XMLHttpRequest' },
                 body: fd
             }).then(function(r) { return r.json(); }).then(function(resp) {
+                clearTempMessagesShow();
                 if (resp && resp.ok && resp.messages) {
                     (resp.messages || []).forEach(function(m) { appendMessage(m); });
                     convEl.scrollTop = convEl.scrollHeight;
-                    ta.value = '';
+                    if (resp.delivery_failed) {
+                        alert(resp.delivery_error || 'Mensagem salva, mas NÃO entregue ao WhatsApp.');
+                    }
                     if (fileInput) fileInput.value = '';
                     var fb = document.getElementById('composerFile');
                     if (fb) fb.style.display = 'none';
+                    if (window.AudioRecorder && window.AudioRecorder.getActive) {
+                        var rec = window.AudioRecorder.getActive('composerForm');
+                        if (rec) rec.cancel();
+                    }
                 } else if (resp && resp.error) {
                     alert(resp.error);
                 }
             }).catch(function() {
-                alert('Erro ao enviar mensagem. Tente novamente.');
+                clearTempMessagesShow();
+                ta.value = sendText;
+                alert('Erro ao enviar mensagem. Seu texto foi restaurado — tente novamente.');
             }).finally(function() { if (btn) btn.disabled = false; });
         });
     }
@@ -643,6 +771,51 @@ function toggleSignature(id) {
         headers: { 'X-Requested-With': 'XMLHttpRequest' },
         body: fd
     }).catch(function() {});
+}
+</script>
+<script>
+/* Sugestão de artigos da Wiki (link do portal do cliente) */
+var wikiSuggestS = [];
+var wikiSuggestTimerS = null;
+function openWikiModalS() {
+    var m = document.getElementById('wikiModalS'); if (!m) return;
+    m.style.display = 'flex';
+    document.getElementById('wikiSearchS').value = '';
+    loadWikiSuggestS('');
+    setTimeout(function() { document.getElementById('wikiSearchS').focus(); }, 50);
+}
+function closeWikiModalS() { var m = document.getElementById('wikiModalS'); if (m) m.style.display = 'none'; }
+function filterWikiSuggestS() {
+    clearTimeout(wikiSuggestTimerS);
+    wikiSuggestTimerS = setTimeout(function() {
+        var el = document.getElementById('wikiSearchS');
+        loadWikiSuggestS(el ? el.value : '');
+    }, 250);
+}
+function escWikiS(s) { var d = document.createElement('div'); d.textContent = s == null ? '' : s; return d.innerHTML; }
+function loadWikiSuggestS(q) {
+    var box = document.getElementById('wikiListS'); if (!box) return;
+    box.innerHTML = '<p style="font-size:13px;color:#6c757d">Buscando...</p>';
+    fetch(BASE + '/api/wiki/suggest?q=' + encodeURIComponent(q || '')).then(function(r) { return r.json(); }).then(function(list) {
+        wikiSuggestS = list || []; renderWikiSuggestS();
+    }).catch(function() { wikiSuggestS = []; box.innerHTML = '<p style="font-size:13px;color:#6c757d">Falha ao buscar artigos.</p>'; });
+}
+function renderWikiSuggestS() {
+    var box = document.getElementById('wikiListS'); if (!box) return;
+    var html = '';
+    wikiSuggestS.forEach(function(a, i) {
+        html += '<div onclick="insertWikiArticleS(' + i + ')" style="border:1px solid #e5e7eb;border-radius:8px;padding:10px 12px;cursor:pointer">'
+            + '<div style="font-weight:600;font-size:13px;color:#222"><i class="fas fa-book-open"></i> ' + escWikiS(a.title) + '</div>'
+            + '<div style="font-size:12px;color:#6c757d;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + escWikiS(a.description || a.url || '') + '</div></div>';
+    });
+    if (!html) html = '<p style="font-size:13px;color:#6c757d">Nenhum artigo encontrado.</p>';
+    box.innerHTML = html;
+}
+function insertWikiArticleS(i) {
+    var a = wikiSuggestS[i]; if (!a) return;
+    var ta = document.getElementById('messageInput');
+    if (ta) { ta.value = (ta.value ? ta.value + '\n\n' : '') + a.title + '\n' + a.url; ta.focus(); }
+    closeWikiModalS();
 }
 </script>
 <script>

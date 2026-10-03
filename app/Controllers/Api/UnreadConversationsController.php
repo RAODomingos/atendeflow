@@ -51,7 +51,7 @@ class UnreadConversationsController
                     $params[] = $iid;
                 }
             } else {
-                $inboxConditions[] = "(c.inbox_id = ? OR c.channel_id IN (SELECT channel_id FROM inbox_channels WHERE inbox_id = ?))";
+                $inboxConditions[] = "(c.inbox_id = ? OR (c.inbox_id IS NULL AND c.channel_id IN (SELECT channel_id FROM inbox_channels WHERE inbox_id = ?)))";
                 $params[] = $iid;
                 $params[] = $iid;
             }

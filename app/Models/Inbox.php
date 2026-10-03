@@ -82,7 +82,8 @@ class Inbox
              LEFT JOIN inbox_users iu ON iu.user_id = u.id AND iu.inbox_id = ?
              LEFT JOIN department_users du ON du.user_id = u.id
              LEFT JOIN inbox_departments idp ON idp.department_id = du.department_id AND idp.inbox_id = ?
-             WHERE iu.id IS NOT NULL OR idp.id IS NOT NULL OR u.role = 'admin'
+             WHERE (iu.id IS NOT NULL OR idp.id IS NOT NULL OR u.role = 'admin')
+               AND u.is_active = 1
              ORDER BY u.name",
             [$inboxId, $inboxId]
         );
@@ -133,6 +134,36 @@ class Inbox
              ORDER BY i.type, i.name",
             [$userId, $userId]
         );
+    }
+
+    /**
+     * Resolve a caixa departamental de destino ao trocar o setor da conversa.
+     * - Se a caixa atual já dá acesso ao novo departamento, mantém (retorna null).
+     * - Senão, retorna a primeira caixa departamental ativa vinculada ao
+     *   departamento, ou null se não houver (mantém a atual).
+     * Caixas pessoais nunca são escolhidas automaticamente.
+     */
+    public static function resolveInboxForDepartment(int $departmentId, ?int $currentInboxId = null): ?int
+    {
+        $db = Database::getInstance();
+        if ($currentInboxId) {
+            $linked = $db->fetch(
+                "SELECT 1 FROM inbox_departments WHERE inbox_id = ? AND department_id = ? LIMIT 1",
+                [$currentInboxId, $departmentId]
+            );
+            if ($linked) {
+                return null;
+            }
+        }
+        $row = $db->fetch(
+            "SELECT i.id FROM inboxes i
+              JOIN inbox_departments idp ON idp.inbox_id = i.id AND idp.department_id = ?
+              WHERE i.is_active = 1 AND i.type = 'department'
+              ORDER BY i.id ASC
+              LIMIT 1",
+            [$departmentId]
+        );
+        return $row ? (int) $row['id'] : null;
     }
 
     public static function canAccess(int $inboxId, int $userId): bool

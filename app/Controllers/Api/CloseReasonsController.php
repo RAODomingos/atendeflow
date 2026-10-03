@@ -57,6 +57,19 @@ class CloseReasonsController
             return;
         }
         $data = [];
+        if ($request->post('code') !== null) {
+            $code = preg_replace('/[^a-z0-9_]/', '', strtolower(trim((string) $request->post('code', ''))));
+            if ($code === '') {
+                View::json(['error' => 'Código inválido (use letras minúsculas, números e _)'], 422);
+                return;
+            }
+            $existing = CloseReason::findByCode($code);
+            if ($existing && (int) $existing['id'] !== $id) {
+                View::json(['error' => 'Já existe outro motivo com este código'], 422);
+                return;
+            }
+            $data['code'] = $code;
+        }
         foreach (['label', 'description', 'icon', 'color'] as $f) {
             if ($request->post($f) !== null) $data[$f] = trim((string) $request->post($f));
         }
@@ -65,7 +78,19 @@ class CloseReasonsController
         }
         if ($request->post('sort_order') !== null) $data['sort_order'] = (int) $request->post('sort_order');
         if ($request->post('is_active') !== null) $data['is_active'] = (int) $request->post('is_active') ? 1 : 0;
-        CloseReason::update($id, $data);
+        if (!empty($data)) {
+            CloseReason::update($id, $data);
+        }
+        if (!empty($data['code']) && $data['code'] !== ($row['code'] ?? '')) {
+            try {
+                Database::getInstance()->execute(
+                    "UPDATE conversations SET close_reason = ? WHERE close_reason = ?",
+                    [$data['code'], $row['code']]
+                );
+            } catch (\Throwable $e) {
+                error_log('api updateCloseReason propagate code error: ' . $e->getMessage());
+            }
+        }
         View::json(['ok' => true]);
     }
 

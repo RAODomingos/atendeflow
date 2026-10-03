@@ -1,7 +1,7 @@
 <?php
 
 return [
-    'name' => env('APP_NAME', 'AtendeFlow'),
+    'name' => env('APP_NAME', 'OminiDesk'),
     'env' => env('APP_ENV', 'production'),
     'url' => env('APP_URL', ''),
     'debug' => env('APP_DEBUG', false),

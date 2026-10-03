@@ -4,11 +4,6 @@
             <a href="<?= url('reports') ?>" class="reports-back" title="Voltar">
                 <i class="fa-solid fa-arrow-left"></i>
             </a>
-            <div class="reports-header-icon reports-header-icon--success"><i class="fas fa-users"></i></div>
-            <div>
-                <h1 class="reports-title">Performance dos Atendentes</h1>
-                <p class="reports-subtitle">Métricas individuais de cada atendente</p>
-            </div>
         </div>
     </div>
 

@@ -89,9 +89,16 @@ class Conversation
         }
 
         if (!empty($filters['search'])) {
-            $sql .= " AND (ct.name LIKE ? OR ct.email LIKE ? OR c.subject LIKE ?)";
+            $sql .= " AND (ct.name LIKE ? OR ct.email LIKE ? OR c.subject LIKE ?";
             $search = "%{$filters['search']}%";
             $params[] = $search; $params[] = $search; $params[] = $search;
+            // Protocolo: ignora máscara (ex.: "2026-000145" acha "2026000145").
+            $protoDigits = preg_replace('/\D/', '', (string) $filters['search']);
+            if ($protoDigits !== '') {
+                $sql .= " OR c.protocol LIKE ?";
+                $params[] = "%{$protoDigits}%";
+            }
+            $sql .= ")";
         }
 
         if (!empty($filters['priority'])) {
@@ -128,29 +135,62 @@ class Conversation
      */
     public static function getConversationsForInbox(int $inboxId, ?int $userId = null, array $filters = []): array
     {
-        $inbox = \App\Models\Inbox::find($inboxId);
+        $sql = self::listBaseSql($userId) . " WHERE 1=1";
+        $params = [];
 
+        $sql .= self::inboxMembershipFragment($inboxId, $params);
+        $sql .= self::listFilterSql($filters, $params, $userId);
+
+        $sql .= " ORDER BY COALESCE(c.last_message_at, c.created_at) DESC";
+        $rows = Database::getInstance()->fetchAll($sql, $params);
+        return self::attachTagsJson($rows);
+    }
+
+    /**
+     * SELECT + JOINs da listagem de conversas (sem WHERE).
+     * Reusado pela query de 1 caixa e pela UNION ALL de N caixas.
+     */
+    private static function listBaseSql(?int $userId): string
+    {
         $unreadCondition = "direction = 'inbound' AND is_read = 0";
         if ($userId) {
             $unreadCondition .= " AND (user_id != " . (int)$userId . " OR user_id IS NULL)";
         }
 
-        $sql = "SELECT c.*, ch.type as channel_type, ch.name as channel_name,
+        return "SELECT c.*, ch.type as channel_type, ch.name as channel_name,
                         d.name as department_name, d.color as department_color,
                         u.name as assigned_user_name,
                         ct.name as contact_name, ct.email as contact_email, ct.phone as contact_phone, ct.avatar as contact_avatar, ct.company as contact_company,
                         latest_msg.content as last_message,
                         latest_msg.type as last_message_type,
-                        latest_msg.created_at as last_message_at,
+                        latest_msg.created_at as last_msg_at,
+                        latest_msg.direction as last_message_direction,
                         COALESCE(msg_stats.message_count, 0) as message_count,
-                        COALESCE(msg_stats.unread_count, 0) as unread_count
+                        COALESCE(msg_stats.unread_count, 0) as unread_count,
+                        CASE WHEN EXISTS (
+                            SELECT 1 FROM conversation_flow_states fs
+                            WHERE fs.conversation_id = c.id AND fs.is_active = 1
+                        ) THEN 1 ELSE 0 END as has_active_flow,
+                        CASE
+                            WHEN c.status IN ('new','open','waiting_customer','waiting_internal')
+                            THEN CASE
+                                -- Sem mensagem do cliente ainda: conta desde a criação
+                                WHEN last_in.last_inbound_id IS NULL
+                                THEN TIMESTAMPDIFF(SECOND, c.created_at, NOW())
+                                -- Atendente já respondeu depois da última msg do cliente: zerado
+                                WHEN last_in.last_public_id > last_in.last_inbound_id THEN 0
+                                -- Cliente aguardando resposta: conta desde a última msg dele
+                                ELSE TIMESTAMPDIFF(SECOND, last_in.last_inbound_at, NOW())
+                            END
+                            ELSE 0
+                        END as waiting_seconds
                 FROM conversations c
                 JOIN contacts ct ON ct.id = c.contact_id
                 LEFT JOIN departments d ON d.id = c.department_id
                 LEFT JOIN users u ON u.id = c.assigned_user_id
                 LEFT JOIN channels ch ON ch.id = c.channel_id
                 LEFT JOIN (
-                    SELECT m1.conversation_id, m1.content, m1.created_at, m1.type
+                    SELECT m1.conversation_id, m1.content, m1.created_at, m1.type, m1.direction
                     FROM messages m1
                     WHERE m1.id = (
                         SELECT MAX(m2.id) FROM messages m2 WHERE m2.conversation_id = m1.conversation_id
@@ -158,48 +198,110 @@ class Conversation
                 ) latest_msg ON latest_msg.conversation_id = c.id
                 LEFT JOIN (
                     SELECT conversation_id,
+                           MAX(CASE WHEN direction = 'inbound' THEN created_at END) as last_inbound_at,
+                           MAX(CASE WHEN direction = 'inbound' THEN id END) as last_inbound_id,
+                           MAX(CASE WHEN type <> 'internal_note' THEN id END) as last_public_id
+                    FROM messages
+                    GROUP BY conversation_id
+                ) last_in ON last_in.conversation_id = c.id
+                LEFT JOIN (
+                    SELECT conversation_id,
                            COUNT(*) as message_count,
                            SUM(CASE WHEN {$unreadCondition} THEN 1 ELSE 0 END) as unread_count
                     FROM messages
                     GROUP BY conversation_id
-                ) msg_stats ON msg_stats.conversation_id = c.id
-                WHERE 1=1";
-        $params = [];
+                ) msg_stats ON msg_stats.conversation_id = c.id";
+    }
 
-        $sql .= self::inboxMembershipFragment($inboxId, $params);
-
+    /**
+     * Fragmento WHERE dos filtros da listagem (status/busca/adiadas).
+     * $c é o prefixo da conversa; $contactName/$contactEmail apontam as
+     * colunas de contato (na UNION externa são aliases u.*).
+     */
+    private static function listFilterSql(array $filters, array &$params, ?int $userId, string $c = 'c.', string $contactName = 'ct.name', string $contactEmail = 'ct.email'): string
+    {
+        $sql = "";
         if (!empty($filters['unassigned'])) {
-            $sql .= " AND c.assigned_user_id IS NULL AND c.status IN ('new', 'open')";
+            $sql .= " AND {$c}assigned_user_id IS NULL AND {$c}status IN ('new', 'open')";
         }
         if (!empty($filters['mine']) && $userId) {
-            $sql .= " AND c.assigned_user_id = ?";
+            $sql .= " AND {$c}assigned_user_id = ?";
             $params[] = $userId;
         }
         if (!empty($filters['status'])) {
             if ($filters['status'] === 'active') {
-                $sql .= " AND c.status IN ('new', 'open', 'waiting_customer', 'waiting_internal')";
-                $sql .= " AND NOT EXISTS (SELECT 1 FROM conversation_flow_states fs WHERE fs.conversation_id = c.id AND fs.is_active = 1)";
+                // Conversas com fluxo ativo também entram em "Em atendimento".
+                $sql .= " AND {$c}status IN ('new', 'open', 'waiting_customer', 'waiting_internal')";
             } elseif ($filters['status'] === 'open') {
-                $sql .= " AND c.status IN ('open', 'waiting_customer', 'waiting_internal')";
+                $sql .= " AND {$c}status IN ('open', 'waiting_customer', 'waiting_internal')";
             } elseif ($filters['status'] === 'resolved_closed') {
-                $sql .= " AND c.status IN ('resolved', 'closed')";
+                $sql .= " AND {$c}status IN ('resolved', 'closed')";
             } else {
-                $sql .= " AND c.status = ?";
+                $sql .= " AND {$c}status = ?";
                 $params[] = $filters['status'];
             }
         }
         if (!empty($filters['search'])) {
-            $sql .= " AND (ct.name LIKE ? OR ct.email LIKE ? OR c.subject LIKE ?)";
+            $sql .= " AND ({$contactName} LIKE ? OR {$contactEmail} LIKE ? OR {$c}subject LIKE ?";
             $search = "%{$filters['search']}%";
             $params[] = $search; $params[] = $search; $params[] = $search;
+            // Protocolo: ignora máscara (ex.: "2026-000145" acha "2026000145").
+            $protoDigits = preg_replace('/\D/', '', (string) $filters['search']);
+            if ($protoDigits !== '') {
+                $sql .= " OR {$c}protocol LIKE ?";
+                $params[] = "%{$protoDigits}%";
+            }
+            $sql .= ")";
         }
 
         if (empty($filters['include_snoozed'])) {
-            $sql .= " AND (c.snoozed_until IS NULL OR c.snoozed_until <= NOW())";
+            $sql .= " AND ({$c}snoozed_until IS NULL OR {$c}snoozed_until <= NOW())";
         }
+        return $sql;
+    }
 
-        $sql .= " ORDER BY COALESCE(c.last_message_at, c.created_at) DESC";
-        return Database::getInstance()->fetchAll($sql, $params);
+    /**
+     * Anexa tags_json a cada linha da listagem.
+     * Monta o JSON em PHP (em vez de JSON_ARRAYAGG, que só existe no MySQL 8 —
+     * o MariaDB, usado pelo XAMPP, lança "FUNCTION JSON_ARRAYAGG does not exist").
+     */
+    private static function attachTagsJson(array $rows): array
+    {
+        if (empty($rows)) {
+            return [];
+        }
+        foreach ($rows as &$row) {
+            // O alias last_msg_at (msg mais recente) sobrescreve a coluna da
+            // tabela, como antes fazia o alias duplicado last_message_at.
+            if (array_key_exists('last_msg_at', $row)) {
+                $row['last_message_at'] = $row['last_msg_at'] ?? $row['last_message_at'] ?? null;
+                unset($row['last_msg_at']);
+            }
+        }
+        unset($row);
+        $ids = array_column($rows, 'id');
+        $ph = rtrim(str_repeat('?,', count($ids)), ',');
+        $tagRows = Database::getInstance()->fetchAll(
+            "SELECT ct.conversation_id, t.id, t.name, t.color
+             FROM conversation_tags ct
+             JOIN tags t ON t.id = ct.tag_id
+             WHERE ct.conversation_id IN ({$ph})
+             ORDER BY t.id",
+            $ids
+        );
+        $tagsByConv = [];
+        foreach ($tagRows as $tr) {
+            $tagsByConv[(int) $tr['conversation_id']][] = [
+                'id'    => (int) $tr['id'],
+                'name'  => (string) $tr['name'],
+                'color' => $tr['color'] ?? '#6c757d',
+            ];
+        }
+        foreach ($rows as &$row) {
+            $row['tags_json'] = json_encode($tagsByConv[(int) $row['id']] ?? [], JSON_UNESCAPED_UNICODE);
+        }
+        unset($row);
+        return $rows;
     }
 
     /**
@@ -227,11 +329,20 @@ class Conversation
 
         $params[] = $inboxId;
         $params[] = $inboxId;
-        return " AND (c.inbox_id = ? OR c.channel_id IN (SELECT channel_id FROM inbox_channels WHERE inbox_id = ?))";
+        // inbox_id é autoritativo: o fallback por canal só vale para
+        // conversas legadas sem caixa definida. Assim, ao transferir de
+        // setor (que move a inbox junto), a conversa sai da caixa de origem
+        // em vez de aparecer nas duas.
+        return " AND (c.inbox_id = ? OR (c.inbox_id IS NULL AND c.channel_id IN (SELECT channel_id FROM inbox_channels WHERE inbox_id = ?)))";
     }
 
     /**
-     * Quantidade de tickets em aberto (novo/aberto/aguardando) por caixa.
+     * Quantidade por caixa para o badge vermelho do menu lateral.
+     * - Conversas normais: conta quando em aberto (novo/aberto/aguardando).
+     * - Conversas de grupo WhatsApp (sempre abertas, sem encerramento):
+     *   contam SOMENTE quando há menção ao número ainda não vista
+     *   (mensagem inbound não-lida). Mensagem comum de grupo é histórico
+     *   lido e não acende o badge.
      * Retorna um mapa [inbox_id => total].
      */
     public static function openCountsByInbox(array $inboxIds): array
@@ -242,7 +353,8 @@ class Conversation
         foreach (array_filter($inboxIds) as $inboxId) {
             $params = [];
             $where = self::inboxMembershipFragment((int) $inboxId, $params);
-            $parts[] = "SELECT ? AS inbox_id, COUNT(*) AS c FROM conversations c WHERE 1=1 {$where} AND c.status IN ('new', 'open', 'waiting_customer', 'waiting_internal')";
+            $parts[] = "SELECT ? AS inbox_id, COUNT(*) AS c FROM conversations c WHERE 1=1 {$where} AND c.status IN ('new', 'open', 'waiting_customer', 'waiting_internal')"
+                . " AND (c.group_id IS NULL OR EXISTS (SELECT 1 FROM messages m WHERE m.conversation_id = c.id AND m.direction = 'inbound' AND m.is_read = 0))";
             array_unshift($params, (int) $inboxId);
             $allParams = array_merge($allParams, $params);
         }
@@ -259,78 +371,48 @@ class Conversation
      * Conversas combinadas de várias caixas (união, sem duplicar),
      * ordenadas pela mais recente. Usada na visão "Caixa de Entrada".
      */
+    /**
+     * Conversas combinadas de várias caixas em UMA query (UNION ALL por
+     * caixa + filtros aplicados uma vez na camada externa). Antes: N
+     * queries em série (uma por caixa) + sort em PHP.
+     */
     public static function getConversationsForInboxes(array $inboxIds, ?int $userId = null, array $filters = []): array
     {
+        $ids = array_values(array_unique(array_filter(array_map('intval', $inboxIds))));
+        if (empty($ids)) {
+            return [];
+        }
+        if (count($ids) === 1) {
+            return self::getConversationsForInbox($ids[0], $userId, $filters);
+        }
+
+        $base = self::listBaseSql($userId);
+        $branches = [];
+        $params = [];
+        foreach ($ids as $id) {
+            $bp = [];
+            $branches[] = $base . " WHERE 1=1" . self::inboxMembershipFragment($id, $bp);
+            $params = array_merge($params, $bp);
+        }
+
+        // Filtros uma vez só, sobre os aliases da UNION (u.*).
+        // contact_name/contact_email/subject/protocol/status existem no SELECT.
+        $sql = "SELECT u.* FROM (" . implode(' UNION ALL ', $branches) . ") u WHERE 1=1";
+        $sql .= self::listFilterSql($filters, $params, $userId, 'u.', 'u.contact_name', 'u.contact_email');
+        $sql .= " ORDER BY COALESCE(u.last_msg_at, u.created_at) DESC";
+
+        $rows = Database::getInstance()->fetchAll($sql, $params);
+
+        // Deduplica (conversa pode estar em 2 caixas): mantém a mais recente.
         $map = [];
-        foreach (array_filter($inboxIds) as $id) {
-            foreach (self::getConversationsForInbox((int) $id, $userId, $filters) as $c) {
+        foreach ($rows as $c) {
+            if (!isset($map[$c['id']])) {
                 $map[$c['id']] = $c;
             }
         }
-        $list = array_values($map);
-        usort($list, function ($a, $b) {
-            $ta = strtotime($a['last_message_at'] ?? $a['created_at'] ?? 0) ?: 0;
-            $tb = strtotime($b['last_message_at'] ?? $b['created_at'] ?? 0) ?: 0;
-            return $tb <=> $ta;
-        });
-        return $list;
+        return self::attachTagsJson(array_values($map));
     }
 
-    /**
-     * Conversas com fluxo ativo (chatbot)
-     */
-     public static function getChatbotConversations(?int $userId = null): array
-    {
-        $unreadCondition = "direction = 'inbound' AND is_read = 0";
-
-        $sql = "SELECT c.*, ch.type as channel_type, ch.name as channel_name,
-                       d.name as department_name, d.color as department_color,
-                       u.name as assigned_user_name, ct.name as contact_name,
-                       ct.email as contact_email, ct.phone as contact_phone,
-                       ct.avatar as contact_avatar,
-                       fs.flow_id, fs.current_node_id, fs.timeout_at,
-                       latest_msg.content as last_message,
-                       latest_msg.type as last_message_type,
-                       latest_msg.created_at as last_message_at,
-                       COALESCE(msg_stats.message_count, 0) as message_count,
-                       COALESCE(msg_stats.unread_count, 0) as unread_count
-                FROM conversations c
-                JOIN contacts ct ON ct.id = c.contact_id
-                LEFT JOIN departments d ON d.id = c.department_id
-                LEFT JOIN users u ON u.id = c.assigned_user_id
-                LEFT JOIN channels ch ON ch.id = c.channel_id
-                JOIN conversation_flow_states fs ON fs.conversation_id = c.id AND fs.is_active = 1
-                LEFT JOIN (
-                    SELECT m1.conversation_id, m1.content, m1.created_at, m1.type
-                    FROM messages m1
-                    WHERE m1.id = (
-                        SELECT MAX(m2.id) FROM messages m2 WHERE m2.conversation_id = m1.conversation_id
-                    )
-                ) latest_msg ON latest_msg.conversation_id = c.id
-                LEFT JOIN (
-                    SELECT conversation_id,
-                           COUNT(*) as message_count,
-                           SUM(CASE WHEN {$unreadCondition} THEN 1 ELSE 0 END) as unread_count
-                    FROM messages
-                    GROUP BY conversation_id
-                ) msg_stats ON msg_stats.conversation_id = c.id
-                WHERE c.status NOT IN ('closed', 'resolved', 'spam')";
-
-        $params = [];
-
-        if ($userId) {
-            $inboxes = \App\Models\Inbox::getUserInboxes($userId);
-            $inboxIds = array_column($inboxes, 'id');
-            if (!empty($inboxIds)) {
-                $sql .= " AND (c.inbox_id IN (" . implode(',', array_fill(0, count($inboxIds), '?')) . ") OR c.inbox_id IS NULL)";
-                $params = array_merge($params, $inboxIds);
-            }
-        }
-
-        $sql .= " ORDER BY c.last_message_at DESC";
-
-        return Database::getInstance()->fetchAll($sql, $params);
-    }
 
     /**
      * Outros tickets do mesmo contato (exceto o informado), usado no painel do atendimento.
@@ -386,7 +468,13 @@ class Conversation
     public static function create(array $data): int
     {
         $data['public_id'] ??= bin2hex(random_bytes(16));
-        return Database::getInstance()->insert('conversations', $data);
+        $id = Database::getInstance()->insert('conversations', $data);
+        if (empty($data['protocol'])) {
+            // Protocolo único: AAMMDD + id, sem traço (ex.: 260914145).
+            $protocol = date('ymd') . $id;
+            Database::getInstance()->update('conversations', ['protocol' => $protocol], 'id = ?', [$id]);
+        }
+        return $id;
     }
 
     public static function update(int $id, array $data): int
@@ -517,6 +605,98 @@ class Conversation
         );
     }
 
+    /**
+     * Edição pelo CLIENTE (webchat): só mensagens próprias (inbound),
+     * de texto, não apagadas, da conversa informada e ainda aberta.
+     */
+    public static function clientUpdateMessage(int $conversationId, int $id, string $content): bool
+    {
+        $msg = self::getMessage($id);
+        if (!$msg || (int) $msg['conversation_id'] !== $conversationId) {
+            return false;
+        }
+        if (!empty($msg['deleted_at']) || ($msg['direction'] ?? '') !== 'inbound') {
+            return false;
+        }
+        if (($msg['type'] ?? '') !== 'text') {
+            return false;
+        }
+        return (bool) Database::getInstance()->update(
+            'messages',
+            ['content' => $content, 'updated_at' => date('Y-m-d H:i:s')],
+            'id = ?',
+            [$id]
+        );
+    }
+
+    /**
+     * Exclusão pelo CLIENTE (webchat): só mensagens próprias (inbound),
+     * não apagadas, da conversa informada e ainda aberta.
+     */
+    public static function clientDeleteMessage(int $conversationId, int $id): bool
+    {
+        $msg = self::getMessage($id);
+        if (!$msg || (int) $msg['conversation_id'] !== $conversationId) {
+            return false;
+        }
+        if (!empty($msg['deleted_at']) || ($msg['direction'] ?? '') !== 'inbound') {
+            return false;
+        }
+        return (bool) Database::getInstance()->update(
+            'messages',
+            ['deleted_at' => date('Y-m-d H:i:s')],
+            'id = ?',
+            [$id]
+        );
+    }
+
+    /**
+     * Reação do CLIENTE (webchat): alterna (toggle) o emoji na mensagem.
+     * Marca origem 'contact' para distinguir das reações do atendente.
+     */
+    public static function clientToggleReaction(int $conversationId, int $id, string $emoji, int $contactId): bool
+    {
+        $msg = Database::getInstance()->fetch("SELECT * FROM messages WHERE id = ?", [$id]);
+        if (!$msg || (int) $msg['conversation_id'] !== $conversationId) {
+            return false;
+        }
+        if (!empty($msg['deleted_at']) || in_array($msg['type'] ?? '', ['system', 'internal_note'], true)) {
+            return false;
+        }
+        $reactions = $msg['reactions'] ? (array) json_decode($msg['reactions'], true) : [];
+        $found = false;
+        $reactions = array_values(array_filter($reactions, function ($r) use ($emoji, $contactId, &$found) {
+            $mine = ($r['emoji'] ?? '') === $emoji
+                && ($r['from'] ?? '') === 'contact'
+                && (int) ($r['contact_id'] ?? 0) === $contactId;
+            if ($mine) {
+                $found = true;
+                return false;
+            }
+            return true;
+        }));
+        if (!$found) {
+            $reactions[] = [
+                'emoji' => $emoji,
+                'from' => 'contact',
+                'contact_id' => $contactId,
+                'timestamp' => time(),
+            ];
+        }
+        $reactions = array_slice($reactions, -20); // keep last 20
+        return (bool) Database::getInstance()->update(
+            'messages',
+            [
+                'reactions' => json_encode($reactions),
+                // updated_at move o relógio para os polls (painel/widget)
+                // enxergarem a reação sem reload.
+                'updated_at' => date('Y-m-d H:i:s'),
+            ],
+            'id = ?',
+            [$id]
+        );
+    }
+
     public static function updateMessageReaction(int $id, string $emoji): bool
     {
         $msg = Database::getInstance()->fetch("SELECT reactions FROM messages WHERE id = ?", [$id]);
@@ -526,7 +706,12 @@ class Conversation
         $reactions = array_slice($reactions, -20); // keep last 20
         return (bool) Database::getInstance()->update(
             'messages',
-            ['reactions' => json_encode($reactions)],
+            [
+                'reactions' => json_encode($reactions),
+                // updated_at move o relógio para os polls (painel/widget)
+                // enxergarem a reação sem reload.
+                'updated_at' => date('Y-m-d H:i:s'),
+            ],
             'id = ?',
             [$id]
         );
@@ -564,6 +749,71 @@ class Conversation
             ]);
         }
         self::addEvent($id, 'csat', "Avaliação de satisfação: {$rating}/5", Auth::id());
+    }
+
+    /**
+     * Agregados do relatório de CSAT (total + média no período).
+     *
+     * @return array{total: int, average: ?float}
+     */
+    public static function csatSummary(?int $days): array
+    {
+        [$where, $params] = self::csatPeriodFilter($days);
+        $db = Database::getInstance();
+        $total = (int) ($db->fetch("SELECT COUNT(*) AS c FROM conversation_csats cc {$where}", $params)['c'] ?? 0);
+        $avg = $db->fetch("SELECT AVG(rating) AS a FROM conversation_csats cc {$where}", $params)['a'] ?? null;
+        return ['total' => $total, 'average' => $avg !== null ? round((float) $avg, 2) : null];
+    }
+
+    /**
+     * Distribuição das notas 1–5 no período (chaves sempre presentes).
+     *
+     * @return array<int, int>
+     */
+    public static function csatDistribution(?int $days): array
+    {
+        [$where, $params] = self::csatPeriodFilter($days);
+        $rows = Database::getInstance()->fetchAll(
+            "SELECT rating, COUNT(*) AS c FROM conversation_csats cc {$where} GROUP BY rating ORDER BY rating DESC",
+            $params
+        );
+        $distribution = [1 => 0, 2 => 0, 3 => 0, 4 => 0, 5 => 0];
+        foreach ($rows as $row) {
+            $distribution[(int) $row['rating']] = (int) $row['c'];
+        }
+        return $distribution;
+    }
+
+    /**
+     * Avaliações recentes com dados da conversa para o relatório.
+     */
+    public static function csatRecent(?int $days, int $limit = 25): array
+    {
+        [$where, $params] = self::csatPeriodFilter($days);
+        return Database::getInstance()->fetchAll(
+            "SELECT cc.*, conv.id AS conversation_id, conv.public_id, c.name AS contact_name,
+                    ch.type AS channel_type, d.name AS department_name
+             FROM conversation_csats cc
+             JOIN conversations conv ON conv.id = cc.conversation_id
+             LEFT JOIN contacts c ON c.id = conv.contact_id
+             LEFT JOIN channels ch ON ch.id = conv.channel_id
+             LEFT JOIN departments d ON d.id = conv.department_id
+             {$where}
+             ORDER BY cc.created_at DESC
+             LIMIT " . max(1, $limit),
+            $params
+        );
+    }
+
+    /**
+     * @return array{0: string, 1: array}
+     */
+    private static function csatPeriodFilter(?int $days): array
+    {
+        if ($days === null) {
+            return ['', []];
+        }
+        return ['WHERE cc.created_at >= DATE_SUB(NOW(), INTERVAL ? DAY)', [$days]];
     }
 
     public static function merge(int $sourceId, int $targetId): void
@@ -709,7 +959,7 @@ class Conversation
                     $params[] = $iid;
                 }
             } else {
-                $inboxConditions[] = "(c.inbox_id = ? OR c.channel_id IN (SELECT channel_id FROM inbox_channels WHERE inbox_id = ?))";
+                $inboxConditions[] = "(c.inbox_id = ? OR (c.inbox_id IS NULL AND c.channel_id IN (SELECT channel_id FROM inbox_channels WHERE inbox_id = ?)))";
                 $params[] = $iid;
                 $params[] = $iid;
             }
@@ -752,7 +1002,7 @@ class Conversation
                     $params[] = $iid;
                 }
             } else {
-                $inboxConditions[] = "(c.inbox_id = ? OR c.channel_id IN (SELECT channel_id FROM inbox_channels WHERE inbox_id = ?))";
+                $inboxConditions[] = "(c.inbox_id = ? OR (c.inbox_id IS NULL AND c.channel_id IN (SELECT channel_id FROM inbox_channels WHERE inbox_id = ?)))";
                 $params[] = $iid;
                 $params[] = $iid;
             }

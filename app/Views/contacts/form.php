@@ -1,6 +1,5 @@
 <div class="page-form">
-    <div class="page-toolbar">
-        <h2 class="page-title"><i class="fas fa-address-book"></i> <?= $contact ? 'Editar' : 'Novo' ?> Contato</h2>
+    <div class="page-actions">
         <a href="<?= url('contacts') ?>" class="btn btn-outline btn-sm"><i class="fas fa-arrow-left"></i> Voltar</a>
     </div>
     <div class="card">

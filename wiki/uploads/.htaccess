@@ -1,0 +1,4 @@
+# Impede execução de PHP na pasta de uploads (segurança)
+<FilesMatch "\.php$">
+  deny from all
+</FilesMatch>

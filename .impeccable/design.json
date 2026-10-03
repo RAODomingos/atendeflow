@@ -1,0 +1,151 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-10-02T21:06:00-03:00",
+  "title": "Design System: Atendeflow",
+  "extensions": {
+    "colorMeta": {
+      "primary": { "role": "primary", "displayName": "Fluent Channel Blue", "canonical": "#0078d4", "tonalRamp": ["oklch(25% 0.12 250)", "oklch(35% 0.14 250)", "oklch(45% 0.16 250)", "oklch(55% 0.16 250)", "oklch(65% 0.13 250)", "oklch(75% 0.10 250)", "oklch(86% 0.06 250)", "oklch(94% 0.03 250)"] },
+      "primary-deep": { "role": "primary", "displayName": "Fluent Deep Blue", "canonical": "#106ebe", "tonalRamp": ["oklch(24% 0.11 250)", "oklch(33% 0.13 250)", "oklch(43% 0.15 250)", "oklch(53% 0.15 250)", "oklch(63% 0.12 250)", "oklch(73% 0.09 250)", "oklch(85% 0.05 250)", "oklch(93% 0.03 250)"] },
+      "primary-ink": { "role": "primary", "displayName": "Fluent Ink Blue", "canonical": "#005a9e", "tonalRamp": ["oklch(22% 0.10 250)", "oklch(31% 0.12 250)", "oklch(40% 0.13 250)", "oklch(50% 0.13 250)", "oklch(60% 0.11 250)", "oklch(71% 0.08 250)", "oklch(83% 0.05 250)", "oklch(93% 0.02 250)"] },
+      "primary-soft": { "role": "primary", "displayName": "Channel Mist", "canonical": "#deecf9", "tonalRamp": ["oklch(30% 0.08 250)", "oklch(45% 0.08 250)", "oklch(60% 0.07 250)", "oklch(72% 0.06 250)", "oklch(80% 0.05 250)", "oklch(87% 0.04 250)", "oklch(92% 0.03 250)", "oklch(96% 0.02 250)"] },
+      "app-bg": { "role": "neutral", "displayName": "App Canvas", "canonical": "#f5f5f5", "tonalRamp": ["oklch(20% 0 0)", "oklch(35% 0 0)", "oklch(50% 0 0)", "oklch(65% 0 0)", "oklch(78% 0 0)", "oklch(87% 0 0)", "oklch(93% 0 0)", "oklch(97% 0 0)"] },
+      "panel": { "role": "neutral", "displayName": "Panel White", "canonical": "#ffffff", "tonalRamp": ["oklch(25% 0 0)", "oklch(40% 0 0)", "oklch(55% 0 0)", "oklch(70% 0 0)", "oklch(82% 0 0)", "oklch(90% 0 0)", "oklch(95% 0 0)", "oklch(99% 0 0)"] },
+      "panel-alt": { "role": "neutral", "displayName": "Panel Alt", "canonical": "#faf9f8", "tonalRamp": ["oklch(25% 0.005 60)", "oklch(40% 0.005 60)", "oklch(55% 0.005 60)", "oklch(70% 0.005 60)", "oklch(82% 0.005 60)", "oklch(89% 0.004 60)", "oklch(94% 0.003 60)", "oklch(98% 0.002 60)"] },
+      "border-soft": { "role": "neutral", "displayName": "Soft Border", "canonical": "#edebe9", "tonalRamp": ["oklch(30% 0.01 60)", "oklch(45% 0.01 60)", "oklch(60% 0.01 60)", "oklch(72% 0.01 60)", "oklch(82% 0.01 60)", "oklch(89% 0.008 60)", "oklch(93% 0.005 60)", "oklch(97% 0.003 60)"] },
+      "border-strong": { "role": "neutral", "displayName": "Strong Border", "canonical": "#d2d0ce", "tonalRamp": ["oklch(28% 0.01 60)", "oklch(42% 0.01 60)", "oklch(56% 0.01 60)", "oklch(68% 0.01 60)", "oklch(78% 0.01 60)", "oklch(85% 0.008 60)", "oklch(91% 0.005 60)", "oklch(96% 0.003 60)"] },
+      "ink-primary": { "role": "neutral", "displayName": "Ink Primary", "canonical": "#201f1e", "tonalRamp": ["oklch(18% 0.005 60)", "oklch(30% 0.005 60)", "oklch(42% 0.005 60)", "oklch(55% 0.005 60)", "oklch(68% 0.005 60)", "oklch(80% 0.004 60)", "oklch(89% 0.003 60)", "oklch(96% 0.002 60)"] },
+      "ink-secondary": { "role": "neutral", "displayName": "Ink Secondary", "canonical": "#605e5c", "tonalRamp": ["oklch(22% 0.008 60)", "oklch(35% 0.008 60)", "oklch(48% 0.008 60)", "oklch(60% 0.007 60)", "oklch(72% 0.006 60)", "oklch(82% 0.005 60)", "oklch(90% 0.004 60)", "oklch(96% 0.002 60)"] },
+      "ink-muted": { "role": "neutral", "displayName": "Ink Muted", "canonical": "#8a8886", "tonalRamp": ["oklch(25% 0.008 60)", "oklch(38% 0.008 60)", "oklch(51% 0.008 60)", "oklch(63% 0.007 60)", "oklch(74% 0.006 60)", "oklch(83% 0.005 60)", "oklch(91% 0.003 60)", "oklch(96% 0.002 60)"] },
+      "success": { "role": "neutral", "displayName": "Success Leaf", "canonical": "#107c10", "tonalRamp": ["oklch(22% 0.10 145)", "oklch(32% 0.12 145)", "oklch(43% 0.13 145)", "oklch(54% 0.13 145)", "oklch(65% 0.11 145)", "oklch(76% 0.08 145)", "oklch(87% 0.05 145)", "oklch(94% 0.03 145)"] },
+      "success-soft": { "role": "neutral", "displayName": "Success Wash", "canonical": "#dff6dd", "tonalRamp": ["oklch(30% 0.06 145)", "oklch(45% 0.06 145)", "oklch(60% 0.06 145)", "oklch(72% 0.05 145)", "oklch(81% 0.04 145)", "oklch(88% 0.03 145)", "oklch(93% 0.02 145)", "oklch(97% 0.01 145)"] },
+      "warning": { "role": "neutral", "displayName": "Warning Ember", "canonical": "#f7630c", "tonalRamp": ["oklch(25% 0.14 55)", "oklch(38% 0.16 55)", "oklch(50% 0.17 55)", "oklch(60% 0.16 55)", "oklch(70% 0.13 55)", "oklch(79% 0.10 55)", "oklch(88% 0.06 55)", "oklch(94% 0.03 55)"] },
+      "warning-soft": { "role": "neutral", "displayName": "Warning Wash", "canonical": "#fff4ce", "tonalRamp": ["oklch(35% 0.06 95)", "oklch(50% 0.06 95)", "oklch(65% 0.06 95)", "oklch(76% 0.05 95)", "oklch(84% 0.04 95)", "oklch(90% 0.03 95)", "oklch(94% 0.02 95)", "oklch(98% 0.01 95)"] },
+      "danger": { "role": "neutral", "displayName": "Danger Signal", "canonical": "#d13438", "tonalRamp": ["oklch(24% 0.13 25)", "oklch(36% 0.15 25)", "oklch(47% 0.17 25)", "oklch(57% 0.16 25)", "oklch(67% 0.13 25)", "oklch(77% 0.09 25)", "oklch(87% 0.05 25)", "oklch(94% 0.03 25)"] },
+      "danger-soft": { "role": "neutral", "displayName": "Danger Wash", "canonical": "#fde7e9", "tonalRamp": ["oklch(32% 0.06 25)", "oklch(46% 0.06 25)", "oklch(60% 0.05 25)", "oklch(72% 0.04 25)", "oklch(81% 0.03 25)", "oklch(88% 0.02 25)", "oklch(93% 0.015 25)", "oklch(97% 0.01 25)"] },
+      "wiki-green": { "role": "secondary", "displayName": "Knowledge Forest Green", "canonical": "#006400", "tonalRamp": ["oklch(18% 0.10 145)", "oklch(28% 0.12 145)", "oklch(39% 0.13 145)", "oklch(50% 0.13 145)", "oklch(61% 0.11 145)", "oklch(73% 0.08 145)", "oklch(85% 0.05 145)", "oklch(94% 0.02 145)"] },
+      "wiki-green-mid": { "role": "secondary", "displayName": "Knowledge Leaf", "canonical": "#008000", "tonalRamp": ["oklch(20% 0.11 145)", "oklch(31% 0.13 145)", "oklch(42% 0.14 145)", "oklch(53% 0.14 145)", "oklch(64% 0.12 145)", "oklch(75% 0.09 145)", "oklch(86% 0.05 145)", "oklch(94% 0.03 145)"] },
+      "wiki-green-soft": { "role": "secondary", "displayName": "Knowledge Wash", "canonical": "#e6f2e6", "tonalRamp": ["oklch(30% 0.05 145)", "oklch(44% 0.05 145)", "oklch(58% 0.05 145)", "oklch(71% 0.04 145)", "oklch(81% 0.03 145)", "oklch(88% 0.025 145)", "oklch(93% 0.015 145)", "oklch(97% 0.01 145)"] },
+      "wiki-ink": { "role": "neutral", "displayName": "Wiki Ink", "canonical": "#111814", "tonalRamp": ["oklch(15% 0.02 150)", "oklch(25% 0.02 150)", "oklch(38% 0.02 150)", "oklch(52% 0.02 150)", "oklch(66% 0.015 150)", "oklch(79% 0.01 150)", "oklch(89% 0.008 150)", "oklch(96% 0.005 150)"] }
+    },
+    "typographyMeta": {
+      "display": { "displayName": "Display", "purpose": "Login hero and wiki hero headlines only." },
+      "headline": { "displayName": "Headline", "purpose": "Dept names, report titles, 22-24px stat values." },
+      "title": { "displayName": "Title", "purpose": "List titles, chat titles, modal and card names." },
+      "body": { "displayName": "Body", "purpose": "Messages, previews, table cells, article prose." },
+      "label": { "displayName": "Label", "purpose": "Nav labels, stat labels, table headers, badges." }
+    },
+    "shadows": [
+      { "name": "hairline", "value": "0 1px 2px rgba(0,0,0,.09)", "purpose": "Resting bubbles, pills, toasts." },
+      { "name": "fluent-low", "value": "0 1.6px 3.6px rgba(0,0,0,.13), 0 .3px .9px rgba(0,0,0,.11)", "purpose": "Stat and user cards at rest." },
+      { "name": "fluent-lift", "value": "0 6.4px 14.4px rgba(0,0,0,.13), 0 1.2px 3.6px rgba(0,0,0,.11)", "purpose": "Card hover, widget panel, media." },
+      { "name": "overlay", "value": "0 32px 64px rgba(0,0,0,.18), 0 16px 40px rgba(0,0,0,.14)", "purpose": "Dropdowns, pickers, modals over scrim." },
+      { "name": "wiki-ambient", "value": "0 4px 24px rgba(0,100,0,.10)", "purpose": "Wiki cards, portal only, green-tinted." }
+    ],
+    "motion": [
+      { "name": "ease-instant", "value": "background .12s ease, color .12s ease", "purpose": "Button, nav, list hover feedback." },
+      { "name": "ease-standard", "value": "cubic-bezier(0.4, 0, 0.2, 1)", "purpose": "Drawers, dropdowns, wiki .22s transitions." },
+      { "name": "msg-in", "value": "opacity .25s ease-out, translateY(6px)", "purpose": "New chat message entrance." }
+    ],
+    "breakpoints": [
+      { "name": "xl", "value": "1200px" },
+      { "name": "lg", "value": "992px" },
+      { "name": "md", "value": "860px" },
+      { "name": "sm", "value": "768px" },
+      { "name": "xs", "value": "480px" }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "Fluent blue action for save, send, new conversation.",
+      "html": "<button class=\"ds-btn-primary\">Salvar alterações</button>",
+      "css": ".ds-btn-primary { background: #0078d4; color: #fff; border: 1px solid #0078d4; border-radius: 4px; padding: 7px 14px; font-size: 13.5px; font-weight: 600; font-family: 'Segoe UI', Inter, Arial, sans-serif; cursor: pointer; transition: background .12s; } .ds-btn-primary:hover { background: #106ebe; } .ds-btn-primary:active { background: #005a9e; } .ds-btn-primary:focus-visible { outline: 2px solid #005a9e; outline-offset: 2px; }"
+    },
+    {
+      "name": "Outline Button",
+      "kind": "button",
+      "refersTo": "button-outline",
+      "description": "Secondary cancel or toolbar action.",
+      "html": "<button class=\"ds-btn-outline\">Cancelar</button>",
+      "css": ".ds-btn-outline { background: transparent; color: #201f1e; border: 1px solid #8a8886; border-radius: 4px; padding: 7px 14px; font-size: 13.5px; font-weight: 600; font-family: 'Segoe UI', Inter, Arial, sans-serif; cursor: pointer; transition: background .12s, border-color .12s; } .ds-btn-outline:hover { background: #f3f2f1; border-color: #605e5c; } .ds-btn-outline:focus-visible { outline: 2px solid #0078d4; outline-offset: 2px; }"
+    },
+    {
+      "name": "Text Input",
+      "kind": "input",
+      "refersTo": "input-default",
+      "description": "Form field with blue focus ring.",
+      "html": "<input class=\"ds-input\" placeholder=\"Buscar conversa...\" value=\"\" />",
+      "css": ".ds-input { width: 280px; max-width: 100%; background: #faf9f8; color: #201f1e; border: 1px solid #edebe9; border-radius: 8px; padding: 10px 14px; font-size: 13.5px; font-family: 'Segoe UI', Inter, Arial, sans-serif; outline: none; transition: border-color .15s, box-shadow .15s; } .ds-input::placeholder { color: #8a8886; } .ds-input:hover { border-color: #d2d0ce; } .ds-input:focus { border-color: #0078d4; background: #fff; box-shadow: 0 0 0 3px #deecf9; }"
+    },
+    {
+      "name": "Nav Item",
+      "kind": "nav",
+      "refersTo": "button-primary-hover",
+      "description": "Sidebar row with left blue active bar.",
+      "html": "<nav class=\"ds-nav\"><a class=\"ds-nav-item ds-active\" href=\"#\"><svg width=\"17\" height=\"17\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\"><path d=\"M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z\"/></svg>Inbox</a><a class=\"ds-nav-item\" href=\"#\">Contatos</a></nav>",
+      "css": ".ds-nav { display: flex; flex-direction: column; gap: 1px; width: 240px; background: #fff; padding: 12px 8px; font-family: 'Segoe UI', Inter, Arial, sans-serif; } .ds-nav-item { position: relative; display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 4px; font-size: 13.5px; font-weight: 500; color: #201f1e; text-decoration: none; transition: background .12s, color .12s; } .ds-nav-item:hover { background: #f3f2f1; color: #106ebe; } .ds-nav-item.ds-active { background: #deecf9; color: #005a9e; font-weight: 600; } .ds-nav-item.ds-active::before { content: ''; position: absolute; left: 0; top: 6px; bottom: 6px; width: 3px; background: #0078d4; }"
+    },
+    {
+      "name": "Chip",
+      "kind": "chip",
+      "refersTo": "chip-neutral",
+      "description": "Status pill for tags, SLA, channels.",
+      "html": "<span class=\"ds-chip\">Aberto</span> <span class=\"ds-chip ds-chip-success\">Resolvido</span>",
+      "css": ".ds-chip { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; font-weight: 700; padding: 4px 10px; border-radius: 999px; background: #faf9f8; color: #605e5c; font-family: 'Segoe UI', Inter, Arial, sans-serif; } .ds-chip-success { background: #dff6dd; color: #107c10; }"
+    },
+    {
+      "name": "Card",
+      "kind": "card",
+      "refersTo": "card-default",
+      "description": "White stat or entity card with hover lift.",
+      "html": "<div class=\"ds-card\"><div class=\"ds-card-val\">128</div><div class=\"ds-card-label\">Abertas</div></div>",
+      "css": ".ds-card { background: #fff; color: #201f1e; border: 1px solid #edebe9; border-radius: 8px; padding: 18px 20px; box-shadow: 0 1.6px 3.6px rgba(0,0,0,.13), 0 .3px .9px rgba(0,0,0,.11); font-family: 'Segoe UI', Inter, Arial, sans-serif; transition: box-shadow .15s, transform .15s, border-color .15s; } .ds-card:hover { box-shadow: 0 6.4px 14.4px rgba(0,0,0,.13), 0 1.2px 3.6px rgba(0,0,0,.11); transform: translateY(-2px); border-color: #d2d0ce; } .ds-card-val { font-size: 22px; font-weight: 800; line-height: 1; } .ds-card-label { font-size: 12px; font-weight: 600; color: #8a8886; text-transform: uppercase; letter-spacing: .05em; margin-top: 4px; }"
+    },
+    {
+      "name": "Outgoing Bubble",
+      "kind": "custom",
+      "refersTo": "button-primary",
+      "description": "Agent message in Fluent blue, sharp tail corner.",
+      "html": "<div class=\"ds-row-out\"><div class=\"ds-bubble-out\">Olá! Já estou verificando seu pedido.</div></div>",
+      "css": ".ds-row-out { display: flex; justify-content: flex-end; font-family: 'Segoe UI', Inter, Arial, sans-serif; } .ds-bubble-out { background: #0078d4; color: #fff; border-radius: 8px; border-bottom-right-radius: 2px; padding: 8px 12px; font-size: 14px; line-height: 1.5; max-width: 65%; }"
+    },
+    {
+      "name": "Incoming Bubble",
+      "kind": "custom",
+      "refersTo": "card-default",
+      "description": "Contact message in white with soft border.",
+      "html": "<div class=\"ds-row-in\"><div class=\"ds-bubble-in\">Oi, meu pedido ainda não chegou.</div></div>",
+      "css": ".ds-row-in { display: flex; justify-content: flex-start; font-family: 'Segoe UI', Inter, Arial, sans-serif; } .ds-bubble-in { background: #fff; color: #201f1e; border: 1px solid #edebe9; border-radius: 8px; border-bottom-left-radius: 2px; padding: 8px 12px; font-size: 14px; line-height: 1.5; max-width: 65%; box-shadow: 0 1px 2px rgba(0,0,0,.09); }"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Fluent Service Desk",
+    "overview": "Atendeflow looks and behaves like a calm Microsoft 365 workbench for triage and reply. Dense three-pane inbox, flat white surfaces on warm gray app background, 1px borders, 4–8px corners, Segoe UI throughout. Blue is reserved for ownership and action — active nav, selected conversation, outgoing bubble, primary button — never as decoration. The public wiki portal is a deliberate second world: forest-green editorial knowledge base with Plus Jakarta Sans + DM Serif Display.",
+    "keyCharacteristics": [
+      "Calm operational density: 14px base, tabular counts, 240px sidebar + 380px list + fluid chat",
+      "Flat-by-default with ambient lift only on overlay, hover, focus",
+      "Precise and restrained components: 4px buttons, 1px borders, 0.12-0.15s feedback",
+      "Two worlds, no mixing: Fluent blue app + widget, green serif wiki portal"
+    ],
+    "rules": [
+      { "name": "The One Voice Rule", "body": "Fluent blue marks ownership or action only. If it is not clickable, selected, or sent-by-agent, it stays gray.", "section": "colors" },
+      { "name": "The Two Voices Rule", "body": "Segoe UI speaks in the desk; DM Serif + Jakarta speak only in the wiki portal. Never set wiki serif inside inbox, reports, or flows.", "section": "typography" },
+      { "name": "The Flat-By-Default Rule", "body": "Surfaces are flat at rest. If a shadow is visible without hover, focus, drag, or overlay, remove it.", "section": "elevation" }
+    ],
+    "dos": [
+      "Do keep blue for action and ownership — active, selected, sent, primary — on a small fraction of any inbox screen.",
+      "Do use soft + strong text pairs together (e.g. #107c10 on #dff6dd), never soft as text on white.",
+      "Do keep app corners at 4–8px and wiki cards at 12px; circles only for avatars, launcher, send, status dots.",
+      "Do show focus with a blue border + soft ring on every input, search, and composer.",
+      "Do confine DM Serif Display and Jakarta to the wiki portal; Segoe UI everywhere else."
+    ],
+    "donts": [
+      "Don't introduce a new accent hue in the desk — greens belong only to wiki, SLA/semantic states, or dept color dots.",
+      "Don't use gradients outside login hero, dept banners, wiki hero, and note washes.",
+      "Don't add shadows to resting list rows, sidebar items, or table cells — lift on hover/overlay only.",
+      "Don't mix the two radius worlds — no 12–16px SaaS cards inside inbox triage."
+    ]
+  }
+}
