@@ -150,6 +150,15 @@ foreach ($flow['nodes'] as $n) {
             $conns[] = "{source: '$sourceId', target: '$targetId', label: " . json_encode($label) . ", sourceOption: $optIdx}";
         }
     }
+    if (($n['node_type'] ?? '') === 'guild_select') {
+        $gcfg = is_array($n['config'] ?? null) ? $n['config'] : [];
+        foreach (['no_store_node_id' => 'sem loja', 'next_node_id' => 'saída'] as $gkey => $glabel) {
+            $gtarget = (int) preg_replace('/\D+/', '', (string) ($gcfg[$gkey] ?? ''));
+            if ($gtarget > 0 && isset($nodeMap[$gtarget])) {
+                $conns[] = "{source: 'node_" . $n['id'] . "', target: 'node_" . $gtarget . "', label: " . json_encode($glabel) . ", guildEdge: true}";
+            }
+        }
+    }
 }
 ?>
 nodes = [<?php foreach ($flow['nodes'] as $n): ?>{

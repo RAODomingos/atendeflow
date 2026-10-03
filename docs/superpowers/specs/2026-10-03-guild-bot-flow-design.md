@@ -56,8 +56,11 @@ próximos nós. Tudo editável no construtor de fluxos.
 - Novo tipo `guild_select` na paleta e no form, com campos editáveis:
   `content` (pergunta, com variáveis `{{...}}`), labels
   (`store_prompt`, `unit_prompt`, `invalid_message`, `error_message`,
-  `max_attempts` default 3), `presentation` (buttons/list/text),
-  `no_store_node_id`, `next_node_id`, `save_unit` (default ligado).
+  `max_attempts` default 3), `presentation` (`buttons`/`list`/`text`,
+  aceitos como apelidos de `button_list`/`list_menu`/`menu`; acima de 3
+  botões ou 10 itens cai para texto numerado),
+  `no_store_node_id`, `next_node_id` (ids numéricos ou `node_N` do
+  construtor), `save_unit` (default ligado).
 - Validação: `no_store_node_id` e `next_node_id` devem apontar para nós
   existentes do mesmo fluxo; preview das 3 ramificações.
 - Sem mudança no schema de nós: tudo em `content/config/options`.
