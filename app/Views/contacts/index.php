@@ -89,6 +89,8 @@ $newToday = $stats['new_today'] ?? 0;
                             $cEmail = e($contact['email'] ?? '');
                             $cPhone = e($contact['phone'] ?? '');
                             $cCompany = e($contact['company'] ?? '');
+                            $cStoreNet = e($contact['store_network'] ?? '');
+                            $cStoreNets = (int)($contact['store_networks'] ?? 0);
                             $cDoc = e($contact['document'] ?? '');
                             $cNotes = e($contact['notes'] ?? '');
                             $cAvatar = $contact['avatar'] ?? '';
@@ -119,7 +121,9 @@ $newToday = $stats['new_today'] ?? 0;
                                         </div>
                                         <div>
                                             <div class="contact-row-name" title="<?= $cName ?>"><?= $cName ?></div>
-                                            <?php if ($cCompany): ?>
+                                            <?php if ($cStoreNet): ?>
+                                                <small class="form-hint"><i class="fas fa-store"></i> <?= $cStoreNet ?><?= $cStoreNets > 1 ? ' +' . ($cStoreNets - 1) : '' ?></small>
+                                            <?php elseif ($cCompany): ?>
                                                 <small class="form-hint"><i class="fas fa-building"></i> <?= $cCompany ?></small>
                                             <?php endif; ?>
                                         </div>
@@ -151,6 +155,11 @@ $newToday = $stats['new_today'] ?? 0;
         .contact-table .form-hint { font-size:12px;color:#6c757d; }
         .contact-table .action-cell { white-space:nowrap; }
         .contact-table tbody tr:hover { background:var(--bg-content); }
+        .guild-group{border:1px solid var(--border-soft);border-radius:8px;padding:10px 12px;margin-top:8px;background:var(--bg-panel-alt)}
+        .guild-group-title{font-size:12px;font-weight:700;margin-bottom:6px}
+        .guild-opt{display:flex;align-items:center;gap:8px;font-size:13px;padding:3px 0;cursor:pointer}
+        .guild-opt input{accent-color:var(--brand)}
+        .guild-err{font-size:12.5px;color:var(--danger);margin-top:8px}
         .contact-search-row { display:flex;gap:10px;align-items:center; }
         .contact-search-row .contact-search-box { flex:1;max-width:none; }
         .contact-search-row .btn { flex-shrink:0; }
@@ -189,8 +198,14 @@ $newToday = $stats['new_today'] ?? 0;
                 <input type="text" name="name" id="listEditName" class="form-control" required placeholder="Nome completo">
             </div>
             <div class="form-group">
-                <label><i class="fas fa-building"></i> Empresa</label>
-                <input type="text" name="company" id="listEditCompany" class="form-control" placeholder="Empresa">
+                <label><i class="fas fa-store"></i> Loja (Guild)</label>
+                <div style="display:flex;gap:8px">
+                    <input type="text" id="guildCustomerE" class="form-control" placeholder="Código da loja">
+                    <button type="button" class="btn btn-outline btn-sm" onclick="guildBuscar('E')">Buscar</button>
+                </div>
+                <div id="guildResultE"></div>
+                <input type="hidden" name="guild_stores_json" id="guildJsonE" value="">
+                <input type="hidden" name="guild_networks_json" id="guildNetE" value="">
             </div>
             <div class="form-group">
                 <label><i class="fas fa-envelope"></i> E-mail</label>
@@ -240,8 +255,14 @@ $newToday = $stats['new_today'] ?? 0;
                 <input type="text" name="name" class="form-control" required placeholder="Nome completo">
             </div>
             <div class="form-group">
-                <label><i class="fas fa-building"></i> Empresa</label>
-                <input type="text" name="company" class="form-control" placeholder="Empresa">
+                <label><i class="fas fa-store"></i> Loja (Guild)</label>
+                <div style="display:flex;gap:8px">
+                    <input type="text" id="guildCustomerC" class="form-control" placeholder="Código da loja">
+                    <button type="button" class="btn btn-outline btn-sm" onclick="guildBuscar('C')">Buscar</button>
+                </div>
+                <div id="guildResultC"></div>
+                <input type="hidden" name="guild_stores_json" id="guildJsonC" value="">
+                <input type="hidden" name="guild_networks_json" id="guildNetC" value="">
             </div>
             <div class="form-group">
                 <label><i class="fas fa-envelope"></i> E-mail</label>
@@ -320,13 +341,89 @@ $newToday = $stats['new_today'] ?? 0;
     window.openListDrawerFromCard = function(card) {
         document.getElementById('listEditId').value = card.dataset.id;
         document.getElementById('listEditName').value = card.dataset.name;
-        document.getElementById('listEditCompany').value = card.dataset.company;
         document.getElementById('listEditEmail').value = card.dataset.email;
         document.getElementById('listEditPhone').value = card.dataset.phone;
         document.getElementById('listEditDocument').value = card.dataset.document;
         document.getElementById('listEditNotes').value = card.dataset.notes;
         document.getElementById('listEditForm').action = contactsBaseUrl + card.dataset.id + '/update';
+        guildPrefill('E', card.dataset.id);
         openListDrawer();
+    };
+
+    window.guildPrefill = function(sfx, contactId) {
+        var box = document.getElementById('guildResult' + sfx);
+        if (!box) return;
+        box.innerHTML = '';
+        var base = document.querySelector('meta[name="base-url"]')?.content || '';
+        fetch(base + '/contacts/' + contactId + '/stores', {headers:{'X-Requested-With':'XMLHttpRequest'}})
+            .then(function(r){ return r.json(); })
+            .then(function(j){
+                if (!j.success || !j.stores) return;
+                guildRenderGroups(box, j.stores);
+            })
+            .catch(function(){});
+    };
+
+    window.guildRenderGroups = function(box, groups) {
+        var byNet = {};
+        groups.forEach(function(s){
+            (byNet[s.network_name] = byNet[s.network_name] || {network_name: s.network_name, customer_id: s.customer_id, stores: []}).stores.push(s);
+        });
+        Object.keys(byNet).forEach(function(net){
+            var g = byNet[net];
+            var div = document.createElement('div');
+            div.className = 'guild-group';
+            div.dataset.network = g.network_name;
+            div.dataset.customer = g.customer_id;
+            var h = '<div class="guild-group-title"></div>';
+            div.innerHTML = h;
+            div.querySelector('.guild-group-title').textContent = g.network_name + ' (' + g.customer_id + ')';
+            g.stores.forEach(function(st){
+                var lab = document.createElement('label');
+                lab.className = 'guild-opt';
+                var cb = document.createElement('input');
+                cb.type = 'checkbox'; cb.checked = true;
+                cb.dataset.sid = st.store_id; cb.dataset.sname = st.store_name;
+                lab.appendChild(cb);
+                lab.appendChild(document.createTextNode(' ' + st.store_name));
+                div.appendChild(lab);
+            });
+            box.appendChild(div);
+        });
+    };
+
+    window.guildBuscar = function(sfx){
+        var codeEl = document.getElementById('guildCustomer' + sfx);
+        var box = document.getElementById('guildResult' + sfx);
+        var code = (codeEl.value || '').trim();
+        if (!code || !box) return;
+        box.insertAdjacentHTML('beforeend', '<p class="text-muted" data-tmp>Buscando lojas...</p>');
+        var base = document.querySelector('meta[name="base-url"]')?.content || '';
+        fetch(base + '/api/guild/stores?customer_id=' + encodeURIComponent(code), {headers:{'X-Requested-With':'XMLHttpRequest'}})
+            .then(function(r){ return r.json(); })
+            .then(function(j){
+                box.querySelector('[data-tmp]')?.remove();
+                if (!j.success) { box.insertAdjacentHTML('beforeend', '<p class="guild-err"></p>'); box.querySelector('.guild-err:last-child').textContent = j.error; return; }
+                var exists = false;
+                box.querySelectorAll('.guild-group').forEach(function(g){ if (g.dataset.network === j.network_name) exists = true; });
+                if (exists) return;
+                guildRenderGroups(box, j.stores.map(function(st){ return {customer_id: code, network_name: j.network_name, store_id: st.id, store_name: st.name}; }));
+            })
+            .catch(function(){ box.querySelector('[data-tmp]')?.remove(); box.insertAdjacentHTML('beforeend', '<p class="guild-err">Falha ao consultar o painel Guild. Tente novamente.</p>'); });
+    };
+
+    window.guildCollect = function(sfx){
+        var box = document.getElementById('guildResult' + sfx);
+        if (!box) return;
+        var stores = [], nets = [];
+        box.querySelectorAll('.guild-group').forEach(function(g){
+            nets.push(g.dataset.network);
+            g.querySelectorAll('input[type="checkbox"]:checked').forEach(function(cb){
+                stores.push({customer_id: g.dataset.customer, network_name: g.dataset.network, store_id: parseInt(cb.dataset.sid, 10), store_name: cb.dataset.sname});
+            });
+        });
+        document.getElementById('guildJson' + sfx).value = JSON.stringify(stores);
+        document.getElementById('guildNet' + sfx).value = JSON.stringify(nets);
     };
 
     window.openListDrawer = function() {
@@ -361,10 +458,16 @@ $newToday = $stats['new_today'] ?? 0;
         if (e.key === 'Escape') closeCreateDrawer();
     });
 
+    var createForm = document.getElementById('createContactForm');
+    if (createForm) {
+        createForm.addEventListener('submit', function(){ guildCollect('C'); });
+    }
+
     var form = document.getElementById('listEditForm');
     if (form) {
         form.addEventListener('submit', function(e) {
             e.preventDefault();
+            guildCollect('E');
             var btn = this.querySelector('button[type="submit"]');
             btn.disabled = true;
             btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Salvando...';
@@ -381,7 +484,6 @@ $newToday = $stats['new_today'] ?? 0;
                     var card = document.querySelector('.contact-row[data-id="' + id + '"]');
                     if (card) {
                         card.dataset.name = document.getElementById('listEditName').value;
-                        card.dataset.company = document.getElementById('listEditCompany').value;
                         card.dataset.email = document.getElementById('listEditEmail').value;
                         card.dataset.phone = document.getElementById('listEditPhone').value;
                         card.dataset.document = document.getElementById('listEditDocument').value;

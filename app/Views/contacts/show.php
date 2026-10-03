@@ -68,6 +68,11 @@ $totalCount = (int) ($statusCounts['_total'] ?? count($conversations));
     .cd-subject:hover{color:var(--brand)}
     .timeline-dept-badge{font-size:11px;font-weight:600;padding:1px 8px;border-radius:10px}
     .conv-list-close{color:var(--text-muted)}
+    .guild-group{border:1px solid var(--border-soft);border-radius:8px;padding:10px 12px;margin-top:8px;background:var(--bg-panel-alt)}
+    .guild-group-title{font-size:12px;font-weight:700;margin-bottom:6px}
+    .guild-opt{display:flex;align-items:center;gap:8px;font-size:13px;padding:3px 0;cursor:pointer}
+    .guild-opt input{accent-color:var(--brand)}
+    .guild-err{font-size:12.5px;color:var(--danger);margin-top:8px}
     @media(max-width:768px){.cd-page{padding:2px 12px 24px}}
     </style>
 
@@ -95,7 +100,15 @@ $totalCount = (int) ($statusCounts['_total'] ?? count($conversations));
                 <?php endif; ?>
             </div>
             <div class="cd-sub">
-                <?php if (!empty($contact['company'])): ?>
+                <?php
+                $cdNetworks = [];
+                foreach (($contact['stores'] ?? []) as $cs) { $cdNetworks[$cs['network_name']] = true; }
+                $cdNetworks = array_keys($cdNetworks);
+                ?>
+                <?php if ($cdNetworks): ?>
+                    <span><i class="fas fa-store"></i> <?= e($cdNetworks[0]) ?><?= count($cdNetworks) > 1 ? ' +' . (count($cdNetworks) - 1) : '' ?></span>
+                    <span>·</span>
+                <?php elseif (!empty($contact['company'])): ?>
                     <span><i class="fas fa-building"></i> <?= e($contact['company']) ?></span>
                     <span>·</span>
                 <?php endif; ?>
@@ -117,6 +130,24 @@ $totalCount = (int) ($statusCounts['_total'] ?? count($conversations));
             </button>
         </div>
         <div class="cd-info-body">
+            <div class="cd-info-item">
+                <span class="cd-info-icon ci-building"><i class="fas fa-store"></i></span>
+                <div class="cd-info-text">
+                    <div class="cd-info-label">Loja</div>
+                    <?php if ($cdNetworks): ?>
+                        <?php foreach ($cdNetworks as $net): ?>
+                            <div class="cd-info-value"><?= e($net) ?></div>
+                            <?php foreach (array_filter(($contact['stores'] ?? []), fn($s) => $s['network_name'] === $net) as $su): ?>
+                                <div class="cd-info-sub"><?= e($su['store_name']) ?></div>
+                            <?php endforeach; ?>
+                        <?php endforeach; ?>
+                    <?php elseif (!empty($contact['company'])): ?>
+                        <div class="cd-info-value"><?= e($contact['company']) ?></div>
+                    <?php else: ?>
+                        <div class="cd-info-value"><span class="text-muted">Não informada</span></div>
+                    <?php endif; ?>
+                </div>
+            </div>
             <div class="cd-info-item">
                 <span class="cd-info-icon ci-email"><i class="fas fa-envelope"></i></span>
                 <div class="cd-info-text">
@@ -378,10 +409,31 @@ $totalCount = (int) ($statusCounts['_total'] ?? count($conversations));
                        placeholder="Nome completo">
             </div>
             <div class="form-group">
-                <label><i class="fas fa-building"></i> Empresa</label>
-                <input type="text" name="company" class="form-control"
-                       value="<?= e($contact['company'] ?? '') ?>"
-                       placeholder="Empresa">
+                <label><i class="fas fa-store"></i> Loja (Guild)</label>
+                <div style="display:flex;gap:8px">
+                    <input type="text" id="guildCustomerD" class="form-control" placeholder="Código da loja">
+                    <button type="button" class="btn btn-outline btn-sm" onclick="guildBuscar('D')">Buscar</button>
+                </div>
+                <div id="guildResultD">
+                    <?php
+                    $guildGroupsD = [];
+                    foreach (($contact['stores'] ?? []) as $gs) {
+                        $guildGroupsD[$gs['network_name']]['network_name'] = $gs['network_name'];
+                        $guildGroupsD[$gs['network_name']]['customer_id'] = $gs['customer_id'];
+                        $guildGroupsD[$gs['network_name']]['stores'][] = $gs;
+                    }
+                    ?>
+                    <?php foreach ($guildGroupsD as $g): ?>
+                        <div class="guild-group" data-network="<?= e($g['network_name']) ?>" data-customer="<?= e($g['customer_id']) ?>">
+                            <div class="guild-group-title"><?= e($g['network_name']) ?> <span class="text-muted">(<?= e($g['customer_id']) ?>)</span></div>
+                            <?php foreach ($g['stores'] as $s): ?>
+                                <label class="guild-opt"><input type="checkbox" data-sid="<?= (int) $s['store_id'] ?>" data-sname="<?= e($s['store_name']) ?>" checked> <?= e($s['store_name']) ?></label>
+                            <?php endforeach; ?>
+                        </div>
+                    <?php endforeach; ?>
+                </div>
+                <input type="hidden" name="guild_stores_json" id="guildJsonD" value="">
+                <input type="hidden" name="guild_networks_json" id="guildNetD" value="">
             </div>
             <div class="form-group">
                 <label><i class="fas fa-envelope"></i> E-mail</label>
@@ -451,6 +503,45 @@ $totalCount = (int) ($statusCounts['_total'] ?? count($conversations));
 </div>
 
 <script>
+(function(){
+    var f = document.getElementById('contactEditForm');
+    if (f) f.addEventListener('submit', function(){ guildCollect('D'); });
+})();
+function guildBuscar(sfx){
+    var codeEl = document.getElementById('guildCustomer' + sfx);
+    var box = document.getElementById('guildResult' + sfx);
+    var code = (codeEl.value || '').trim();
+    if (!code || !box) return;
+    box.insertAdjacentHTML('beforeend', '<p class="text-muted" data-tmp>Buscando lojas...</p>');
+    var base = document.querySelector('meta[name="base-url"]')?.content || '';
+    fetch(base + '/api/guild/stores?customer_id=' + encodeURIComponent(code), {headers:{'X-Requested-With':'XMLHttpRequest'}})
+        .then(function(r){ return r.json(); })
+        .then(function(j){
+            box.querySelector('[data-tmp]')?.remove();
+            if (!j.success) { box.insertAdjacentHTML('beforeend', '<p class="guild-err">' + j.error + '</p>'); return; }
+            if (box.querySelector('.guild-group[data-network="' + j.network_name.replace(/"/g,'') + '"]')) return;
+            var h = '<div class="guild-group" data-network="' + j.network_name + '" data-customer="' + code + '">'
+                + '<div class="guild-group-title">' + j.network_name + ' <span class="text-muted">(' + code + ')</span></div>';
+            j.stores.forEach(function(st){
+                h += '<label class="guild-opt"><input type="checkbox" data-sid="' + st.id + '" data-sname="' + st.name + '" checked> ' + st.name + '</label>';
+            });
+            box.insertAdjacentHTML('beforeend', h + '</div>');
+        })
+        .catch(function(){ box.querySelector('[data-tmp]')?.remove(); box.insertAdjacentHTML('beforeend', '<p class="guild-err">Falha ao consultar o painel Guild. Tente novamente.</p>'); });
+}
+function guildCollect(sfx){
+    var box = document.getElementById('guildResult' + sfx);
+    if (!box) return;
+    var stores = [], nets = [];
+    box.querySelectorAll('.guild-group').forEach(function(g){
+        nets.push(g.dataset.network);
+        g.querySelectorAll('input[type="checkbox"]:checked').forEach(function(cb){
+            stores.push({customer_id: g.dataset.customer, network_name: g.dataset.network, store_id: parseInt(cb.dataset.sid, 10), store_name: cb.dataset.sname});
+        });
+    });
+    document.getElementById('guildJson' + sfx).value = JSON.stringify(stores);
+    document.getElementById('guildNet' + sfx).value = JSON.stringify(nets);
+}
 function confirmDelete() {
     OminiConfirm('Tem certeza que deseja excluir este contato? Todas as conversas vinculadas também serão removidas.').then(function(ok) {
         if (!ok) return;

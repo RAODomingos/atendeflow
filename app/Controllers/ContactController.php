@@ -93,6 +93,19 @@ class ContactController
         }
     }
 
+    /**
+     * Lojas vinculadas ao contato. GET /contacts/{id}/stores
+     */
+    public function apiContactStores(Request $request, int $id): void
+    {
+        $contact = Contact::find($id);
+        if (!$contact) {
+            View::json(['success' => false, 'error' => 'Contato não encontrado.']);
+            return;
+        }
+        View::json(['success' => true, 'stores' => $contact['stores'] ?? []]);
+    }
+
     public function show(Request $request, int $id): void
     {
         $contact = Contact::find($id);
@@ -180,6 +193,8 @@ class ContactController
             }
         }
 
+        self::syncGuildStoresFromRequest($request, $contactId);
+
         Session::setFlash('success', 'Contato criado com sucesso.');
         View::redirect("/contacts/{$contactId}");
     }
@@ -256,6 +271,8 @@ class ContactController
             View::back();
         }
 
+        self::syncGuildStoresFromRequest($request, $id);
+
         if ($request->isAjax()) {
             self::json(['success' => true, 'name' => $name]);
         }
@@ -269,6 +286,20 @@ class ContactController
         header('Content-Type: application/json');
         echo json_encode($data);
         exit;
+    }
+
+    /**
+     * Persiste os vínculos Guild vindos do formulário.
+     * POST: guild_stores_json = [{customer_id, network_name, store_id, store_name}]
+     *       guild_networks_json = [network_name...] (escopo da remoção)
+     */
+    private static function syncGuildStoresFromRequest(Request $request, int $contactId): void
+    {
+        $stores = json_decode((string) $request->post('guild_stores_json', '[]'), true);
+        $networks = json_decode((string) $request->post('guild_networks_json', '[]'), true);
+        if (!is_array($stores) || $stores === []) return;
+        if (!is_array($networks)) $networks = [];
+        Contact::syncStores($contactId, $stores, array_values(array_filter(array_map('strval', $networks))));
     }
 
     public function destroy(Request $request, int $id): void

@@ -70,8 +70,16 @@
         <tr><td class="k">Nome</td><td class="v"><?= e($contact['name'] ?? '-') ?></td></tr>
         <tr><td class="k">Telefone</td><td class="v"><?= e($contact['phone'] ?? '-') ?></td></tr>
         <tr><td class="k">E-mail</td><td class="v"><?= e($contact['email'] ?? '-') ?></td></tr>
-        <?php if (!empty($contact['company'])): ?>
-        <tr><td class="k">Empresa</td><td class="v"><?= e($contact['company']) ?></td></tr>
+        <?php
+        $pdfStores = [];
+        foreach (($contact['stores'] ?? []) as $ps) { $pdfStores[$ps['network_name']][] = $ps['store_name']; }
+        ?>
+        <?php if ($pdfStores): ?>
+            <?php foreach ($pdfStores as $pdfNet => $pdfUnits): ?>
+                <tr><td class="k">Loja</td><td class="v"><?= e($pdfNet) ?> — <?= e(implode(', ', $pdfUnits)) ?></td></tr>
+            <?php endforeach; ?>
+        <?php elseif (!empty($contact['company'])): ?>
+            <tr><td class="k">Loja</td><td class="v"><?= e($contact['company']) ?></td></tr>
         <?php endif; ?>
         <?php if (!empty($contact['document'])): ?>
         <tr><td class="k">Documento</td><td class="v"><?= e($contact['document']) ?></td></tr>
