@@ -1525,7 +1525,7 @@ function openNewStoreModal(){
     var net = document.getElementById('convUnitNetwork');
     if (net) PREV_NETWORK = net.dataset.prev || net.value;
     var m = document.getElementById('newStoreModal');
-    if (m) m.classList.add('open');
+    if (m) { m.style.display = 'flex'; }
     var box = document.getElementById('newStoreResult');
     if (box) box.innerHTML = '';
     var btn = document.getElementById('newStoreBindBtn');
@@ -1536,7 +1536,7 @@ function openNewStoreModal(){
 }
 function closeNewStoreModal(restore){
     var m = document.getElementById('newStoreModal');
-    if (m) m.classList.remove('open');
+    if (m) { m.style.display = 'none'; }
     if (restore !== false) {
         var net = document.getElementById('convUnitNetwork');
         if (net && PREV_NETWORK) net.value = PREV_NETWORK;
@@ -1649,6 +1649,7 @@ function saveUnit(val) {
         fd.append('unit', val);
         fetch(BASE + '/inbox/' + id + '/unit', { method: 'POST', headers: { 'X-Requested-With': 'XMLHttpRequest' }, body: fd }).then(function(r){
             if (!r.ok) toast('Falha ao salvar a unidade. Tente novamente.');
+            else toast('Unidade salva com sucesso.');
         }).catch(function(){ toast('Falha ao salvar a unidade. Tente novamente.'); });
     }
 }
