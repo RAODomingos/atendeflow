@@ -52,7 +52,13 @@
                 <?php if ($contact['document']): ?>
                     <p class="contact-detail"><i class="fas fa-id-card"></i> CNPJ: <?= e($contact['document']) ?></p>
                 <?php endif; ?>
-                <?php if ($contact['company']): ?>
+                <?php
+                $showNet = '';
+                foreach (($contact['stores'] ?? []) as $ss) { $showNet = $ss['network_name']; break; }
+                ?>
+                <?php if ($showNet !== ''): ?>
+                    <p class="contact-detail"><i class="fas fa-store"></i> <?= e($showNet) ?></p>
+                <?php elseif ($contact['company']): ?>
                     <p class="contact-detail"><i class="fas fa-building"></i> <?= e($contact['company']) ?></p>
                 <?php endif; ?>
             </div>
