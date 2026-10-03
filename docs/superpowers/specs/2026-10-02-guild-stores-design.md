@@ -139,3 +139,14 @@ Erros do proxy: toast PT-BR via mecanismo existente, sem travar a tela.
 - Cache com TTL da API Guild; importação em massa; múltiplos tokens;
 - edição de networks/unidades (espelham a Guild; origem é a busca);
 - alterar `{{contact.company}}`/macros existentes; testes automatizados.
+
+## 11. Adendo 2026-10-03 — unidades ao vivo (aprovado em chat)
+
+Unidades **não** são mais persistidas: `contact_stores` colapsou para
+1 linha por loja (`contact_id`, `customer_id`, `network_name`,
+UNIQUE nos dois; migration `2026_10_03_contact_networks.sql` com backfill
+DISTINCT das linhas existentes). Ao vincular, o formulário mostra preview
+somente-leitura das unidades; salva-se só a loja. No inbox, o select de
+unidade é preenchido via proxy a cada troca de loja (loading + toast de
+erro com fallback para texto). `conversations.unit`, proxy, token, 422 e
+`contacts.company` legado seguem como na spec original.

@@ -71,12 +71,13 @@
         <tr><td class="k">Telefone</td><td class="v"><?= e($contact['phone'] ?? '-') ?></td></tr>
         <tr><td class="k">E-mail</td><td class="v"><?= e($contact['email'] ?? '-') ?></td></tr>
         <?php
-        $pdfStores = [];
-        foreach (($contact['stores'] ?? []) as $ps) { $pdfStores[$ps['network_name']][] = $ps['store_name']; }
+        $pdfNets = [];
+        foreach (($contact['stores'] ?? []) as $ps) { $pdfNets[$ps['network_name']] = true; }
+        $pdfNets = array_keys($pdfNets);
         ?>
-        <?php if ($pdfStores): ?>
-            <?php foreach ($pdfStores as $pdfNet => $pdfUnits): ?>
-                <tr><td class="k">Loja</td><td class="v"><?= e($pdfNet) ?> — <?= e(implode(', ', $pdfUnits)) ?></td></tr>
+        <?php if ($pdfNets): ?>
+            <?php foreach ($pdfNets as $pdfNet): ?>
+                <tr><td class="k">Loja</td><td class="v"><?= e($pdfNet) ?></td></tr>
             <?php endforeach; ?>
         <?php elseif (!empty($contact['company'])): ?>
             <tr><td class="k">Loja</td><td class="v"><?= e($contact['company']) ?></td></tr>

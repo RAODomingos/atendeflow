@@ -295,8 +295,9 @@ class ContactController
     }
 
     /**
-     * Persiste os vínculos Guild vindos do formulário.
-     * POST: guild_stores_json = [{customer_id, network_name, store_id, store_name}]
+     * Persiste os vínculos Guild vindos do formulário (só lojas;
+     * unidades são buscadas ao vivo).
+     * POST: guild_stores_json = [{customer_id, network_name}]
      *       guild_networks_json = [network_name...] (escopo da remoção)
      */
     private static function syncGuildStoresFromRequest(Request $request, int $contactId): void

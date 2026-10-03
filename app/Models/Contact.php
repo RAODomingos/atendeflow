@@ -33,25 +33,26 @@ class Contact
     }
 
     /**
-     * Lojas/unidades Guild vinculadas (loja = network_name, unidade = store).
+     * Lojas Guild vinculadas (1 linha por loja; unidades são buscadas
+     * ao vivo na API ao selecionar a loja).
      *
-     * @return array<int, array{customer_id:string, network_name:string, store_id:int, store_name:string}>
+     * @return array<int, array{customer_id:string, network_name:string}>
      */
     public static function getStores(int $id): array
     {
         return Database::getInstance()->fetchAll(
-            "SELECT customer_id, network_name, store_id, store_name
+            "SELECT customer_id, network_name
              FROM contact_stores WHERE contact_id = ?
-             ORDER BY network_name, store_name",
+             ORDER BY network_name",
             [$id]
         );
     }
 
     /**
-     * Soma vínculos (não substitui): insere os ausentes e remove, da(s)
-     * network(s) exibida(s), os desmarcados.
+     * Soma vínculos de loja (não substitui): insere os ausentes e remove,
+     * da(s) network(s) exibida(s), os desmarcados.
      *
-     * @param array<int, array{customer_id:string, network_name:string, store_id:int, store_name:string}> $stores
+     * @param array<int, array{customer_id:string, network_name:string}> $stores
      * @param array<int, string> $displayedNetworks networks exibidas na tela (escopo da remoção)
      */
     public static function syncStores(int $contactId, array $stores, array $displayedNetworks = []): void
@@ -59,45 +60,38 @@ class Contact
         $db = Database::getInstance();
         $wanted = [];
         foreach ($stores as $s) {
-            $sid = (int) ($s['store_id'] ?? 0);
-            if ($sid <= 0) continue;
-            $wanted[$sid] = [
-                'customer_id' => trim((string) ($s['customer_id'] ?? '')),
-                'network_name' => trim((string) ($s['network_name'] ?? '')),
-                'store_id' => $sid,
-                'store_name' => trim((string) ($s['store_name'] ?? '')),
-            ];
+            $cid = trim((string) ($s['customer_id'] ?? ''));
+            $net = trim((string) ($s['network_name'] ?? ''));
+            if ($cid === '' || $net === '') continue;
+            $wanted[$cid] = ['customer_id' => $cid, 'network_name' => $net];
         }
         $db->beginTransaction();
         try {
-            foreach ($wanted as $sid => $s) {
-                if ($s['network_name'] === '' || $s['store_name'] === '') continue;
+            foreach ($wanted as $cid => $s) {
                 $exists = $db->fetch(
-                    "SELECT 1 FROM contact_stores WHERE contact_id = ? AND store_id = ? LIMIT 1",
-                    [$contactId, $sid]
+                    "SELECT 1 FROM contact_stores WHERE contact_id = ? AND customer_id = ? LIMIT 1",
+                    [$contactId, $cid]
                 );
                 if (!$exists) {
                     $db->insert('contact_stores', [
                         'contact_id' => $contactId,
                         'customer_id' => $s['customer_id'],
                         'network_name' => $s['network_name'],
-                        'store_id' => $sid,
-                        'store_name' => $s['store_name'],
                     ]);
                 }
             }
             if ($displayedNetworks !== []) {
                 $current = $db->fetchAll(
-                    "SELECT store_id, network_name FROM contact_stores WHERE contact_id = ?",
+                    "SELECT customer_id, network_name FROM contact_stores WHERE contact_id = ?",
                     [$contactId]
                 );
                 foreach ($current as $c) {
                     if (in_array($c['network_name'], $displayedNetworks, true)
-                        && !isset($wanted[(int) $c['store_id']])) {
+                        && !isset($wanted[$c['customer_id']])) {
                         $db->delete(
                             'contact_stores',
-                            'contact_id = ? AND store_id = ?',
-                            [$contactId, (int) $c['store_id']]
+                            'contact_id = ? AND customer_id = ?',
+                            [$contactId, $c['customer_id']]
                         );
                     }
                 }
@@ -109,12 +103,12 @@ class Contact
         }
     }
 
-    public static function removeStore(int $contactId, int $storeId): int
+    public static function removeStore(int $contactId, string $customerId): int
     {
         return Database::getInstance()->delete(
             'contact_stores',
-            'contact_id = ? AND store_id = ?',
-            [$contactId, $storeId]
+            'contact_id = ? AND customer_id = ?',
+            [$contactId, $customerId]
         );
     }
 
@@ -200,9 +194,9 @@ class Contact
         $params = [];
 
         if (!empty($filters['search'])) {
-            $sql .= " AND (c.name LIKE ? OR c.email LIKE ? OR c.phone LIKE ? OR csf.network_name LIKE ? OR csf.store_name LIKE ?)";
+            $sql .= " AND (c.name LIKE ? OR c.email LIKE ? OR c.phone LIKE ? OR csf.network_name LIKE ?)";
             $search = "%{$filters['search']}%";
-            $params = array_merge($params, [$search, $search, $search, $search, $search]);
+            $params = array_merge($params, [$search, $search, $search, $search]);
         }
 
         $sql .= " GROUP BY c.id ORDER BY c.updated_at DESC";
@@ -226,9 +220,9 @@ class Contact
         $params = [];
 
         if (!empty($filters['search'])) {
-            $sql .= " AND (c.name LIKE ? OR c.email LIKE ? OR c.phone LIKE ? OR csf.network_name LIKE ? OR csf.store_name LIKE ?)";
+            $sql .= " AND (c.name LIKE ? OR c.email LIKE ? OR c.phone LIKE ? OR csf.network_name LIKE ?)";
             $search = "%{$filters['search']}%";
-            $params = array_merge($params, [$search, $search, $search, $search, $search]);
+            $params = array_merge($params, [$search, $search, $search, $search]);
         }
 
         return (int) (Database::getInstance()->fetch($sql, $params)['t'] ?? 0);
@@ -295,19 +289,17 @@ class Contact
             }
         }
 
-        // Lojas/unidades Guild (sem duplicar)
+        // Lojas Guild (sem duplicar; unidades são ao vivo)
         foreach (self::getStores($sourceId) as $s) {
             $exists = Database::getInstance()->fetch(
-                "SELECT 1 FROM contact_stores WHERE contact_id = ? AND store_id = ?",
-                [$targetId, (int) $s['store_id']]
+                "SELECT 1 FROM contact_stores WHERE contact_id = ? AND customer_id = ?",
+                [$targetId, $s['customer_id']]
             );
             if (!$exists) {
                 Database::getInstance()->insert('contact_stores', [
                     'contact_id' => $targetId,
                     'customer_id' => $s['customer_id'],
                     'network_name' => $s['network_name'],
-                    'store_id' => (int) $s['store_id'],
-                    'store_name' => $s['store_name'],
                 ]);
             }
         }
@@ -355,9 +347,9 @@ class Contact
              LEFT JOIN contact_phones cp ON cp.contact_id = c.id
              LEFT JOIN contact_stores cs ON cs.contact_id = c.id
              WHERE c.name LIKE ? OR c.email LIKE ? OR c.phone LIKE ? OR cp.phone LIKE ?
-                OR cs.network_name LIKE ? OR cs.store_name LIKE ?
+                OR cs.network_name LIKE ?
              ORDER BY c.name LIMIT 20",
-            [$search, $search, $search, $search, $search, $search]
+            [$search, $search, $search, $search, $search]
         );
     }
 

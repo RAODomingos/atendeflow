@@ -50,12 +50,13 @@
         <tr><td>E-mail</td><td><?= e($contact['email'] ?? '-') ?></td></tr>
         <tr><td>Telefone</td><td><?= e($contact['phone'] ?? '-') ?></td></tr>
         <?php
-        $pdfStores = [];
-        foreach (($contact['stores'] ?? []) as $ps) { $pdfStores[$ps['network_name']][] = $ps['store_name']; }
+        $pdfNets = [];
+        foreach (($contact['stores'] ?? []) as $ps) { $pdfNets[$ps['network_name']] = true; }
+        $pdfNets = array_keys($pdfNets);
         ?>
-        <?php if ($pdfStores): ?>
-            <?php foreach ($pdfStores as $pdfNet => $pdfUnits): ?>
-                <tr><td>Loja</td><td><?= e($pdfNet) ?> — <?= e(implode(', ', $pdfUnits)) ?></td></tr>
+        <?php if ($pdfNets): ?>
+            <?php foreach ($pdfNets as $pdfNet): ?>
+                <tr><td>Loja</td><td><?= e($pdfNet) ?></td></tr>
             <?php endforeach; ?>
         <?php elseif (!empty($contact['company'])): ?>
             <tr><td>Loja</td><td><?= e($contact['company']) ?></td></tr>
