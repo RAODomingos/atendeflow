@@ -92,18 +92,6 @@ function loadConversation(convId, updateUrl) {
                 panel.style.display = 'flex';
                 var listPanel = document.getElementById('listPanel');
                 if (listPanel) listPanel.style.display = 'none';
-                var backBtn = document.createElement('button');
-                backBtn.className = 'icon-btn';
-                backBtn.innerHTML = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>';
-                backBtn.style.cssText = 'margin-right:auto';
-                backBtn.addEventListener('click', function() {
-                    panel.style.display = 'none';
-                    if (listPanel) listPanel.style.display = 'flex';
-                });
-                var header = panel.querySelector('.chat-header');
-                if (header) {
-                    header.insertBefore(backBtn, header.firstChild);
-                }
             }
         } else {
             panel.innerHTML = '<div class="chat-empty"><svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="opacity:.3"><path d="M12 9v2m0 4h.01"/><circle cx="12" cy="12" r="10"/></svg><p style="font-size:14px;color:var(--text-muted);margin-top:8px">Erro HTTP ' + xhr.status + '</p></div>';
