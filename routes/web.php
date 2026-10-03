@@ -243,6 +243,7 @@ $router->group('', function (Router $router) {
     $router->get('/api/conversations/{id}/messages', [InboxController::class, 'apiMessages']);
     $router->get('/api/departments/{id}/users', [DepartmentController::class, 'apiUsers']);
     $router->get('/api/contacts/search', [\App\Controllers\ContactController::class, 'apiSearch']);
+    $router->get('/api/guild/stores', [\App\Controllers\ContactController::class, 'apiGuildStores']);
     $router->get('/api/canned-responses', [InboxController::class, 'apiCanned']);
     $router->get('/api/wiki/suggest', [WikiController::class, 'suggest']);
     $router->post('/api/conversations', [InboxController::class, 'apiCreateConversation']);

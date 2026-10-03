@@ -27,8 +27,95 @@ class Contact
                  WHERE ct.contact_id = ?",
                 [$id]
             );
+            $contact['stores'] = self::getStores($id);
         }
         return $contact;
+    }
+
+    /**
+     * Lojas/unidades Guild vinculadas (loja = network_name, unidade = store).
+     *
+     * @return array<int, array{customer_id:string, network_name:string, store_id:int, store_name:string}>
+     */
+    public static function getStores(int $id): array
+    {
+        return Database::getInstance()->fetchAll(
+            "SELECT customer_id, network_name, store_id, store_name
+             FROM contact_stores WHERE contact_id = ?
+             ORDER BY network_name, store_name",
+            [$id]
+        );
+    }
+
+    /**
+     * Soma vínculos (não substitui): insere os ausentes e remove, da(s)
+     * network(s) exibida(s), os desmarcados.
+     *
+     * @param array<int, array{customer_id:string, network_name:string, store_id:int, store_name:string}> $stores
+     * @param array<int, string> $displayedNetworks networks exibidas na tela (escopo da remoção)
+     */
+    public static function syncStores(int $contactId, array $stores, array $displayedNetworks = []): void
+    {
+        $db = Database::getInstance();
+        $wanted = [];
+        foreach ($stores as $s) {
+            $sid = (int) ($s['store_id'] ?? 0);
+            if ($sid <= 0) continue;
+            $wanted[$sid] = [
+                'customer_id' => trim((string) ($s['customer_id'] ?? '')),
+                'network_name' => trim((string) ($s['network_name'] ?? '')),
+                'store_id' => $sid,
+                'store_name' => trim((string) ($s['store_name'] ?? '')),
+            ];
+        }
+        $db->beginTransaction();
+        try {
+            foreach ($wanted as $sid => $s) {
+                if ($s['network_name'] === '' || $s['store_name'] === '') continue;
+                $exists = $db->fetch(
+                    "SELECT 1 FROM contact_stores WHERE contact_id = ? AND store_id = ? LIMIT 1",
+                    [$contactId, $sid]
+                );
+                if (!$exists) {
+                    $db->insert('contact_stores', [
+                        'contact_id' => $contactId,
+                        'customer_id' => $s['customer_id'],
+                        'network_name' => $s['network_name'],
+                        'store_id' => $sid,
+                        'store_name' => $s['store_name'],
+                    ]);
+                }
+            }
+            if ($displayedNetworks !== []) {
+                $current = $db->fetchAll(
+                    "SELECT store_id, network_name FROM contact_stores WHERE contact_id = ?",
+                    [$contactId]
+                );
+                foreach ($current as $c) {
+                    if (in_array($c['network_name'], $displayedNetworks, true)
+                        && !isset($wanted[(int) $c['store_id']])) {
+                        $db->delete(
+                            'contact_stores',
+                            'contact_id = ? AND store_id = ?',
+                            [$contactId, (int) $c['store_id']]
+                        );
+                    }
+                }
+            }
+            $db->commit();
+        } catch (\Throwable $e) {
+            $db->rollBack();
+            throw $e;
+        }
+    }
+
+    public static function removeStore(int $contactId, int $storeId): int
+    {
+        return Database::getInstance()->delete(
+            'contact_stores',
+            'contact_id = ? AND store_id = ?',
+            [$contactId, $storeId]
+        );
     }
 
     public static function touchActivity(int $id): void
@@ -200,6 +287,23 @@ class Contact
             );
             if (!$exists) {
                 Database::getInstance()->insert('contact_tags', ['contact_id' => $targetId, 'tag_id' => (int) $t['tag_id']]);
+            }
+        }
+
+        // Lojas/unidades Guild (sem duplicar)
+        foreach (self::getStores($sourceId) as $s) {
+            $exists = Database::getInstance()->fetch(
+                "SELECT 1 FROM contact_stores WHERE contact_id = ? AND store_id = ?",
+                [$targetId, (int) $s['store_id']]
+            );
+            if (!$exists) {
+                Database::getInstance()->insert('contact_stores', [
+                    'contact_id' => $targetId,
+                    'customer_id' => $s['customer_id'],
+                    'network_name' => $s['network_name'],
+                    'store_id' => (int) $s['store_id'],
+                    'store_name' => $s['store_name'],
+                ]);
             }
         }
 

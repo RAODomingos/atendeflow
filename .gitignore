@@ -10,3 +10,4 @@ coverage/
 .vscode/
 lib/
 public/uploads/
+.superpowers/
