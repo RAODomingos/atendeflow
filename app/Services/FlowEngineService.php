@@ -18,6 +18,14 @@ class FlowEngineService
         return new GuildService();
     }
 
+    /**
+     * Normaliza referência de nó vinda do builder ('node_5' ou 5) para int.
+     */
+    private function guildNodeRef(mixed $v): int
+    {
+        return (int) preg_replace('/\D+/', '', (string) $v);
+    }
+
     private function logExecution(int $conversationId, int $flowId, int $nodeId, string $eventType, ?array $data = null): void
     {
         Database::getInstance()->insert('flow_execution_logs', [
@@ -287,7 +295,7 @@ class FlowEngineService
         $stores = $contactId > 0 ? Contact::getStores($contactId) : [];
 
         if ($stores === []) {
-            $this->executeGuildNext($conversationId, $flowId, $node, (int) ($node['config']['no_store_node_id'] ?? 0));
+            $this->executeGuildNext($conversationId, $flowId, $node, $this->guildNodeRef($node['config']['no_store_node_id'] ?? 0));
             return;
         }
 
@@ -297,13 +305,13 @@ class FlowEngineService
         }
 
         $partial = $this->guildPartial($conversationId, (int) $node['id']);
-        if (!empty($partial['loja'])) {
-            $customerId = (string) preg_replace('/^guild_loja:/', '', (string) $partial['loja']);
-            $networkName = $customerId;
+        $validLoja = $this->guildValidLoja($stores, $partial);
+        if ($validLoja !== null) {
+            $networkName = $validLoja;
             foreach ($stores as $s) {
-                if ($s['customer_id'] === $customerId) { $networkName = $s['customer_id'] . ' - ' . $s['network_name']; break; }
+                if ((string) $s['customer_id'] === $validLoja) { $networkName = $s['customer_id'] . ' - ' . $s['network_name']; break; }
             }
-            $this->presentGuildUnits($conversationId, $node, $conv, $customerId, $networkName);
+            $this->presentGuildUnits($conversationId, $node, $conv, $validLoja, $networkName);
             return;
         }
 
@@ -328,12 +336,13 @@ class FlowEngineService
         $contactId = (int) ($conv['contact_id'] ?? 0);
         $stores = $contactId > 0 ? Contact::getStores($contactId) : [];
         if ($stores === []) {
-            $this->executeGuildNext($conversationId, (int) $flow['id'], $node, (int) ($node['config']['no_store_node_id'] ?? 0));
+            $this->executeGuildNext($conversationId, (int) $flow['id'], $node, $this->guildNodeRef($node['config']['no_store_node_id'] ?? 0));
             return;
         }
 
         $partial = $this->guildPartial($conversationId, (int) $node['id']);
-        if (count($stores) > 1 && empty($partial['loja'])) {
+        $validLoja = $this->guildValidLoja($stores, $partial);
+        if (count($stores) > 1 && $validLoja === null) {
             $options = array_map(
                 fn($s, $i) => ['label' => $s['customer_id'] . ' - ' . $s['network_name'], 'value' => $s['customer_id'], 'sort_order' => $i],
                 $stores, array_keys($stores)
@@ -348,9 +357,7 @@ class FlowEngineService
             return;
         }
 
-        $customerId = count($stores) === 1
-            ? $stores[0]['customer_id']
-            : (string) preg_replace('/^guild_loja:/', '', (string) ($partial['loja'] ?? ''));
+        $customerId = $validLoja ?? $stores[0]['customer_id'];
         $this->guildResolveUnit($conversationId, $node, $conv, $flow, $customerId, $response);
     }
 
@@ -382,7 +389,7 @@ class FlowEngineService
             Conversation::update($conversationId, ['unit' => (string) $hit['value']]);
         }
         $this->logExecution($conversationId, (int) $flow['id'], (int) $node['id'], 'guild_unit_selected', ['unit' => $hit['value']]);
-        $this->executeGuildNext($conversationId, (int) $flow['id'], $node, (int) ($node['config']['next_node_id'] ?? 0));
+        $this->executeGuildNext($conversationId, (int) $flow['id'], $node, $this->guildNodeRef($node['config']['next_node_id'] ?? 0));
     }
 
     /**
@@ -421,8 +428,16 @@ class FlowEngineService
     private function presentGuildOptions(int $conversationId, array $node, array $conv, string $prompt, array $options): void
     {
         $presentation = $node['config']['presentation'] ?? 'list_menu';
+        $aliases = ['text' => 'menu', 'buttons' => 'button_list', 'list' => 'list_menu'];
+        $presentation = $aliases[$presentation] ?? $presentation;
         if (!in_array($presentation, ['button_list', 'list_menu', 'menu'], true)) {
             $presentation = 'list_menu';
+        }
+        // Limites dos interativos no WhatsApp (botões 3, lista 10):
+        // acima disso, texto numerado.
+        if (($presentation === 'button_list' && count($options) > 3)
+            || ($presentation === 'list_menu' && count($options) > 10)) {
+            $presentation = 'menu';
         }
         $this->dispatchMenuPresentation($conversationId, [
             'node_type' => $presentation,
@@ -531,6 +546,19 @@ class FlowEngineService
             if (str_starts_with($t, 'guild_loja:')) $out['loja'] = $t;
         }
         return $out;
+    }
+
+    /**
+     * Loja da parcial validada contra a lista atual (null se obsoleta).
+     */
+    private function guildValidLoja(array $stores, array $partial): ?string
+    {
+        if (empty($partial['loja'])) return null;
+        $cid = (string) preg_replace('/^guild_loja:/', '', (string) $partial['loja']);
+        foreach ($stores as $s) {
+            if (($s['customer_id'] ?? null) !== null && (string) $s['customer_id'] === $cid) return $cid;
+        }
+        return null;
     }
 
     public function executeNode(int $conversationId, array $node): void

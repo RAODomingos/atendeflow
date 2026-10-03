@@ -2,6 +2,8 @@
 -- Idempotente: apaga a seed anterior (estados primeiro, por causa da FK) e recria.
 SET @old = (SELECT id FROM flows WHERE name = 'Atendimento Loja/Unidade (teste)' LIMIT 1);
 DELETE FROM conversation_flow_states WHERE flow_id = @old;
+DELETE FROM flow_answers WHERE flow_node_id IN (SELECT id FROM flow_nodes WHERE flow_id = @old);
+DELETE FROM flow_execution_logs WHERE flow_id = @old;
 DELETE FROM flows WHERE id = @old;
 
 SET @admin = (SELECT id FROM users ORDER BY id LIMIT 1);
