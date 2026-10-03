@@ -184,15 +184,6 @@ $renderReceipts = function (array $msg) {
                 <div class="chat-title-group">
                     <div class="chat-title">
                         <?= e($contact['name'] ?? 'Contato') ?>
-                        <?php
-                        $panelNet = '';
-                        foreach (($contact['stores'] ?? []) as $ps) { $panelNet = $ps['network_name']; break; }
-                        ?>
-                        <?php if ($panelNet !== ''): ?>
-                            <span style="font-weight:400;color:var(--text-muted);font-size:13px">— <?= e($panelNet) ?></span>
-                        <?php elseif (!empty($contact['company'])): ?>
-                            <span style="font-weight:400;color:var(--text-muted);font-size:13px">— <?= e($contact['company']) ?></span>
-                        <?php endif; ?>
                     </div>
                     <div class="chat-title-meta">
                         <span class="meta-tag"><i class="<?= channel_icon($conv['channel_type'] ?? 'webchat') ?>" style="font-size:11px"></i> <?= e($conv['channel_name'] ?? '') ?></span>
@@ -263,10 +254,11 @@ $renderReceipts = function (array $msg) {
             <?php if ($unitNets): ?>
             <label class="header-chip header-chip-select" title="Loja">
                 <i class="fas fa-store"></i>
-                <select id="convUnitNetwork" onchange="unitNetworkChanged()" aria-label="Loja">
+                <select id="convUnitNetwork" onchange="unitNetworkChanged(this)" aria-label="Loja">
                     <?php foreach ($unitNets as $un => $uc): ?>
                         <option value="<?= e($un) ?>" data-customer="<?= e($uc) ?>"><?= e($uc) ?> - <?= e($un) ?></option>
                     <?php endforeach; ?>
+                    <option value="__new">+ Nova loja…</option>
                 </select>
                 <i class="fas fa-chevron-down" style="font-size:9px;opacity:.5"></i>
             </label>
@@ -277,6 +269,32 @@ $renderReceipts = function (array $msg) {
                 <i class="fas fa-chevron-down" style="font-size:9px;opacity:.5"></i>
             </label>
             <?php endif; ?>
+            <div class="modal" id="newStoreModal" style="display:none">
+                <div class="modal-overlay" onclick="closeNewStoreModal()"></div>
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h3><i class="fas fa-store" style="color:var(--brand)"></i> Vincular nova loja</h3>
+                        <button class="modal-close" type="button" onclick="closeNewStoreModal()">&times;</button>
+                    </div>
+                    <div class="modal-body">
+                        <div class="form-group">
+                            <label>Código da loja (ID do cliente Guild)</label>
+                            <div style="display:flex;gap:8px">
+                                <input type="text" id="newStoreCode" class="form-control" placeholder="Ex: 123">
+                                <button type="button" class="btn btn-sm btn-outline" onclick="newStoreBuscar()">Buscar</button>
+                            </div>
+                        </div>
+                        <div id="newStoreResult" style="margin-top:8px"></div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-outline" onclick="closeNewStoreModal()">Cancelar</button>
+                        <button type="button" class="btn btn-primary" id="newStoreBindBtn" onclick="newStoreVincular()" disabled>
+                            <i class="fas fa-link"></i> Vincular
+                        </button>
+                    </div>
+                </div>
+            </div>
+            <script>var CONTACT_ID = <?= (int)($contact['id'] ?? 0) ?>;</script>
             <div class="conv-quick-actions">
                 <button class="icon-btn" onclick="toggleMsgSearch()" title="Buscar na conversa"><i class="fas fa-search"></i></button>
                 <button class="icon-btn" id="convSnoozeBtn" onclick="openSnoozeModal()" title="Agendar"><i class="fas fa-clock"></i></button>
@@ -1491,10 +1509,116 @@ function unitLoadStores() {
             toast('Falha ao buscar unidades. Tente novamente.');
         });
 }
-function unitNetworkChanged() {
+function unitNetworkChanged(sel) {
+    sel = sel || document.getElementById('convUnitNetwork');
+    if (!sel) return;
+    if (sel.value === '__new') { openNewStoreModal(); return; }
+    sel.dataset.prev = sel.value;
+    sel.dataset.prev = sel.value;
     var st = document.getElementById('convUnitStore');
     if (st) st.dataset.currentUnit = '';
     unitLoadStores();
+}
+var NEW_STORE = null;
+var PREV_NETWORK = '';
+function openNewStoreModal(){
+    var net = document.getElementById('convUnitNetwork');
+    if (net) PREV_NETWORK = net.dataset.prev || net.value;
+    var m = document.getElementById('newStoreModal');
+    if (m) m.classList.add('open');
+    var box = document.getElementById('newStoreResult');
+    if (box) box.innerHTML = '';
+    var btn = document.getElementById('newStoreBindBtn');
+    if (btn) btn.disabled = true;
+    NEW_STORE = null;
+    var c = document.getElementById('newStoreCode');
+    if (c) { c.value = ''; setTimeout(function(){ c.focus(); }, 50); }
+}
+function closeNewStoreModal(restore){
+    var m = document.getElementById('newStoreModal');
+    if (m) m.classList.remove('open');
+    if (restore !== false) {
+        var net = document.getElementById('convUnitNetwork');
+        if (net && PREV_NETWORK) net.value = PREV_NETWORK;
+    }
+}
+function newStoreBuscar(){
+    var codeEl = document.getElementById('newStoreCode');
+    var box = document.getElementById('newStoreResult');
+    var btn = document.getElementById('newStoreBindBtn');
+    var code = (codeEl.value || '').trim();
+    if (!code || !box) return;
+    box.textContent = '';
+    if (btn) btn.disabled = true;
+    NEW_STORE = null;
+    var base = (typeof BASE !== 'undefined' && BASE) ? BASE : (document.querySelector('meta[name="base-url"]')?.content || '');
+    fetch(base + '/api/guild/stores?customer_id=' + encodeURIComponent(code), {headers:{'X-Requested-With':'XMLHttpRequest'}})
+        .then(function(r){ return r.json(); })
+        .then(function(j){
+            if (!j.success) throw new Error(j.error || 'Falha ao consultar o painel Guild.');
+            NEW_STORE = {customer_id: code, network_name: j.network_name, units: j.stores.map(function(s){ return s.name; })};
+            var title = document.createElement('div');
+            title.style.fontWeight = '700';
+            title.textContent = j.network_name + ' (' + code + ')';
+            var sub = document.createElement('div');
+            sub.className = 'text-muted';
+            sub.style.fontSize = '12.5px';
+            sub.textContent = j.stores.length + ' unidades: ' + NEW_STORE.units.join(', ');
+            box.appendChild(title);
+            box.appendChild(sub);
+            if (btn) btn.disabled = false;
+        })
+        .catch(function(e){
+            var p = document.createElement('p');
+            p.style.color = 'var(--danger)';
+            p.style.fontSize = '12.5px';
+            p.textContent = (e && e.message) || 'Falha ao consultar o painel Guild. Tente novamente.';
+            box.appendChild(p);
+        });
+}
+function newStoreVincular(){
+    if (!NEW_STORE || !CONTACT_ID) return;
+    var btn = document.getElementById('newStoreBindBtn');
+    if (btn) btn.disabled = true;
+    var net = document.getElementById('convUnitNetwork');
+    var stores = [], nets = [];
+    if (net) {
+        Array.prototype.forEach.call(net.options, function(o){
+            if (o.value && o.value !== '__new') {
+                nets.push(o.value);
+                stores.push({customer_id: o.dataset.customer, network_name: o.value});
+            }
+        });
+    }
+    nets.push(NEW_STORE.network_name);
+    stores.push({customer_id: NEW_STORE.customer_id, network_name: NEW_STORE.network_name});
+    var base = (typeof BASE !== 'undefined' && BASE) ? BASE : (document.querySelector('meta[name="base-url"]')?.content || '');
+    var fd = csrfForm();
+    fd.append('guild_stores_json', JSON.stringify(stores));
+    fd.append('guild_networks_json', JSON.stringify(nets));
+    fetch(base + '/contacts/' + CONTACT_ID + '/stores', {method: 'POST', headers: {'X-Requested-With': 'XMLHttpRequest'}, body: fd})
+        .then(function(r){ return r.json(); })
+        .then(function(j){
+            if (!j.success) throw new Error(j.error || 'Falha ao vincular.');
+            if (net) {
+                var o = document.createElement('option');
+                o.value = NEW_STORE.network_name;
+                o.dataset.customer = NEW_STORE.customer_id;
+                o.textContent = NEW_STORE.customer_id + ' - ' + NEW_STORE.network_name;
+                net.insertBefore(o, net.querySelector('option[value="__new"]'));
+                net.value = NEW_STORE.network_name;
+                net.dataset.prev = NEW_STORE.network_name;
+            }
+            var st = document.getElementById('convUnitStore');
+            if (st) st.dataset.currentUnit = '';
+            closeNewStoreModal(false);
+            unitLoadStores();
+            toast('Loja vinculada com sucesso.');
+        })
+        .catch(function(e){
+            toast((e && e.message) || 'Falha ao vincular a loja.');
+        })
+        .finally(function(){ if (btn) btn.disabled = false; });
 }
 function saveUnit(val) {
     var d = document.getElementById('convUnitDisplay');

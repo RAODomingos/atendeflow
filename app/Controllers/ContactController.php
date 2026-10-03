@@ -107,6 +107,29 @@ class ContactController
         View::json(['success' => true, 'stores' => $contact['stores'] ?? []]);
     }
 
+    /**
+     * Vincula lojas Guild ao contato (soma, sem tocar nos demais campos).
+     * POST /contacts/{id}/stores — mesmos JSONs do formulário.
+     */
+    public function bindStores(Request $request, int $id): void
+    {
+        $contact = Contact::find($id);
+        if (!$contact) {
+            if ($request->isAjax()) {
+                View::json(['success' => false, 'error' => 'Contato não encontrado.']);
+            }
+            Session::setFlash('error', 'Contato não encontrado.');
+            View::redirect('/contacts');
+        }
+        self::syncGuildStoresFromRequest($request, $id);
+        if ($request->isAjax()) {
+            View::json(['success' => true, 'stores' => Contact::getStores($id)]);
+            return;
+        }
+        Session::setFlash('success', 'Loja vinculada com sucesso.');
+        View::redirect("/contacts/{$id}");
+    }
+
     public function show(Request $request, int $id): void
     {
         $contact = Contact::find($id);
