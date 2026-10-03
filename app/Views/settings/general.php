@@ -40,9 +40,9 @@
                 </div>
                 <div class="form-group">
                     <label>Token da API</label>
-                    <input type="password" name="guild_api_token" class="form-control" autocomplete="new-password" placeholder="Token do painel Guild" value="<?= e($settings['guild_api_token'] ?? '') ?>">
+                    <input type="password" name="guild_api_token" class="form-control" autocomplete="new-password" placeholder="<?= !empty($settings['guild_api_token']) ? '•••••••• (configurado — preencha para trocar)' : 'Token do painel Guild' ?>" value="">
                     <small class="text-muted" style="display:block;margin-top:4px;font-size:12px">
-                        Usado pelo servidor para buscar lojas/unidades (<code>/api/mac/customer/{id}/stores</code>). Nunca é exposto no navegador.
+                        Usado pelo servidor para buscar lojas/unidades (<code>/api/mac/customer/{id}/stores</code>). Nunca é exposto no navegador<?= !empty($settings['guild_api_token']) ? ' — <strong>token configurado</strong>' : '' ?>; em branco mantém o atual.
                     </small>
                 </div>
             </div>

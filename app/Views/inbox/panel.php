@@ -252,7 +252,7 @@ $renderReceipts = function (array $msg) {
                     <?php endforeach; ?>
                 </select>
             </span>
-            <script>var UNIT_GROUPS = <?= json_encode($unitGroups, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?>;</script>
+            <script>var UNIT_GROUPS = <?= json_encode($unitGroups, JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP) ?>;</script>
             <?php endif; ?>
         </div>
         <div class="chat-header-right">
@@ -1488,16 +1488,29 @@ function saveUnit(val) {
     if (sel) sel.style.display = 'none';
     if (i) i.style.display = 'none';
     d.style.display = 'inline-block';
+    d.textContent = '';
+    var label = document.createElement('span');
+    if (val) {
+        label.textContent = '| ' + val;
+    } else {
+        label.style.opacity = '.5';
+        label.style.fontStyle = 'italic';
+        label.textContent = '+ unidade';
+    }
+    d.appendChild(label);
+    var pen = document.createElement('i');
+    pen.className = 'fas fa-pen';
+    pen.setAttribute('style', 'font-size:9px;opacity:.4;margin-left:2px');
+    d.appendChild(document.createTextNode(' '));
+    d.appendChild(pen);
     var cv = document.getElementById('convView');
     var id = cv ? cv.dataset.conv : 0;
-    var txt = val ? '| ' + val : '<span style="opacity:.5;font-style:italic">+ unidade</span>';
-    d.innerHTML = txt + ' <i class="fas fa-pen" style="font-size:9px;opacity:.4;margin-left:2px"></i>';
     if (id) {
         var fd = csrfForm();
         fd.append('unit', val);
         fetch(BASE + '/inbox/' + id + '/unit', { method: 'POST', headers: { 'X-Requested-With': 'XMLHttpRequest' }, body: fd }).then(function(r){
-            if (!r.ok) console.error('Unit save failed:', r.status);
-        }).catch(function(e){ console.error('Unit save error:', e); });
+            if (!r.ok) toast('Falha ao salvar a unidade. Tente novamente.');
+        }).catch(function(){ toast('Falha ao salvar a unidade. Tente novamente.'); });
     }
 }
 function cancelUnitEdit() {
