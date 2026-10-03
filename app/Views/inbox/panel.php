@@ -1478,47 +1478,98 @@ function editUnit(e) {
     i.focus();
     i.select();
 }
-function unitLoadStores() {
+function unitLoadStores(searchSaved) {
+    if (searchSaved === undefined) searchSaved = true;
     var net = document.getElementById('convUnitNetwork');
     var st = document.getElementById('convUnitStore');
     if (!net || !st) return;
-    var code = net.options[net.selectedIndex]?.dataset?.customer || '';
     var current = st.dataset.currentUnit || '';
+    var base = (typeof BASE !== 'undefined' && BASE) ? BASE : (document.querySelector('meta[name="base-url"]')?.content || '');
+    var opts = [];
+    Array.prototype.forEach.call(net.options, function(o){
+        if (o.value && o.value !== '__new') opts.push(o);
+    });
     st.innerHTML = '';
     var loading = document.createElement('option');
     loading.textContent = 'Buscando unidades...';
     st.appendChild(loading);
     st.disabled = true;
-    if (!code) { st.disabled = false; return; }
-    var base = (typeof BASE !== 'undefined' && BASE) ? BASE : (document.querySelector('meta[name="base-url"]')?.content || '');
-    fetch(base + '/api/guild/stores?customer_id=' + encodeURIComponent(code), {headers:{'X-Requested-With':'XMLHttpRequest'}})
-        .then(function(r){ return r.json(); })
-        .then(function(j){
-            st.disabled = false;
-            if (!j.success || !j.stores || !j.stores.length) throw new Error(j.error || 'empty');
-            st.innerHTML = '';
-            j.stores.forEach(function(s){
-                var o = document.createElement('option');
-                o.value = s.name; o.textContent = s.name;
-                if (s.name === current) o.selected = true;
-                st.appendChild(o);
-            });
-            if (!current && j.stores.length === 1) saveUnit(j.stores[0].name, true);
-        })
-        .catch(function(){
-            st.disabled = false;
-            toast('Falha ao buscar unidades. Tente novamente.');
+    if (!opts.length) { st.disabled = false; return; }
+    function fill(names, selectName) {
+        st.innerHTML = '';
+        names.forEach(function(name){
+            var o = document.createElement('option');
+            o.value = name; o.textContent = name;
+            if (name === selectName) o.selected = true;
+            st.appendChild(o);
         });
+        st.disabled = false;
+    }
+    function fetchUnits(code) {
+        return fetch(base + '/api/guild/stores?customer_id=' + encodeURIComponent(code), {headers:{'X-Requested-With':'XMLHttpRequest'}})
+            .then(function(r){ return r.json(); })
+            .then(function(j){
+                if (!j.success || !j.stores || !j.stores.length) throw new Error(j.error || 'empty');
+                return j.stores.map(function(s){ return s.name; });
+            });
+    }
+    function fail() {
+        st.disabled = false;
+        toast('Falha ao buscar unidades. Tente novamente.');
+    }
+    function selectOpt(opt) {
+        net.selectedIndex = opt.index;
+        net.dataset.prev = net.value;
+    }
+    if (!searchSaved || !current) {
+        // Troca manual ou nada salvo: usa a loja selecionada.
+        var selOpt = net.options[net.selectedIndex];
+        if (!selOpt || !selOpt.value || selOpt.value === '__new') selOpt = opts[0];
+        selectOpt(selOpt);
+        fetchUnits(selOpt.dataset.customer || '').then(function(names){
+            fill(names, current);
+            if (!current && names.length === 1) saveUnit(names[0], true);
+        }).catch(fail);
+        return;
+    }
+    // Restaura: procura a unidade salva em todas as lojas.
+    var i = 0, firstNames = null;
+    function attempt() {
+        if (i >= opts.length) {
+            if (firstNames) {
+                net.selectedIndex = opts[0].index;
+                net.dataset.prev = net.value;
+                fill(firstNames, '');
+            } else { fail(); }
+            return;
+        }
+        var opt = opts[i];
+        fetchUnits(opt.dataset.customer || '').then(function(names){
+            if (i === 0) firstNames = names;
+            if (names.indexOf(current) !== -1) {
+                net.selectedIndex = opt.index;
+                net.dataset.prev = net.value;
+                fill(names, current);
+            } else { i++; attempt(); }
+        }).catch(function(){
+            if (i === 0) { i++; attempt(); }
+            else if (firstNames) {
+                net.selectedIndex = opts[0].index;
+                net.dataset.prev = net.value;
+                fill(firstNames, '');
+            } else { fail(); }
+        });
+    }
+    attempt();
 }
 function unitNetworkChanged(sel) {
     sel = sel || document.getElementById('convUnitNetwork');
     if (!sel) return;
     if (sel.value === '__new') { openNewStoreModal(); return; }
     sel.dataset.prev = sel.value;
-    sel.dataset.prev = sel.value;
     var st = document.getElementById('convUnitStore');
     if (st) st.dataset.currentUnit = '';
-    unitLoadStores();
+    unitLoadStores(false);
 }
 var NEW_STORE = null;
 var PREV_NETWORK = '';
