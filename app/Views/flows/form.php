@@ -767,7 +767,7 @@ function editNode(id) {
     }
     if (node.type === 'guild_select') {
         const others = nodes.filter(n => n.id !== node.id);
-        const optNodes = sel => others.map(n => '<option value="' + n.id + '"' + (sel == n.id ? ' selected' : '') + '>' + e(n.title || n.type) + '</option>').join('');
+        const optNodes = sel => others.map(n => '<option value="' + n.id + '"' + (sel != null && sel !== '' && nid(sel) === nid(n.id) ? ' selected' : '') + '>' + e(n.title || n.type) + '</option>').join('');
         const cfg = node.config || {};
         html += '<div class="form-group"><label>Apresentação das opções</label><select class="form-control" id="neGuildPresentation">'
             + ['list_menu', 'button_list', 'menu'].map(p => '<option value="' + p + '"' + ((cfg.presentation || 'list_menu') === p ? ' selected' : '') + '>' + p + '</option>').join('')
@@ -777,6 +777,7 @@ function editNode(id) {
         html += '<div class="form-group"><label>Mensagem de opção inválida</label><input type="text" class="form-control" id="neGuildInvalidMsg" value="' + e(cfg.invalid_message || '') + '" placeholder="Opção inválida, tente novamente"></div>';
         html += '<div class="form-group"><label>Mensagem de erro da Guild</label><input type="text" class="form-control" id="neGuildErrorMsg" value="' + e(cfg.error_message || '') + '" placeholder="Falha ao buscar as opções. Tente novamente."></div>';
         html += '<div class="form-group"><label>Tentativas até encaminhar</label><input type="number" class="form-control" id="neGuildMaxAttempts" min="1" max="10" value="' + e(cfg.max_attempts ?? 3) + '"></div>';
+        html += '<div class="form-group"><label>Título da lista (vazio = sem subtítulo)</label><input type="text" class="form-control" id="neGuildListTitle" value="' + e(cfg.list_title || '') + '" placeholder="Opcional"></div>';
         html += '<div class="form-group"><label>Sem loja → ir para</label><select class="form-control" id="neGuildNoStore"><option value="">(escolher nó)</option>' + optNodes(cfg.no_store_node_id) + '</select></div>';
         html += '<div class="form-group"><label>Após unidade → ir para</label><select class="form-control" id="neGuildNext"><option value="">(escolher nó)</option>' + optNodes(cfg.next_node_id) + '</select></div>';
         html += '<div class="form-check"><input type="checkbox" class="form-check-input" id="neGuildSave" ' + ((cfg.save_unit ?? true) ? 'checked' : '') + '><label class="form-check-label" for="neGuildSave">Salvar unidade na conversa</label></div>';
@@ -795,8 +796,12 @@ function editNode(id) {
 
 function guildTargetTitle(nodeId) {
     if (!nodeId) return '';
-    const n = nodes.find(x => String(x.id) === String(nodeId));
+    const n = nodes.find(x => nid(x.id) === nid(nodeId) && nid(nodeId) !== '');
     return n ? (n.title || n.type) : '';
+}
+
+function nid(v) {
+    return String(v == null ? '' : v).replace(/\D/g, '');
 }
 
 function buildOptionsEditor(options, label) {
@@ -943,6 +948,7 @@ function saveNodeModal() {
     if (node.type === 'guild_select') {
         node.config = node.config || {};
         node.config.presentation = document.getElementById('neGuildPresentation')?.value || 'list_menu';
+        node.config.list_title = document.getElementById('neGuildListTitle')?.value || '';
         node.config.store_prompt = document.getElementById('neGuildStorePrompt')?.value || '';
         node.config.unit_prompt = document.getElementById('neGuildUnitPrompt')?.value || '';
         node.config.invalid_message = document.getElementById('neGuildInvalidMsg')?.value || '';
@@ -1097,8 +1103,8 @@ function saveFlow() {
     nodes.forEach(node => {
         if (node.type === 'guild_select') {
             const cfg = node.config || {};
-            const okNo = !cfg.no_store_node_id || nodes.some(n => String(n.id) === String(cfg.no_store_node_id));
-            const okNext = !cfg.next_node_id || nodes.some(n => String(n.id) === String(cfg.next_node_id));
+            const okNo = !cfg.no_store_node_id || nodes.some(n => nid(n.id) !== '' && nid(n.id) === nid(cfg.no_store_node_id));
+            const okNext = !cfg.next_node_id || nodes.some(n => nid(n.id) !== '' && nid(n.id) === nid(cfg.next_node_id));
             if (!okNo || !okNext) {
                 alert('Nó "' + (node.title || 'Loja/Unidade') + '": destino inválido. Ajuste os nós de saída no editor.');
                 throw new Error('guild_select com destino inválido');
