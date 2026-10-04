@@ -565,7 +565,7 @@
             html += '</div>';
         } else if (type === 'list_menu') {
             html += '<div class="afw-list-menu">';
-            html += '<div class="afw-list-title">' + esc(data.title || 'Opções') + '</div>';
+            if (data.title) html += '<div class="afw-list-title">' + esc(data.title) + '</div>';
             (data.items || []).forEach(function (item) {
                 html += '<button type="button" class="afw-interact-btn afw-list-item" data-value="' + esc(item.id || item.label) + '">' + esc(item.label) + '</button>';
             });
