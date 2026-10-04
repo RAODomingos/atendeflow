@@ -470,16 +470,22 @@ class FlowEngineService
     }
 
     /**
-     * Casa resposta com opção dinâmica (label, value ou número), como nos menus.
+     * Casa resposta com opção dinâmica em duas passadas: primeiro label/valor
+     * exatos em TODAS as opções (um ID digitado vence a posição), depois o
+     * número posicional — como nos menus.
      */
     private function guildMatchOption(array $options, string $response): ?array
     {
         $resp = mb_strtolower(trim($response));
-        foreach ($options as $i => $option) {
+        $raw = trim($response);
+        foreach ($options as $option) {
             $label = mb_strtolower(trim((string) ($option['label'] ?? '')));
             if ($label !== '' && $label === $resp) return $option;
-            if ((string) ($option['value'] ?? '') !== '' && (string) $option['value'] === trim($response)) return $option;
-            if ((int) ($option['sort_order'] ?? $i) + 1 === (int) $resp && $resp !== '') return $option;
+            if ((string) ($option['value'] ?? '') !== '' && (string) $option['value'] === $raw) return $option;
+        }
+        if ($raw === '') return null;
+        foreach ($options as $i => $option) {
+            if ((int) ($option['sort_order'] ?? $i) + 1 === (int) $raw) return $option;
         }
         return null;
     }
