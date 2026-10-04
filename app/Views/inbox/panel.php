@@ -1803,8 +1803,14 @@ function filterCanned() { renderCanned(document.getElementById('cannedSearch').v
 function insertCanned(id) {
     var c = cannedResponses.find(function(x) { return x.id == id; }); if (!c) return;
     var ta = document.getElementById('messageInput');
-    if (ta) { ta.value = (ta.value ? ta.value + '\n\n' : '') + c.content; ta.focus(); }
-    closeCannedModal();
+    var done = function(text) {
+        if (ta) { ta.value = (ta.value ? ta.value + '\n\n' : '') + text; ta.focus(); }
+        closeCannedModal();
+    };
+    if (!/[{}]/.test(c.content || '')) { done(c.content); return; }
+    postJson('/api/template/render', { content: c.content, conversation_id: CONV_ID }).then(function(r) {
+        done(r && r.success && typeof r.rendered === 'string' ? r.rendered : c.content);
+    }).catch(function() { done(c.content); });
 }
 
 var wikiSuggest = [];

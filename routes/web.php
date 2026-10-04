@@ -250,6 +250,7 @@ $router->group('', function (Router $router) {
     $router->get('/api/wiki/suggest', [WikiController::class, 'suggest']);
     $router->post('/api/conversations', [InboxController::class, 'apiCreateConversation']);
     $router->get('/api/macros', [InboxController::class, 'apiMacros']);
+    $router->post('/api/template/render', [InboxController::class, 'apiTemplateRender']);
 
     // Consolidated unread summary for global notification badge
     $router->get('/api/unread-summary', [\App\Controllers\Api\UnreadSummaryController::class, 'index']);
