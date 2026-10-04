@@ -443,7 +443,7 @@ class FlowEngineService
             'node_type' => $presentation,
             'content' => $prompt,
             'options' => $options,
-            'config' => ['list_title' => 'Opções'],
+            'config' => ['list_title' => $node['config']['list_title'] ?? ''],
         ], $conv);
         Flow::saveFlowState($conversationId, (int) ($conv['flow_id'] ?? $node['flow_id']), (int) $node['id']);
     }

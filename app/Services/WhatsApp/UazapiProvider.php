@@ -613,15 +613,18 @@ class UazapiProvider implements WhatsAppProviderInterface
         }
 
         try {
-            $resp = $this->client->post('/send/menu', [
+            $payload = [
                 'number' => $phone,
                 'type' => 'list',
                 'text' => $text,
-                'footerText' => $title ?: 'Opções',
                 'listButton' => 'Ver opções',
                 'choices' => $choices,
                 'delay' => 1000,
-            ], $headers);
+            ];
+            if (trim((string) $title) !== '') {
+                $payload['footerText'] = $title;
+            }
+            $resp = $this->client->post('/send/menu', $payload, $headers);
 
             if (($resp['status'] ?? 0) >= 400) {
                 error_log("Uazapi sendList error (status={$resp['status']}): " . json_encode($resp['body'], JSON_UNESCAPED_UNICODE));
