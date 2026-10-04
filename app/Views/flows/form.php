@@ -675,7 +675,7 @@ function editNode(id) {
     }
 
     if (node.type === 'list_menu') {
-        html += '<div class="form-group"><label>Título da lista</label><input type="text" class="form-control" id="neListTitle" value="' + e(node.config?.list_title || 'Opções') + '"></div>';
+        html += '<div class="form-group"><label>Título da lista (vazio = sem subtítulo)</label><input type="text" class="form-control" id="neListTitle" value="' + e(node.config?.list_title ?? '') + '" placeholder="Opcional"></div>';
         html += buildOptionsEditor(node.options, 'Itens da lista');
     }
 
@@ -869,7 +869,7 @@ function saveNodeModal() {
 
     if (node.type === 'list_menu') {
         node.config = node.config || {};
-        node.config.list_title = document.getElementById('neListTitle')?.value || 'Opções';
+        node.config.list_title = document.getElementById('neListTitle')?.value ?? '';
         const inputs = document.querySelectorAll('#neOptions input');
         node.options = [];
         inputs.forEach(inp => node.options.push({ label: inp.value, value: inp.value, next_node_id: null }));
