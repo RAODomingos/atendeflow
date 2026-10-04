@@ -829,6 +829,21 @@ class InboxController
         View::json(Macro::getForContext($deptId, Auth::id()));
     }
 
+    /**
+     * Resolve variáveis do texto para a conversa (pré-visualização no composer).
+     * POST /api/template/render {content, conversation_id} → {success, rendered}
+     */
+    public function apiTemplateRender(Request $request): void
+    {
+        $content = (string) $request->input('content', '');
+        $convId = (int) $request->input('conversation_id', 0);
+        if ($convId <= 0 || !$this->canUserSeeConversation($convId, Auth::id())) {
+            View::json(['success' => false, 'error' => 'Sem acesso a esta conversa.'], 403);
+            return;
+        }
+        View::json(['success' => true, 'rendered' => \App\Services\TemplateService::render($content, $convId)]);
+    }
+
     public function apiConversation(Request $request, int $id): void
     {
         if (!$this->canUserSeeConversation($id, Auth::id())) {
