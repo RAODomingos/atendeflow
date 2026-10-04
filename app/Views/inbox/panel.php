@@ -480,6 +480,16 @@ $renderReceipts = function (array $msg) {
 
     <?php $panelFinished = in_array($conv['status'] ?? '', ['resolved', 'closed', 'spam']); ?>
     <div class="chat-input">
+        <?php $panelMine = !empty($conv['assigned_user_id']) && (int) $conv['assigned_user_id'] === (int) $currentUserId; ?>
+        <?php if (($conv['status'] ?? '') === 'new' && !$panelMine): ?>
+        <form action="<?= url('inbox/') ?><?= $conv['id'] ?>/assign" method="POST" style="margin:12px 16px 0">
+            <?= csrf_field() ?>
+            <input type="hidden" name="user_id" value="<?= $currentUserId ?>">
+            <button type="submit" class="btn btn-primary btn-block">
+                <i class="fas fa-hand-paper"></i> Assumir chamado
+            </button>
+        </form>
+        <?php endif; ?>
         <?php if ($panelFinished): ?>
             <div class="composer-locked" style="margin:12px 16px 0">
                 <i class="fas fa-lock"></i> Conversa <?= ($conv['status'] ?? '') === 'spam' ? 'marcada como spam' : 'finalizada' ?>. Não é possível enviar mensagens.
