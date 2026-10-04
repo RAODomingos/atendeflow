@@ -21,7 +21,7 @@
                     <img src="<?= e(str_starts_with($contact['avatar'], 'http') ? $contact['avatar'] : upload_url($contact['avatar'])) ?>" alt="">
                 <?php else: ?>
                     <div class="avatar-lg">
-                        <?= mb_strtoupper(mb_substr($contact['name'] ?? '?', 0, 1)) ?>
+                        <?= e(mb_strtoupper(mb_substr($contact['name'] ?? '?', 0, 1))) ?>
                     </div>
                 <?php endif; ?>
             </div>

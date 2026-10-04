@@ -26,7 +26,8 @@ class WhatsAppController
             $result = $this->service->connectChannel($id, $instanceName ?: null);
             View::json($result);
         } catch (\Throwable $e) {
-            View::json(['error' => $e->getMessage()], 500);
+            error_log('WhatsApp connect error: ' . $e->getMessage());
+            View::json(['error' => env('APP_DEBUG', false) ? $e->getMessage() : 'Falha ao conectar.'], 500);
         }
     }
 
@@ -39,7 +40,8 @@ class WhatsAppController
             $result = $this->service->status($id);
             View::json($result);
         } catch (\Throwable $e) {
-            View::json(['error' => $e->getMessage()], 500);
+            error_log('WhatsApp status error: ' . $e->getMessage());
+            View::json(['error' => env('APP_DEBUG', false) ? $e->getMessage() : 'Falha ao consultar status.'], 500);
         }
     }
 
@@ -54,7 +56,8 @@ class WhatsAppController
                 'qr_code' => null,
             ]);
         } catch (\Throwable $e) {
-            View::json(['error' => $e->getMessage()], 500);
+            error_log('WhatsApp disconnect error: ' . $e->getMessage());
+            View::json(['error' => env('APP_DEBUG', false) ? $e->getMessage() : 'Falha ao desconectar.'], 500);
         }
     }
 
@@ -64,8 +67,10 @@ class WhatsAppController
     public function webhook(Request $request): void
     {
         $raw = file_get_contents('php://input');
+        // Log mínimo sem PII/segredos: nunca gravar query (?secret=) nem corpo.
         @file_put_contents(dirname(__DIR__, 2) . '/storage/logs/webhook.log',
-            '[' . date('Y-m-d H:i:s') . "] RAW method={$_SERVER['REQUEST_METHOD']} query=" . json_encode($_GET) . " body=" . substr($raw, 0, 6000) . PHP_EOL, FILE_APPEND);
+            '[' . date('Y-m-d H:i:s') . '] webhook method=' . ($_SERVER['REQUEST_METHOD'] ?? '?')
+            . ' bytes=' . strlen((string) $raw) . PHP_EOL, FILE_APPEND);
 
         $payload = json_decode($raw, true) ?: [];
         if (empty($payload) && !empty($_POST)) {

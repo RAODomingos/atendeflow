@@ -2,7 +2,7 @@
    data.js — Carrega categorias e artigos da API pública do Wiki
    (OminiDesk). Config em ../config.js:
      window.WIKI_CONFIG = { API_URL, API_KEY }
-   A API exige a Key (header X-API-Key ou ?api_key=).
+    A API exige a Key via header X-API-Key (?api_key= removido por segurança).
    Imagens já vêm absolutas (cover_image, content_absolute).
    ============================================================ */
 
@@ -24,8 +24,9 @@ function wikiConfig() {
 
 async function wikiFetch(path) {
   const { base, key } = wikiConfig();
-  const sep = path.includes("?") ? "&" : "?";
-  const res = await fetch(base + path + sep + "api_key=" + encodeURIComponent(key));
+  const res = await fetch(base + path, {
+    headers: { "X-API-Key": key },
+  });
   if (res.status === 401) {
     throw new Error("API Key inválida. Confira WIKI_API_KEY no config.js.");
   }

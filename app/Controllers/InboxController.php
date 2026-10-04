@@ -50,6 +50,24 @@ class InboxController
         return false;
     }
 
+    /**
+     * Nega acesso a conversa sem permissão: 403 JSON p/ AJAX/API, redirect p/ web.
+     * Retorna true se negou (chamador deve dar return).
+     */
+    private function denyUnlessCanAccess(Request $request, int $conversationId): bool
+    {
+        if ($this->canUserSeeConversation($conversationId, Auth::id())) {
+            return false;
+        }
+        if ($request->isAjax() || $request->wantsJson() || str_starts_with($request->uri(), '/api/')) {
+            View::json(['error' => 'Sem acesso a esta conversa.'], 403);
+            return true;
+        }
+        Session::setFlash('error', 'Voce nao tem acesso a esta conversa.');
+        View::redirect('/inbox');
+        return true;
+    }
+
     private function conversationData(int $id): ?array
     {
         $conversation = Conversation::find($id);
@@ -347,6 +365,7 @@ class InboxController
 
     public function sendMessage(Request $request, int $id): void
     {
+        if ($this->denyUnlessCanAccess($request, $id)) return;
         $content = $request->post('content');
         $hasText = !empty(trim((string) ($content ?? '')));
         $uploaded = null;
@@ -476,6 +495,7 @@ class InboxController
 
     public function updateSettings(Request $request, int $id): void
     {
+        if ($this->denyUnlessCanAccess($request, $id)) return;
         $field = $request->post('field');
         if ($field !== 'signature_enabled') {
             View::json(['ok' => false, 'error' => 'Campo inválido'], 400);
@@ -490,6 +510,7 @@ class InboxController
 
     public function updateSubject(Request $request, int $id): void
     {
+        if ($this->denyUnlessCanAccess($request, $id)) return;
         $subject = $request->post('subject', '');
         Conversation::update($id, ['subject' => $subject]);
         View::json(['ok' => true, 'subject' => $subject]);
@@ -497,6 +518,7 @@ class InboxController
 
     public function updateUnit(Request $request, int $id): void
     {
+        if ($this->denyUnlessCanAccess($request, $id)) return;
         $unit = $request->post('unit', '');
         Conversation::update($id, ['unit' => $unit]);
         View::json(['ok' => true, 'unit' => $unit]);
@@ -504,6 +526,7 @@ class InboxController
 
     public function assign(Request $request, int $id): void
     {
+        if ($this->denyUnlessCanAccess($request, $id)) return;
         $userId = $request->post('user_id');
         if ($userId) {
             $this->conversationService->assign($id, (int) $userId);
@@ -513,6 +536,7 @@ class InboxController
 
     public function transfer(Request $request, int $id): void
     {
+        if ($this->denyUnlessCanAccess($request, $id)) return;
         $departmentId = $request->post('department_id');
         $userId = $request->post('user_id');
 
@@ -528,6 +552,7 @@ class InboxController
 
     public function changeStatus(Request $request, int $id): void
     {
+        if ($this->denyUnlessCanAccess($request, $id)) return;
         $status = $request->post('status');
         if ($status && in_array($status, ['new', 'open', 'waiting_customer', 'waiting_internal', 'resolved', 'closed', 'spam'])) {
             $reason = trim((string) $request->post('reason'));
@@ -553,6 +578,7 @@ class InboxController
 
     public function addInternalNote(Request $request, int $id): void
     {
+        if ($this->denyUnlessCanAccess($request, $id)) return;
         $content = trim($request->post('content') ?? '');
         if ($content !== '') {
             Database::getInstance()->insert('internal_notes', [
@@ -775,6 +801,7 @@ class InboxController
      */
     public function retryMessage(Request $request, int $id, int $mid): void
     {
+        if ($this->denyUnlessCanAccess($request, $id)) return;
         $msg = Conversation::getMessage($mid);
         if (!$msg || (int) $msg['conversation_id'] !== $id) {
             View::json(['success' => false, 'error' => 'Mensagem não encontrada.'], 404);
@@ -865,6 +892,7 @@ class InboxController
 
     public function changePriority(Request $request, int $id): void
     {
+        if ($this->denyUnlessCanAccess($request, $id)) return;
         $priority = $request->post('priority');
         if (in_array($priority, ['low', 'normal', 'high', 'urgent'], true)) {
             Conversation::update($id, ['priority' => $priority]);
@@ -879,8 +907,12 @@ class InboxController
 
     public function addTag(Request $request, int $id): void
     {
+        if ($this->denyUnlessCanAccess($request, $id)) return;
         $tagId = (int) $request->post('tag_id');
         $tagName = trim((string) $request->post('tag_name'));
+        if ($tagName !== '' && (mb_strlen($tagName) > 50 || strpbrk($tagName, '<>&"\'') !== false)) {
+            $tagName = '';
+        }
         $color = '#6c757d';
         if (!$tagId && $tagName) {
             $existing = Database::getInstance()->fetch("SELECT id, color FROM tags WHERE name = ?", [$tagName]);
@@ -902,6 +934,7 @@ class InboxController
 
     public function removeTag(Request $request, int $id): void
     {
+        if ($this->denyUnlessCanAccess($request, $id)) return;
         $tagId = (int) $request->post('tag_id');
         if ($tagId) {
             Conversation::removeTag($id, $tagId);
@@ -914,6 +947,12 @@ class InboxController
 
     public function sendReaction(Request $request, int $id, int $mid): void
     {
+        if ($this->denyUnlessCanAccess($request, $id)) return;
+        $msg = Conversation::getMessage($mid);
+        if (!$msg || (int) $msg['conversation_id'] !== $id) {
+            View::json(['success' => false, 'error' => 'Mensagem não encontrada.'], 404);
+            return;
+        }
         $reaction = trim((string) $request->post('reaction'));
         if ($reaction === '') {
             View::json(['success' => false, 'error' => 'Reação vazia']);
@@ -932,6 +971,12 @@ class InboxController
 
     public function editMessage(Request $request, int $id, int $mid): void
     {
+        if ($this->denyUnlessCanAccess($request, $id)) return;
+        $existing = Conversation::getMessage($mid);
+        if (!$existing || (int) $existing['conversation_id'] !== $id) {
+            View::json(['success' => false, 'error' => 'Mensagem não encontrada.'], 404);
+            return;
+        }
         $content = trim((string) $request->post('content'));
         $ok = false;
         if ($content !== '') {
@@ -953,6 +998,12 @@ class InboxController
 
     public function deleteMessage(Request $request, int $id, int $mid): void
     {
+        if ($this->denyUnlessCanAccess($request, $id)) return;
+        $existing = Conversation::getMessage($mid);
+        if (!$existing || (int) $existing['conversation_id'] !== $id) {
+            View::json(['success' => false, 'error' => 'Mensagem não encontrada.'], 404);
+            return;
+        }
         $ok = Conversation::deleteMessage($mid, Auth::id());
         if ($ok) {
             try {
@@ -970,12 +1021,14 @@ class InboxController
 
     public function markRead(Request $request, int $id): void
     {
+        if ($this->denyUnlessCanAccess($request, $id)) return;
         Conversation::markMessagesAsRead($id, Auth::id());
         View::json(['success' => true]);
     }
 
     public function snooze(Request $request, int $id): void
     {
+        if ($this->denyUnlessCanAccess($request, $id)) return;
         $until = $request->post('until');
         if ($until === '' || $until === null) {
             $until = null;
@@ -991,7 +1044,9 @@ class InboxController
 
     public function merge(Request $request, int $id): void
     {
+        if ($this->denyUnlessCanAccess($request, $id)) return;
         $targetId = (int) $request->post('target_id');
+        if ($targetId && $targetId !== $id && $this->denyUnlessCanAccess($request, $targetId)) return;
         if ($targetId && $targetId !== $id) {
             Conversation::merge($id, $targetId);
             Session::setFlash('success', 'Conversas mescladas.');
@@ -1012,6 +1067,7 @@ class InboxController
             $ids = [$ids];
         }
         $ids = array_filter(array_map('intval', $ids));
+        $ids = array_values(array_filter($ids, fn($cid) => $this->canUserSeeConversation($cid, Auth::id())));
         $skippedGroups = 0;
         foreach ($ids as $cid) {
             if ($action === 'close') {
@@ -1044,6 +1100,7 @@ class InboxController
 
     public function applyMacro(Request $request, int $id): void
     {
+        if ($this->denyUnlessCanAccess($request, $id)) return;
         $macroId = (int) $request->post('macro_id');
         $macro = Macro::find($macroId);
         $ok = false;

@@ -19,7 +19,7 @@ use App\Controllers\WikiController;
 /** @var Router $router */
 $router->get('/login', [AuthController::class, 'showLogin']);
 $router->post('/login', [AuthController::class, 'login']);
-$router->post('/logout', [AuthController::class, 'logout']);
+$router->post('/logout', [AuthController::class, 'logout'], ['auth', 'csrf']);
 
 // Public widget routes (no auth required)
 $router->get('/widget/demo/{key}', [WebChatController::class, 'demo']);
@@ -97,7 +97,7 @@ $router->group('', function (Router $router) {
     $router->get('/contacts/{id}/stores', [ContactController::class, 'apiContactStores']);
     $router->post('/contacts/{id}/stores', [ContactController::class, 'bindStores']);
     $router->get('/contacts/{id}/pdf', [ContactController::class, 'downloadPdf']);
-    $router->get('/contacts/{id}/edit', [ContactController::class, 'edit']);
+    $router->get('/contacts/{id}/edit', [ContactController::class, 'edit'], ['manager']);
     $router->post('/contacts/{id}/merge', [ContactController::class, 'merge']);
     $router->post('/contacts/{id}/update', [ContactController::class, 'update']);
     $router->post('/contacts/{id}/delete', [ContactController::class, 'destroy'], ['manager']);
@@ -114,9 +114,9 @@ $router->group('', function (Router $router) {
 
     // Flows (edição é gerente+)
     $router->get('/flows', [FlowController::class, 'index']);
-    $router->get('/flows/create', [FlowController::class, 'create']);
+    $router->get('/flows/create', [FlowController::class, 'create'], ['manager']);
     $router->post('/flows/create', [FlowController::class, 'store'], ['manager']);
-    $router->get('/flows/{id}/edit', [FlowController::class, 'edit']);
+    $router->get('/flows/{id}/edit', [FlowController::class, 'edit'], ['manager']);
     $router->post('/flows/{id}/edit', [FlowController::class, 'update'], ['manager']);
     $router->post('/flows/{id}/publish', [FlowController::class, 'publish'], ['manager']);
     $router->post('/flows/{id}/duplicate', [FlowController::class, 'duplicate'], ['manager']);
@@ -175,18 +175,18 @@ $router->group('', function (Router $router) {
     // Macros (criação é gerente+)
     $router->get('/macros', [InboxController::class, 'macros']);
     $router->post('/macros', [InboxController::class, 'storeMacro'], ['manager']);
-    $router->get('/macros/{id}/edit', [InboxController::class, 'editMacro']);
+    $router->get('/macros/{id}/edit', [InboxController::class, 'editMacro'], ['manager']);
     $router->post('/macros/{id}', [InboxController::class, 'updateMacro'], ['manager']);
     $router->post('/macros/{id}/delete', [InboxController::class, 'deleteMacro'], ['manager']);
 
     // Library (tags + canned responses; escrita é gerente+)
     $router->get('/library', [LibraryController::class, 'index']);
     $router->post('/library/tags', [LibraryController::class, 'storeTag'], ['manager']);
-    $router->get('/library/tags/{id}/edit', [LibraryController::class, 'editTag']);
+    $router->get('/library/tags/{id}/edit', [LibraryController::class, 'editTag'], ['manager']);
     $router->post('/library/tags/{id}', [LibraryController::class, 'updateTag'], ['manager']);
     $router->post('/library/tags/{id}/delete', [LibraryController::class, 'deleteTag'], ['manager']);
     $router->post('/library/canned', [LibraryController::class, 'storeCanned'], ['manager']);
-    $router->get('/library/canned/{id}/edit', [LibraryController::class, 'editCanned']);
+    $router->get('/library/canned/{id}/edit', [LibraryController::class, 'editCanned'], ['manager']);
     $router->post('/library/canned/{id}', [LibraryController::class, 'updateCanned'], ['manager']);
     $router->post('/library/canned/{id}/delete', [LibraryController::class, 'deleteCanned'], ['manager']);
 
@@ -205,16 +205,16 @@ $router->group('', function (Router $router) {
     // Wiki / Base de Conhecimento (leitura: qualquer autenticado; escrita: gerente+)
     $router->get('/wiki', [WikiController::class, 'index']);
     $router->get('/wiki/categories', [WikiController::class, 'categories']);
-    $router->get('/wiki/categories/create', [WikiController::class, 'categoryForm']);
+    $router->get('/wiki/categories/create', [WikiController::class, 'categoryForm'], ['manager']);
     $router->post('/wiki/categories/create', [WikiController::class, 'storeCategory'], ['manager']);
-    $router->get('/wiki/categories/{id}/edit', [WikiController::class, 'categoryForm']);
+    $router->get('/wiki/categories/{id}/edit', [WikiController::class, 'categoryForm'], ['manager']);
     $router->post('/wiki/categories/{id}/edit', [WikiController::class, 'updateCategory'], ['manager']);
     $router->post('/wiki/categories/{id}/delete', [WikiController::class, 'deleteCategory'], ['manager']);
     $router->post('/wiki/categories/reorder', [WikiController::class, 'reorderCategories'], ['manager']);
     $router->get('/wiki/articles', [WikiController::class, 'articles']);
-    $router->get('/wiki/articles/create', [WikiController::class, 'articleForm']);
+    $router->get('/wiki/articles/create', [WikiController::class, 'articleForm'], ['manager']);
     $router->post('/wiki/articles/create', [WikiController::class, 'storeArticle'], ['manager']);
-    $router->get('/wiki/articles/{id}/edit', [WikiController::class, 'articleForm']);
+    $router->get('/wiki/articles/{id}/edit', [WikiController::class, 'articleForm'], ['manager']);
     $router->post('/wiki/articles/{id}/edit', [WikiController::class, 'updateArticle'], ['manager']);
     $router->post('/wiki/articles/{id}/delete', [WikiController::class, 'deleteArticle'], ['manager']);
     $router->post('/wiki/articles/reorder', [WikiController::class, 'reorderArticles'], ['manager']);

@@ -13,6 +13,8 @@ RewriteRule .* - [E=HTTP_AUTHORIZATION:%{HTTP:Authorization}]
     Header always set X-Content-Type-Options "nosniff"
     Header always set Referrer-Policy "strict-origin-when-cross-origin"
     Header always set Permissions-Policy "microphone=(self), camera=(), geolocation=()"
+    # HSTS só em HTTPS (env=HTTPS). Sem efeito em HTTP.
+    Header always set Strict-Transport-Security "max-age=31536000; includeSubDomains" env=HTTPS
 </IfModule>
 
 # Cache agressivo para assets versionados (?v=)
