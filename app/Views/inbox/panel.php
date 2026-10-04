@@ -2816,6 +2816,11 @@ function pollMeta() {
         }
         var asg = document.getElementById('convAssigned');
         if (asg) asg.textContent = c.assigned_user_name || 'Sem responsável';
+        var ust = document.getElementById('convUnitStore');
+        if (ust && typeof c.unit !== 'undefined' && c.unit !== ust.value) {
+            ust.dataset.currentUnit = c.unit || '';
+            if (typeof unitLoadStores === 'function') unitLoadStores();
+        }
     }).catch(function() {});
 }
 function statusBadgeHtml(s) {
