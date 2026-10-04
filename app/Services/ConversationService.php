@@ -227,6 +227,12 @@ class ConversationService
             Conversation::addEvent($conversationId, 'flow_stopped', 'Fluxo interrompido por atribuição manual', $assignedBy);
         }
 
+        // Assumiu: sai a tag "Aberto" (fluxo encerrado aguardando humano).
+        $abertoTag = \App\Models\Tag::findByName('Aberto');
+        if ($abertoTag) {
+            Conversation::removeTag($conversationId, (int) $abertoTag['id']);
+        }
+
         // Notify the assigned user
         if ($userId !== $assignedBy) {
             Notification::assigned($userId, $conversationId, $assignedBy);
