@@ -42,6 +42,9 @@ class UserController
         $email = $request->post('email');
         $password = $request->post('password');
         $role = $request->post('role', 'agent');
+        if (!in_array($role, ['admin', 'manager', 'agent', 'viewer'], true)) {
+            $role = 'agent';
+        }
 
         $errors = $request->validate([
             'name' => 'required|min:3',
@@ -102,11 +105,23 @@ class UserController
 
     public function update(Request $request, int $id): void
     {
+        $role = $request->post('role', 'agent');
+        if (!in_array($role, ['admin', 'manager', 'agent', 'viewer'], true)) {
+            $role = 'agent';
+        }
+        // Anti-lockout: admin não se demote nem se desativa.
+        if ($id === Auth::id()) {
+            $role = 'admin';
+        }
+        $isActive = $request->post('is_active') ? 1 : 0;
+        if ($id === Auth::id()) {
+            $isActive = 1;
+        }
         $data = [
             'name' => $request->post('name'),
             'email' => $request->post('email'),
-            'role' => $request->post('role', 'agent'),
-            'is_active' => $request->post('is_active') ? 1 : 0,
+            'role' => $role,
+            'is_active' => $isActive,
         ];
 
         $password = $request->post('password');

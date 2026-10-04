@@ -87,8 +87,10 @@ class Router
         try {
             $controller->$action(...$params);
         } catch (\Exception $e) {
+            error_log('Router dispatch error: ' . $e->getMessage());
             if ($request->wantsJson()) {
-                $this->jsonResponse(['error' => $e->getMessage()], 500);
+                $msg = env('APP_DEBUG', false) ? $e->getMessage() : 'Erro interno do servidor.';
+                $this->jsonResponse(['error' => $msg], 500);
             } else {
                 if (env('APP_DEBUG', false)) {
                     throw $e;

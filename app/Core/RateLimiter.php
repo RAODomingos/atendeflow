@@ -89,7 +89,10 @@ class RateLimiter
 
     public static function clientKey(string $prefix): string
     {
-        $ip = $_SERVER['HTTP_X_FORWARDED_FOR'] ?? $_SERVER['REMOTE_ADDR'] ?? 'unknown';
+        // REMOTE_ADDR apenas: X-Forwarded-For é forjável pelo cliente e
+        // burlava o rate-limit do login. Atrás de proxy, configure o
+        // proxy para sobrescrever REMOTE_ADDR.
+        $ip = $_SERVER['REMOTE_ADDR'] ?? 'unknown';
         $ip = trim(explode(',', (string) $ip)[0]);
         return $prefix . ':' . $ip;
     }

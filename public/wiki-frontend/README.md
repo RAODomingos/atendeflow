@@ -20,8 +20,8 @@ Nenhum PHP/banco aqui: só configure **URL + Key**.
 
 ## Como funciona
 
-- Categorias: `GET {API_URL}/api/wiki/categories?api_key={KEY}`
-- Artigos: `GET {API_URL}/api/wiki/articles?api_key={KEY}`
+- Categorias: `GET {API_URL}/api/wiki/categories` (header `X-API-Key: {KEY}`)
+- Artigos: `GET {API_URL}/api/wiki/articles` (header `X-API-Key: {KEY}`)
 - As imagens vêm em **URL absoluta** (`cover_image`, `content_absolute`),
   então funcionam mesmo em outro domínio — sem copiar `uploads/`.
 - **ChatWeb**: o portal busca `GET {API_URL}/api/wiki/chat-config` e injeta

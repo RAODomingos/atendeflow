@@ -74,11 +74,21 @@ class Auth
 
     public static function isAdmin(): bool
     {
+        // Revalida no banco (não confia no role em cache na sessão:
+        // demote/desativação revogam na próxima requisição).
+        if (Session::has('user_id')) {
+            $u = self::user();
+            return $u !== null && ($u['role'] ?? null) === 'admin';
+        }
         return self::role() === 'admin';
     }
 
     public static function isManager(): bool
     {
+        if (Session::has('user_id')) {
+            $u = self::user();
+            return $u !== null && in_array($u['role'] ?? null, ['admin', 'manager'], true);
+        }
         return in_array(self::role(), ['admin', 'manager']);
     }
 

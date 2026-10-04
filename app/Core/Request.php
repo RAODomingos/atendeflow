@@ -114,7 +114,10 @@ class Request
 
     public function ip(): string
     {
-        return $this->server['HTTP_X_FORWARDED_FOR'] ?? $this->server['REMOTE_ADDR'] ?? '127.0.0.1';
+        // REMOTE_ADDR apenas (X-Forwarded-For é forjável). Usado só p/
+        // auditoria/views — nunca como chave de segurança.
+        $ip = $this->server['REMOTE_ADDR'] ?? '127.0.0.1';
+        return trim(explode(',', (string) $ip)[0]);
     }
 
     public function userAgent(): string

@@ -12,7 +12,8 @@ use App\Controllers\WikiController;
 /**
  * API pública do Wiki — consumida pelo front-end hospedado em qualquer lugar.
  *
- * Autenticação: header `X-API-Key: <wiki_api_key>` OU query `?api_key=<key>`.
+ * Autenticação: header `X-API-Key: <wiki_api_key>` (query ?api_key= removido:
+ * vaza em access-log/proxy/Referer).
  * CORS aberto (`*`) pois o front fica em outro domínio/hospedagem.
  *
  *  GET /api/wiki/categories
@@ -42,11 +43,12 @@ class WikiApiController
         foreach ($headers as $k => $v) {
             $lower[strtolower($k)] = $v;
         }
-        $provided = $lower['x-api-key'] ?? $_GET['api_key'] ?? null;
+        // Só header X-API-Key: ?api_key= vaza em access-log/proxy/Referer.
+        $provided = $lower['x-api-key'] ?? ($_SERVER['HTTP_X_API_KEY'] ?? null);
         $expected = (string) Setting::get('wiki_api_key', '');
 
         if ($expected === '' || !hash_equals($expected, (string) $provided)) {
-            View::json(['error' => 'Unauthorized - Invalid API key. Informe o header X-API-Key ou ?api_key=.'], 401);
+            View::json(['error' => 'Unauthorized - Invalid API key. Informe o header X-API-Key.'], 401);
         }
     }
 

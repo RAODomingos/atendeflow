@@ -51,9 +51,10 @@ function self_mime_allowed(string $type, string $ext, string $mime): bool
     if (in_array($mime, $map[$ext], true)) {
         return true;
     }
-    // Alguns formatos chegam como application/octet-stream: aceita para os
-    // tipos de mídia/office comuns (o bloqueio de executáveis acima já valeu).
-    if ($mime === 'application/octet-stream' && in_array($type, ['image', 'audio', 'video', 'file'], true)) {
+    // Alguns containers (zip/rar/office) chegam como octet-stream: aceita
+    // SÓ para o tipo 'file'. Mídia (image/audio/video) exige MIME exato —
+    // polyglot com MIME genérico não passa.
+    if ($mime === 'application/octet-stream' && $type === 'file') {
         return true;
     }
     return false;

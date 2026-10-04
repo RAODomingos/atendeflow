@@ -48,6 +48,17 @@ class DepartmentController
             View::redirect('/departments');
         }
 
+        if (!Auth::isManager()) {
+            $member = \App\Core\Database::getInstance()->fetch(
+                "SELECT 1 FROM department_users WHERE department_id = ? AND user_id = ? LIMIT 1",
+                [$id, Auth::id()]
+            );
+            if (!$member) {
+                Session::setFlash('error', 'Voce nao tem acesso a este departamento.');
+                View::redirect('/departments');
+            }
+        }
+
         $filters = [
             'year'    => (int) $request->get('year', 0),
             'month'   => (int) $request->get('month', 0),

@@ -21,6 +21,18 @@ class Session
             session_name('ATENDEFLOW_SESSION');
             session_start();
             self::$started = true;
+
+            // Timeout idle server-side: sem atividade por SESSION_LIFETIME,
+            // derruba a sessão (roubo de sessão perde valor rápido).
+            $lifetime = (int) env('SESSION_LIFETIME', 120) * 60;
+            $last = $_SESSION['last_activity'] ?? null;
+            if (is_int($last) && $lifetime > 0 && (time() - $last) > $lifetime) {
+                self::destroy();
+                session_name('ATENDEFLOW_SESSION');
+                session_start();
+                self::$started = true;
+            }
+            $_SESSION['last_activity'] = time();
         }
     }
 
@@ -50,9 +62,14 @@ class Session
         if (session_status() === PHP_SESSION_ACTIVE) {
             session_destroy();
         }
-        // Apaga o cookie de sessão no navegador.
+        // Apaga o cookie de sessão no navegador (espelha flags da criação).
         if (!headers_sent() && isset($_COOKIE[session_name()])) {
-            setcookie(session_name(), '', ['expires' => 1, 'path' => '/', 'httponly' => true, 'samesite' => 'Lax']);
+            $isHttps = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')
+                || (($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? '') === 'https');
+            setcookie(session_name(), '', [
+                'expires' => 1, 'path' => '/', 'httponly' => true,
+                'samesite' => 'Lax', 'secure' => $isHttps,
+            ]);
         }
         self::$started = false;
     }

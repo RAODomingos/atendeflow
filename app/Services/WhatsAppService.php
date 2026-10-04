@@ -232,9 +232,7 @@ class WhatsAppService
     public function handleWebhook(array $payload, string $rawBody = ''): void
     {
         $this->logWebhook('RECEIVED', [
-            'query' => $_GET,
             'event' => $payload['EventType'] ?? $payload['event'] ?? null,
-            'instance' => $payload['instanceName'] ?? $payload['instance'] ?? $payload['session'] ?? null,
             'has_message' => isset($payload['message']),
             'has_data' => isset($payload['data']),
             'has_payload' => isset($payload['payload']),

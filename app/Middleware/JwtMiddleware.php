@@ -31,8 +31,17 @@ class JwtMiddleware
 
         // Define o usuário na request para uso nos controllers
         $request->user = $payload;
-        $_SESSION['api_user_id'] = (int) $payload['sub'];
-        $_SESSION['api_user_role'] = $payload['role'] ?? 'agent';
+        $sub = (int) ($payload['sub'] ?? 0);
+        if ($sub <= 0) {
+            $this->unauthorized();
+            return false;
+        }
+        $role = (string) ($payload['role'] ?? 'agent');
+        if (!in_array($role, ['admin', 'manager', 'agent', 'viewer'], true)) {
+            $role = 'agent';
+        }
+        $_SESSION['api_user_id'] = $sub;
+        $_SESSION['api_user_role'] = $role;
 
         return true;
     }
@@ -51,7 +60,10 @@ class JwtMiddleware
         if (count($parts) !== 3) return null;
 
         [$header, $payload, $signature] = $parts;
-        $secret = env('JWT_SECRET', 'atendeflow-jwt-bridge-secret');
+        $secret = (string) env('JWT_SECRET', '');
+        if ($secret === '') {
+            return null;
+        }
 
         $expected = $this->base64UrlEncode(
             hash_hmac('sha256', "$header.$payload", $secret, true)

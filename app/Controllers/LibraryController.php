@@ -49,8 +49,8 @@ class LibraryController
         $name = trim((string) $request->post('name'));
         $color = $this->sanitizeColor((string) $request->post('color'));
 
-        if ($name === '') {
-            Session::setFlash('error', 'Informe o nome da etiqueta.');
+        if ($name === '' || mb_strlen($name) > 50 || strpbrk($name, '<>&"\'') !== false) {
+            Session::setFlash('error', 'Nome de etiqueta inválido (máx. 50 caracteres, sem <>&"\' ).');
             View::redirect('/library');
         }
 
@@ -73,8 +73,8 @@ class LibraryController
             View::redirect('/library');
         }
         $name = trim((string) $request->post('name'));
-        if ($name === '') {
-            Session::setFlash('error', 'Informe o nome da etiqueta.');
+        if ($name === '' || mb_strlen($name) > 50 || strpbrk($name, '<>&"\'') !== false) {
+            Session::setFlash('error', 'Nome de etiqueta inválido (máx. 50 caracteres, sem <>&"\' ).');
             View::redirect('/library');
         }
         $color = $this->sanitizeColor((string) $request->post('color'));
