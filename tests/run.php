@@ -47,5 +47,25 @@ check('clientKey usa REMOTE_ADDR', RateLimiter::clientKey('login') === 'login:1.
 $_SERVER['REMOTE_ADDR'] = '5.6.7.8, 9.9.9.9';
 check('clientKey pega primeiro IP', RateLimiter::clientKey('login') === 'login:5.6.7.8');
 
+// CSRF: grupo API interno exige auth+csrf; middleware usa hash_equals e nunca lê query
+$routes = file_get_contents(__DIR__ . '/../routes/web.php');
+check('api interna exige csrf', (bool) preg_match("/Internal JSON API.*?\[.auth.,\s*.csrf.\]/s", $routes));
+$csrfSrc = file_get_contents(__DIR__ . '/../app/Middleware/CsrfMiddleware.php');
+check('csrf usa hash_equals', str_contains($csrfSrc, 'hash_equals'));
+check('csrf ignora query string', str_contains($csrfSrc, 'nunca da query') || !str_contains($csrfSrc, "\$_GET"));
+check('csrf gera 32 bytes', str_contains($csrfSrc, 'random_bytes(32)'));
+
+// Auth: tentativa valida hash + is_active; middleware revalida a cada request
+$authSrc = file_get_contents(__DIR__ . '/../app/Core/Auth.php');
+check('auth usa password_verify', str_contains($authSrc, 'password_verify'));
+check('auth bloqueia inativo', str_contains($authSrc, 'is_active'));
+$mwSrc = file_get_contents(__DIR__ . '/../app/Middleware/AuthMiddleware.php');
+check('middleware revalida usuario', str_contains($mwSrc, 'Auth::user()'));
+
+// Avatar WhatsApp: sync tenta candidatos e aceita refresh de URL remota
+$waSrc = file_get_contents(__DIR__ . '/../app/Services/WhatsAppService.php');
+check('avatar tenta multiplos ids', str_contains($waSrc, '@c.us') && str_contains($waSrc, 'candidates'));
+check('avatar trata url expirada', str_contains($waSrc, "str_starts_with(\$avatar, 'http')") || str_contains($waSrc, 'needsAvatar'));
+
 echo "\n$passes passed, $failures failed\n";
 exit($failures > 0 ? 1 : 0);

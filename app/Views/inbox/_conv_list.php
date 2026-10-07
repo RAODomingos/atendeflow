@@ -49,7 +49,7 @@
            data-group-id="<?= !empty($conv['group_id']) ? (int)$conv['group_id'] : '' ?>">
             <div class="avatar-wrap">
                 <?php if ($conv['contact_avatar']): ?>
-                    <div class="avatar"><img src="<?= e(str_starts_with($conv['contact_avatar'], 'http') ? $conv['contact_avatar'] : upload_url($conv['contact_avatar'])) ?>" alt=""></div>
+                    <div class="avatar"><img src="<?= e(str_starts_with($conv['contact_avatar'], 'http') ? $conv['contact_avatar'] : upload_url($conv['contact_avatar'])) ?>" alt="" loading="lazy" onerror="this.parentElement.textContent=<?= json_encode(mb_strtoupper(mb_substr($conv['contact_name'] ?? '?', 0, 1))) ?>"></div>
                 <?php else: ?>
                     <div class="avatar"><?= mb_strtoupper(mb_substr($conv['contact_name'] ?? '?', 0, 1)) ?></div>
                 <?php endif; ?>

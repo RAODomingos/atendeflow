@@ -282,10 +282,65 @@ try {
 
 <div class="sidebar-overlay" id="sidebarOverlay" style="display:none"></div>
 <div class="top-progress" id="topProgress"></div>
+<div id="globalToastWrap" aria-live="polite" style="position:fixed;bottom:18px;right:18px;z-index:9999;display:flex;flex-direction:column;gap:8px"></div>
+<div id="confirmModalOverlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:10000;align-items:center;justify-content:center">
+    <div role="dialog" aria-modal="true" aria-labelledby="confirmModalTitle" id="confirmModalBox" style="background:var(--bg-panel,#fff);border-radius:12px;max-width:420px;width:calc(100% - 32px);padding:20px;box-shadow:0 20px 60px rgba(0,0,0,.3)">
+        <h3 id="confirmModalTitle" style="margin:0 0 8px;font-size:16px">Confirmar</h3>
+        <p id="confirmModalMsg" style="margin:0 0 16px;font-size:13.5px;color:var(--text-secondary,#555)"></p>
+        <div style="display:flex;gap:8px;justify-content:flex-end">
+            <button type="button" class="btn btn-outline" id="confirmModalCancel">Cancelar</button>
+            <button type="button" class="btn btn-primary" id="confirmModalOk">Confirmar</button>
+        </div>
+    </div>
+</div>
 
 <script src="<?= asset('assets/js/app.js') ?>"></script>
 <script src="<?= asset('assets/js/app-enhancements.js') ?>"></script>
 <script>
+// Toast + confirm acessíveis globais (substituem alert()/confirm() nativos).
+window.toast = window.toast || function(msg) {
+    var wrap = document.getElementById('globalToastWrap');
+    if (!wrap) { alert(msg); return; }
+    var t = document.createElement('div');
+    t.className = 'toast-msg';
+    t.textContent = String(msg == null ? '' : msg);
+    t.style.cssText = 'background:#1f2937;color:#fff;padding:10px 14px;border-radius:8px;font-size:13px;box-shadow:0 8px 24px rgba(0,0,0,.25);max-width:320px';
+    wrap.appendChild(t);
+    setTimeout(function(){ t.style.opacity = '0'; t.style.transition = 'opacity .3s'; }, 2600);
+    setTimeout(function(){ t.remove(); }, 3000);
+};
+window.confirmModal = window.confirmModal || function(msg, title) {
+    return new Promise(function(resolve) {
+        var overlay = document.getElementById('confirmModalOverlay');
+        var msgEl = document.getElementById('confirmModalMsg');
+        var titleEl = document.getElementById('confirmModalTitle');
+        var ok = document.getElementById('confirmModalOk');
+        var cancel = document.getElementById('confirmModalCancel');
+        if (!overlay) { resolve(confirm(msg)); return; }
+        titleEl.textContent = title || 'Confirmar';
+        msgEl.textContent = msg;
+        overlay.style.display = 'flex';
+        var prevFocus = document.activeElement;
+        ok.focus();
+        function close(val) {
+            overlay.style.display = 'none';
+            ok.removeEventListener('click', onOk);
+            cancel.removeEventListener('click', onCancel);
+            overlay.removeEventListener('click', onOverlay);
+            document.removeEventListener('keydown', onKey);
+            if (prevFocus && prevFocus.focus) prevFocus.focus();
+            resolve(val);
+        }
+        function onOk() { close(true); }
+        function onCancel() { close(false); }
+        function onOverlay(e) { if (e.target === overlay) close(false); }
+        function onKey(e) { if (e.key === 'Escape') close(false); }
+        ok.addEventListener('click', onOk);
+        cancel.addEventListener('click', onCancel);
+        overlay.addEventListener('click', onOverlay);
+        document.addEventListener('keydown', onKey);
+    });
+};
 // CSRF global: todo fetch() POST/PUT/DELETE same-origin leva X-CSRF-TOKEN automaticamente.
 (function(){
     var tok = document.querySelector('meta[name="csrf-token"]')?.content || '';

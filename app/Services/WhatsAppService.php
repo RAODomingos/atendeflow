@@ -975,14 +975,31 @@ class WhatsAppService
             $upd['name'] = $message->senderName;
         }
 
-        if (empty($contact['avatar'])) {
+        // Foto: preenche se vazia OU se for URL remota (pps.whatsapp.net expira).
+        // URL local avatars/* é permanente e não precisa refresh.
+        $avatar = (string) ($contact['avatar'] ?? '');
+        $needsAvatar = $avatar === '' || str_starts_with($avatar, 'http');
+        if ($needsAvatar) {
             $originalFrom = $message->extra['original_from'] ?? '';
-            if ($originalFrom !== '') {
+            // Candidatos p/ lookup: original (@c.us/@lid) + fone resolvido.
+            // WAHA precisa do ID com sufixo; Uazapi só usa dígitos.
+            $digits = preg_replace('/\D/', '', $message->from);
+            $candidates = array_values(array_unique(array_filter([
+                $originalFrom,
+                $digits !== '' ? $digits . '@c.us' : '',
+                $digits !== '' ? $digits . '@s.whatsapp.net' : '',
+                $digits,
+            ])));
+            if ($originalFrom !== '' || $digits !== '') {
                 try {
                     $conn = WhatsAppConnection::findByProviderId($providerName, $message->providerId);
                     if ($conn) {
                         $picProvider = WhatsAppManager::forConnection($conn);
-                        $picResult = $picProvider->getProfilePicture($conn, $originalFrom);
+                        $picResult = null;
+                        foreach ($candidates as $cand) {
+                            $picResult = $picProvider->getProfilePicture($conn, $cand);
+                            if ($picResult) break;
+                        }
                         if ($picResult) {
                             if (str_starts_with($picResult, 'data:')) {
                                 $raw = base64_decode(explode(',', $picResult, 2)[1] ?? '');

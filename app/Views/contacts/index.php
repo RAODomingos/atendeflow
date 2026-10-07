@@ -492,10 +492,10 @@ $newToday = $stats['new_today'] ?? 0;
                     }
                     closeListDrawer();
                 } else {
-                    alert(resp.error || 'Erro ao salvar contato.');
+                    window.toast(resp.error || 'Erro ao salvar contato.');
                 }
             })
-            .catch(function() { alert('Erro de rede. Tente novamente.'); })
+            .catch(function() { window.toast('Erro de rede. Tente novamente.'); })
             .finally(function() {
                 btn.disabled = false;
                 btn.innerHTML = '<i class="fas fa-save"></i> Salvar';

@@ -350,7 +350,7 @@ if (document.getElementById('conversationsList')) {
 function submitNewConv(event) {
     event.preventDefault();
     if (!document.getElementById('contactId').value) {
-        alert('Selecione um contato válido.');
+        window.toast('Selecione um contato válido.');
         return;
     }
     var form = document.getElementById('newConvForm');
@@ -363,7 +363,7 @@ function submitNewConv(event) {
         .then(function(r) { return r.json().then(function(j) { return { status: r.status, json: j }; }); })
         .then(function(resp) {
             if (resp.json.error) {
-                alert(resp.json.error);
+                window.toast(resp.json.error);
                 btn.disabled = false;
                 btn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10"/><path d="M12 8v8M8 12h8"/></svg> Criar Atendimento';
                 return;
@@ -372,7 +372,7 @@ function submitNewConv(event) {
             window.location.href = '<?= url('inbox') ?>?conv=' + resp.json.id;
         })
         .catch(function() {
-            alert('Erro ao criar atendimento.');
+            window.toast('Erro ao criar atendimento.');
             btn.disabled = false;
             btn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10"/><path d="M12 8v8M8 12h8"/></svg> Criar Atendimento';
         });

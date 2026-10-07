@@ -175,7 +175,7 @@ $renderReceipts = function (array $msg) {
             <button type="button" class="conv-name-btn" onclick="toggleClientDrawer()" title="Ver dados do cliente e histórico">
                 <div class="chat-header-avatar">
                     <?php if (!empty($contact['avatar'])): ?>
-                        <img src="<?= e(str_starts_with($contact['avatar'], 'http') ? $contact['avatar'] : upload_url($contact['avatar'])) ?>" alt="">
+                        <img src="<?= e(str_starts_with($contact['avatar'], 'http') ? $contact['avatar'] : upload_url($contact['avatar'])) ?>" alt="" loading="lazy" onerror="this.remove()">
                     <?php else: ?>
                         <?= e($initial) ?>
                     <?php endif; ?>
@@ -1173,10 +1173,10 @@ function submitContactEdit(e) {
             toast('Contato atualizado com sucesso');
             setTimeout(function() { location.reload(); }, 800);
         } else {
-            alert(resp.error || 'Erro ao atualizar contato');
+            toast(resp.error || 'Erro ao atualizar contato');
         }
     }).catch(function() {
-        alert('Erro de conexão. Tente novamente.');
+        toast('Erro de conexão. Tente novamente.');
     }).finally(function() {
         btn.disabled = false; btn.innerHTML = '<i class="fas fa-save"></i> Salvar';
     });
@@ -1297,11 +1297,14 @@ function applyMacro(id) {
     for (var i = 0; i < macros.length; i++) { if (macros[i].id == id) { m = macros[i]; break; } }
     var label = m ? macroPreview(m) : '';
     var msg = 'Aplicar macro' + (m ? ' "' + (m.title || '') + '"' : '') + (label ? '\n\n' + label : '') + '?';
-    if (!confirm(msg)) return;
-    postJson('/inbox/' + CONV_ID + '/macro', { macro_id: id }).then(function(r) {
-        if (r && r.success === false) { alert('Falha ao aplicar macro.'); return; }
-        location.reload();
-    }).catch(function() { location.reload(); });
+    var ask = (typeof OminiConfirm === 'function') ? OminiConfirm(msg) : (window.confirmModal ? window.confirmModal(msg, 'Aplicar macro') : Promise.resolve(confirm(msg)));
+    ask.then(function(ok) {
+        if (!ok) return;
+        postJson('/inbox/' + CONV_ID + '/macro', { macro_id: id }).then(function(r) {
+            if (r && r.success === false) { toast('Falha ao aplicar macro.'); return; }
+            location.reload();
+        }).catch(function() { location.reload(); });
+    });
 }
 
 /* ---------- Composer ---------- */
@@ -2049,12 +2052,12 @@ document.getElementById('messageInput')?.addEventListener('keydown', function(e)
                     toast(resp.delivery_error || 'Mensagem salva, mas NÃO entregue ao WhatsApp. Use "Tentar de novo".');
                 }
             } else if (resp && resp.error) {
-                alert(resp.error);
+                toast(resp.error);
             }
         }).catch(function() {
             clearTempMessages();
             ta.value = textToSend;
-            alert('Erro ao enviar mensagem. Seu texto foi restaurado — tente novamente.');
+            toast('Erro ao enviar mensagem. Seu texto foi restaurado — tente novamente.');
         }).finally(function() {
             if (btn) btn.disabled = false;
             doneProgress();
