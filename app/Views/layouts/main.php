@@ -3,16 +3,17 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title><?= e($title ?? 'Atendeflow') ?> - Atendeflow</title>
+    <title><?= e($title ?? 'OminiDesk') ?> - OminiDesk</title>
     <meta name="base-url" content="<?= rtrim(base_url(), '/') ?>">
     <meta name="user-name" content="<?= e(\App\Core\Session::get('user_name')) ?>">
     <meta name="user-role" content="<?= e(\App\Core\Session::get('user_role')) ?>">
-    <meta name="config-app-name" content="<?= e($config['app_name'] ?? 'Atendeflow') ?>">
+    <meta name="config-app-name" content="<?= e($config['app_name'] ?? 'OminiDesk') ?>">
     <meta name="config-chat-widget-enabled" content="<?= $config['chat_widget_enabled'] ?? 'true' ?>">
     <meta name="config-proactive-chat-enabled" content="<?= $config['proactive_chat_enabled'] ?? 'true' ?>">
     <meta name="csrf-token" content="<?= csrf_token() ?>">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+    <link rel="icon" type="image/png" href="<?= asset('assets/img/favicon.png') ?>">
     <link rel="stylesheet" href="<?= asset('assets/css/app.css') ?>">
     <script>
     (function(){try{var t=localStorage.getItem('omini-theme');if(!t)t=window.matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';if(t==='dark')document.documentElement.setAttribute('data-theme','dark');}catch(e){}})();
@@ -49,32 +50,13 @@ try {
 <div class="app<?= $isInbox ? ' app-inbox' : '' ?>" id="app">
     <header class="topbar">
         <div class="topbar-left">
-            <div class="topbar-waffle-wrap">
-                <button class="topbar-waffle" id="waffleBtn" title="Aplicativos" aria-label="Aplicativos" aria-haspopup="true">
-                    <span class="waffle-grid"><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></span>
-                </button>
-                <div class="waffle-menu" id="waffleMenu">
-                    <div class="waffle-menu-title">Aplicativos Atendeflow</div>
-                    <div class="waffle-grid-items">
-                        <a href="<?= route('dashboard') ?>" class="waffle-app"><span class="waffle-app-icon"><i class="fa-solid fa-chart-pie"></i></span>Dashboard</a>
-                        <a href="<?= route('inbox') ?>" class="waffle-app"><span class="waffle-app-icon"><i class="fa-solid fa-inbox"></i></span>Caixa de Entrada</a>
-                        <a href="<?= route('contacts') ?>" class="waffle-app"><span class="waffle-app-icon"><i class="fa-solid fa-address-book"></i></span>Contatos</a>
-                        <a href="<?= route('departments') ?>" class="waffle-app"><span class="waffle-app-icon"><i class="fa-solid fa-sitemap"></i></span>Departamentos</a>
-                        <a href="<?= route('flows') ?>" class="waffle-app"><span class="waffle-app-icon"><i class="fa-solid fa-diagram-project"></i></span>Fluxos</a>
-                        <a href="<?= url('library') ?>" class="waffle-app"><span class="waffle-app-icon"><i class="fa-solid fa-book"></i></span>Tags e Respostas</a>
-                        <a href="<?= url('wiki') ?>" class="waffle-app"><span class="waffle-app-icon"><i class="fa-solid fa-book-open"></i></span>Base de Conhecimento</a>
-                        <?php if (\App\Core\Auth::isManager()): ?>
-                        <a href="<?= url('reports') ?>" class="waffle-app"><span class="waffle-app-icon"><i class="fa-solid fa-chart-line"></i></span>Relatórios</a>
-                        <?php endif; ?>
-                        <?php if (\App\Core\Auth::isAdmin()): ?>
-                        <a href="<?= url('settings') ?>" class="waffle-app"><span class="waffle-app-icon"><i class="fa-solid fa-gear"></i></span>Configurações</a>
-                        <?php endif; ?>
-                    </div>
-                </div>
-            </div>
-            <button class="topbar-toggle" id="sidebarToggle" title="Menu">
+            <button class="topbar-toggle" id="sidebarToggle" title="Ocultar / exibir menu" aria-label="Ocultar / exibir menu" aria-expanded="true" aria-controls="sidebarNav">
                 <i class="fa-solid fa-bars"></i>
             </button>
+            <a href="<?= route('dashboard') ?>" class="topbar-brand" title="OminiDesk - Início">
+                <img class="topbar-brand-img" src="<?= asset('assets/img/ominidesk-mark.png') ?>" alt="Ominidesk" width="28" height="28">
+                <span class="topbar-brand-name">Ominidesk</span>
+            </a>
             <div class="topbar-title-wrap">
                 <h1 class="topbar-title"><?= e($title ?? 'Dashboard') ?></h1>
             </div>
@@ -121,11 +103,7 @@ try {
             </div>
         </div>
     </header>
-    <aside class="sidebar">
-        <a href="<?= route('dashboard') ?>" class="sidebar-brand" title="Atendeflow">
-            <span class="sidebar-brand-icon"><i class="fas fa-headset"></i></span>
-            <span class="sidebar-brand-name">Atendeflow</span>
-        </a>
+    <aside class="sidebar" id="sidebarNav">
         <div class="nav-section" style="margin-top:0">
             <a href="<?= route('dashboard') ?>" class="nav-item <?= $activePage === 'dashboard' ? 'active' : '' ?>">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/></svg>
@@ -308,6 +286,32 @@ try {
 <script src="<?= asset('assets/js/app.js') ?>"></script>
 <script src="<?= asset('assets/js/app-enhancements.js') ?>"></script>
 <script>
+// CSRF global: todo fetch() POST/PUT/DELETE same-origin leva X-CSRF-TOKEN automaticamente.
+(function(){
+    var tok = document.querySelector('meta[name="csrf-token"]')?.content || '';
+    if (!tok || window.__csrfPatched) return;
+    window.__csrfPatched = true;
+    var origFetch = window.fetch.bind(window);
+    window.fetch = function(input, init) {
+        init = init || {};
+        var method = (init.method || 'GET').toUpperCase();
+        var url = typeof input === 'string' ? input : (input && input.url) || '';
+        var sameOrigin = !/^https?:\/\//i.test(url) || url.indexOf(location.origin) === 0;
+        if (method !== 'GET' && method !== 'HEAD' && sameOrigin) {
+            init.headers = init.headers || {};
+            if (init.headers instanceof Headers) {
+                if (!init.headers.has('X-CSRF-TOKEN')) init.headers.set('X-CSRF-TOKEN', tok);
+            } else if (Array.isArray(init.headers)) {
+                var has = init.headers.some(function(h){ return String(h[0]).toLowerCase() === 'x-csrf-token'; });
+                if (!has) init.headers.push(['X-CSRF-TOKEN', tok]);
+            } else {
+                var found = Object.keys(init.headers).some(function(k){ return k.toLowerCase() === 'x-csrf-token'; });
+                if (!found) init.headers['X-CSRF-TOKEN'] = tok;
+            }
+        }
+        return origFetch(input, init);
+    };
+})();
 (function(){
     var bar = document.getElementById('topProgress');
     if(bar){
@@ -464,21 +468,39 @@ try {
     var sidebar=document.querySelector('.sidebar');
     var overlay=document.getElementById('sidebarOverlay');
     function isMobile(){return window.innerWidth<=768;}
+    function syncToggle(){
+        if(!toggle||!app)return;
+        var hidden=app.classList.contains('sidebar-hidden');
+        toggle.setAttribute('aria-expanded',hidden?'false':'true');
+        toggle.title=hidden?'Exibir menu':'Ocultar menu';
+    }
     if(toggle&&sidebar&&overlay){
-        // Estado colapsado persistido (desktop)
-        try{if(localStorage.getItem('af_sidebar_collapsed')==='1'&&!isMobile())app?.classList.add('collapsed');}catch(e){}
+        // Migra estado antigo (collapsed = só ícones) para oculto total.
+        // A logo agora vive na topbar, então ocultar o sidebar não remove a marca.
+        try{
+            var legacy=null;
+            try{legacy=localStorage.getItem('af_sidebar_collapsed');}catch(e){}
+            var hidden=localStorage.getItem('af_sidebar_hidden');
+            if(hidden===null&&legacy==='1'){hidden='1';}
+            if(hidden==='1'&&!isMobile())app?.classList.add('sidebar-hidden');
+            // Limpa chave legada
+            try{localStorage.removeItem('af_sidebar_collapsed');}catch(e){}
+        }catch(e){}
+        syncToggle();
         toggle.addEventListener('click',function(){
             if(isMobile()){
                 sidebar.classList.toggle('open');overlay.classList.toggle('open');
                 overlay.style.display=sidebar.classList.contains('open')?'block':'none';
             }else if(app){
-                app.classList.toggle('collapsed');
-                try{localStorage.setItem('af_sidebar_collapsed',app.classList.contains('collapsed')?'1':'0');}catch(e){}
+                app.classList.toggle('sidebar-hidden');
+                try{localStorage.setItem('af_sidebar_hidden',app.classList.contains('sidebar-hidden')?'1':'0');}catch(e){}
+                syncToggle();
             }
         });
         overlay.addEventListener('click',function(){sidebar.classList.remove('open');overlay.classList.remove('open');overlay.style.display='none';});
         window.addEventListener('resize',function(){
             if(!isMobile()){sidebar.classList.remove('open');overlay.classList.remove('open');overlay.style.display='none';}
+            syncToggle();
         });
     }
 })();
@@ -494,21 +516,6 @@ try {
     });
     function checkMobile(){if(window.innerWidth>768)closeSidebar();}
     window.addEventListener('resize',checkMobile);
-})();
-(function(){
-    var waffleBtn=document.getElementById('waffleBtn');
-    var waffleMenu=document.getElementById('waffleMenu');
-    if(waffleBtn&&waffleMenu){
-        waffleBtn.addEventListener('click',function(e){
-            e.stopPropagation();
-            waffleMenu.classList.toggle('open');
-        });
-        waffleMenu.addEventListener('click',function(e){e.stopPropagation();});
-        document.addEventListener('click',function(){waffleMenu.classList.remove('open');});
-        document.addEventListener('keydown',function(e){
-            if(e.key==='Escape')waffleMenu.classList.remove('open');
-        });
-    }
 })();
 (function(){
     var input=document.getElementById('globalSearch');

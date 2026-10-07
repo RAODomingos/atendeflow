@@ -1179,6 +1179,8 @@ class WhatsAppService
     {
         $stored = (string) ($connection['webhook_secret'] ?? '');
         if ($stored === '') {
+            // Compat: conexão legada sem secret. Não bloqueia, mas alerta para configurar.
+            error_log('WhatsApp webhook sem webhook_secret configurado (connection_id=' . ($connection['id'] ?? '?') . '). Configure para exigir HMAC.');
             return true;
         }
 

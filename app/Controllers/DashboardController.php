@@ -154,9 +154,138 @@ class DashboardController
         // --- Inbox breakdown (open count per inbox) ---
         $openByInbox = Conversation::openCountsByInbox($inboxIds);
 
+        // --- Atendimento normal x grupos WhatsApp (group_id) ---
+        $hasGroups = Conversation::hasGroupColumn();
+        $split = ['normal' => [], 'groups' => []];
+        $mySplit = ['normal' => [], 'groups' => []];
+        $todayNormalConvs = $todayGroupConvs = 0;
+        $prevNormalConvs = $prevGroupConvs = 0;
+        $todayNormalMsgs = $todayGroupMsgs = 0;
+        $todayNormalResolved = $todayGroupResolved = 0;
+        $trendNormalValues = $trendGroupValues = [];
+        $groupOpen = $groupNew = $myGroupOpen = 0;
+        $groupMentionsUnread = 0;
+        $totalGroups = 0;
+        $groupsTop = [];
+        if ($hasGroups) {
+            try {
+                $split = Conversation::countByStatusSplit();
+                $mySplit = Conversation::countByStatusSplit($userId);
+                foreach (['new', 'open', 'waiting_customer', 'waiting_internal'] as $s) {
+                    $groupOpen += $split['groups'][$s] ?? 0;
+                }
+                $groupNew = $split['groups']['new'] ?? 0;
+                foreach (['new', 'open', 'waiting_customer', 'waiting_internal'] as $s) {
+                    $myGroupOpen += $mySplit['groups'][$s] ?? 0;
+                }
+                $normalOpen = $globalOpen - $groupOpen;
+
+                $convSplit = function (string $from, string $to) use ($db) {
+                    $rows = $db->fetchAll(
+                        "SELECT (group_id IS NOT NULL) as g, COUNT(*) as c FROM conversations
+                         WHERE created_at >= ? AND created_at < ? GROUP BY g",
+                        [$from, $to]
+                    );
+                    $n = $g = 0;
+                    foreach ($rows as $r) {
+                        if (!empty($r['g'])) $g = (int) $r['c'];
+                        else $n = (int) $r['c'];
+                    }
+                    return [$n, $g];
+                };
+                [$todayNormalConvs, $todayGroupConvs] = $convSplit($todayStart, date('Y-m-d H:i:s', strtotime('+1 day', strtotime($todayStart))));
+                [$prevNormalConvs, $prevGroupConvs] = $convSplit($yesterdayStart, $todayStart);
+
+                $resSplit = function (string $from, string $to) use ($db) {
+                    $rows = $db->fetchAll(
+                        "SELECT (group_id IS NOT NULL) as g, COUNT(*) as c FROM conversations
+                         WHERE status = 'resolved' AND closed_at >= ? AND closed_at < ? GROUP BY g",
+                        [$from, $to]
+                    );
+                    $n = $g = 0;
+                    foreach ($rows as $r) {
+                        if (!empty($r['g'])) $g = (int) $r['c'];
+                        else $n = (int) $r['c'];
+                    }
+                    return [$n, $g];
+                };
+                [$todayNormalResolved, $todayGroupResolved] = $resSplit($todayStart, date('Y-m-d H:i:s', strtotime('+1 day', strtotime($todayStart))));
+
+                $msgRows = $db->fetchAll(
+                    "SELECT (c.group_id IS NOT NULL) as g, COUNT(*) as c FROM messages m
+                     JOIN conversations c ON c.id = m.conversation_id
+                     WHERE m.created_at >= ? GROUP BY g",
+                    [$todayStart]
+                );
+                foreach ($msgRows as $r) {
+                    if (!empty($r['g'])) $todayGroupMsgs = (int) $r['c'];
+                    else $todayNormalMsgs = (int) $r['c'];
+                }
+
+                // Tendência 7d separada (novas conversas por dia)
+                $trendSplitRows = $db->fetchAll(
+                    "SELECT DATE(created_at) as date, (group_id IS NOT NULL) as g, COUNT(*) as total
+                     FROM conversations
+                     WHERE created_at >= DATE_SUB(CURDATE(), INTERVAL 7 DAY)
+                     GROUP BY DATE(created_at), g"
+                );
+                $trendNormalMap = $trendGroupMap = [];
+                foreach ($trendSplitRows as $row) {
+                    if (!empty($row['g'])) $trendGroupMap[$row['date']] = (int) $row['total'];
+                    else $trendNormalMap[$row['date']] = (int) $row['total'];
+                }
+                for ($i = 6; $i >= 0; $i--) {
+                    $d = date('Y-m-d', strtotime("-{$i} days"));
+                    $trendNormalValues[] = $trendNormalMap[$d] ?? 0;
+                    $trendGroupValues[] = $trendGroupMap[$d] ?? 0;
+                }
+
+                // Painel de grupos: menções não lidas + top grupos por atividade
+                $groupMentionsUnread = \App\Models\WhatsAppGroup::unreadMentionsTotal();
+                $allGroups = \App\Models\WhatsAppGroup::allWithDetails();
+                $totalGroups = count($allGroups);
+                $groupsTop = array_slice($allGroups, 0, 5);
+            } catch (\Throwable $e) {
+                $hasGroups = false;
+            }
+        }
+        if (!$hasGroups) {
+            $normalOpen = $globalOpen;
+            $split = ['normal' => $globalCounts, 'groups' => array_fill_keys(['new', 'open', 'waiting_customer', 'waiting_internal', 'resolved', 'closed', 'spam'], 0)];
+            $mySplit = ['normal' => $myCounts, 'groups' => []];
+            $todayNormalConvs = $todayConversations;
+            $prevNormalConvs = $prevDayConversations;
+            $todayNormalMsgs = $todayMessages;
+            $todayNormalResolved = $todayResolved;
+            $trendNormalValues = $trendValues;
+            $trendGroupValues = array_fill(0, 7, 0);
+        }
+
         // --- Recent conversations (global, unassigned + assigned) ---
         $recentConversations = Conversation::getInboxConversations(null, null, 'open');
         $recentConversations = array_slice($recentConversations, 0, 10);
+        if ($hasGroups) {
+            try {
+                $gids = array_values(array_unique(array_filter(array_map(
+                    fn($c) => $c['group_id'] ?? null,
+                    $recentConversations
+                ))));
+                $groupNames = [];
+                if ($gids) {
+                    $ph = implode(',', array_fill(0, count($gids), '?'));
+                    foreach ($db->fetchAll("SELECT id, name FROM whatsapp_groups WHERE id IN ({$ph})", $gids) as $gr) {
+                        $groupNames[$gr['id']] = $gr['name'];
+                    }
+                }
+                foreach ($recentConversations as &$rc) {
+                    if (!empty($rc['group_id'])) {
+                        $rc['group_name'] = $groupNames[$rc['group_id']] ?? 'Grupo';
+                    }
+                }
+                unset($rc);
+            } catch (\Throwable $e) {
+            }
+        }
 
         // --- Admin-only data ---
         if ($isAdmin) {
@@ -193,6 +322,26 @@ class DashboardController
             'trendLabels' => $trendLabels,
             'trendValues' => $trendValues,
             'trendResolvedValues' => $trendResolvedValues,
+            'hasGroups' => $hasGroups,
+            'split' => $split,
+            'mySplit' => $mySplit,
+            'normalOpen' => $normalOpen ?? $globalOpen,
+            'groupOpen' => $groupOpen,
+            'groupNew' => $groupNew,
+            'myGroupOpen' => $myGroupOpen,
+            'todayNormalConvs' => $todayNormalConvs,
+            'todayGroupConvs' => $todayGroupConvs,
+            'prevNormalConvs' => $prevNormalConvs,
+            'prevGroupConvs' => $prevGroupConvs,
+            'todayNormalMsgs' => $todayNormalMsgs,
+            'todayGroupMsgs' => $todayGroupMsgs,
+            'todayNormalResolved' => $todayNormalResolved,
+            'todayGroupResolved' => $todayGroupResolved,
+            'trendNormalValues' => $trendNormalValues,
+            'trendGroupValues' => $trendGroupValues,
+            'groupMentionsUnread' => $groupMentionsUnread,
+            'totalGroups' => $totalGroups,
+            'groupsTop' => $groupsTop,
             'deptData' => $deptData,
             'agentData' => $agentData,
             'recentConversations' => $recentConversations,

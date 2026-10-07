@@ -2282,7 +2282,8 @@ function decorateDates() {
             cur = dk;
             var sep = document.createElement('div'); sep.className = 'date-sep';
             var label = m[0]; if (dk === dayKey(new Date().toISOString())) label = 'Hoje';
-            sep.innerHTML = '<span>' + label + '</span>';
+            var span = document.createElement('span'); span.textContent = label;
+            sep.appendChild(span);
             el.parentNode.insertBefore(sep, el);
         }
     });
@@ -2464,9 +2465,10 @@ function renderSuggest(token) {
         if (composer) { composer.style.position = 'relative'; composer.appendChild(suggestBox); }
     }
     if (!suggestItems.length) { suggestBox.style.display = 'none'; return; }
+    function escHtml(s){ return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
     suggestBox.innerHTML = suggestItems.map(function(c, i) {
-        var title = (c.title || '').replace(/</g, '');
-        var preview = (c.content || '').replace(/</g, '').substring(0, 80).replace(/\n/g, ' ');
+        var title = escHtml(c.title || '').substring(0, 80);
+        var preview = escHtml(c.content || '').substring(0, 80).replace(/\n/g, ' ');
         return '<div class="composer-suggest-item" data-i="' + i + '"><div class="cs-title">' + title + '</div><div class="cs-preview">' + preview + '</div></div>';
     }).join('');
     suggestBox.querySelectorAll('.composer-suggest-item').forEach(function(el) {

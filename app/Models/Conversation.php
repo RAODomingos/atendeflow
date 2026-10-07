@@ -509,6 +509,65 @@ class Conversation
         return $counts;
     }
 
+    private static ?bool $groupColCache = null;
+
+    /**
+     * Indica se a base já tem a coluna conversations.group_id
+     * (conversas de grupos WhatsApp). Bases antigas não têm.
+     */
+    public static function hasGroupColumn(): bool
+    {
+        if (self::$groupColCache !== null) {
+            return self::$groupColCache;
+        }
+        try {
+            $row = Database::getInstance()->fetch("SHOW COLUMNS FROM conversations LIKE 'group_id'");
+            self::$groupColCache = !empty($row);
+        } catch (\Throwable $e) {
+            self::$groupColCache = false;
+        }
+        return self::$groupColCache;
+    }
+
+    /**
+     * Contagem por status separada em atendimento normal (group_id NULL)
+     * x grupos WhatsApp (group_id NOT NULL). Sem a coluna, tudo é normal.
+     *
+     * @return array{normal: array<string,int>, groups: array<string,int>}
+     */
+    public static function countByStatusSplit(?int $userId = null): array
+    {
+        $keys = ['new', 'open', 'waiting_customer', 'waiting_internal', 'resolved', 'closed', 'spam'];
+        $empty = array_fill_keys($keys, 0);
+        $out = ['normal' => $empty, 'groups' => $empty];
+        if (!self::hasGroupColumn()) {
+            $out['normal'] = self::countByStatus($userId);
+            return $out;
+        }
+        $where = '1=1';
+        $params = [];
+        if ($userId) {
+            $where .= ' AND assigned_user_id = ?';
+            $params[] = $userId;
+        }
+        try {
+            $rows = Database::getInstance()->fetchAll(
+                "SELECT status, (group_id IS NOT NULL) as is_group, COUNT(*) as total
+                 FROM conversations WHERE {$where} GROUP BY status, is_group",
+                $params
+            );
+            foreach ($rows as $row) {
+                $slot = !empty($row['is_group']) ? 'groups' : 'normal';
+                if (isset($out[$slot][$row['status']])) {
+                    $out[$slot][$row['status']] = (int) $row['total'];
+                }
+            }
+        } catch (\Throwable $e) {
+            $out['normal'] = self::countByStatus($userId);
+        }
+        return $out;
+    }
+
     public static function getMessages(int $conversationId, array $opts = []): array
     {
         $sql = "SELECT m.*, u.name as user_name, u.avatar as user_avatar, ct.avatar as contact_avatar

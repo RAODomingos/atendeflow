@@ -1106,7 +1106,7 @@ function saveFlow() {
             const okNo = !cfg.no_store_node_id || nodes.some(n => nid(n.id) !== '' && nid(n.id) === nid(cfg.no_store_node_id));
             const okNext = !cfg.next_node_id || nodes.some(n => nid(n.id) !== '' && nid(n.id) === nid(cfg.next_node_id));
             if (!okNo || !okNext) {
-                alert('Nó "' + (node.title || 'Loja/Unidade') + '": destino inválido. Ajuste os nós de saída no editor.');
+                alert('Nó "' + String(node.title || 'Loja/Unidade').replace(/["\\\n\r]/g, '') + '": destino inválido. Ajuste os nós de saída no editor.');
                 throw new Error('guild_select com destino inválido');
             }
             node.options = [];

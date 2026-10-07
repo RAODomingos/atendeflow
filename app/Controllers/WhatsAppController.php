@@ -66,6 +66,15 @@ class WhatsAppController
      */
     public function webhook(Request $request): void
     {
+        // Throttle generoso p/ rajadas do provedor: 120 req/min por IP, bloqueio 60s.
+        $rlKey = \App\Core\RateLimiter::clientKey('webhook');
+        if (\App\Core\RateLimiter::blocked($rlKey) > 0) {
+            http_response_code(429);
+            header('Content-Type: application/json');
+            echo json_encode(['ok' => false, 'error' => 'rate limited']);
+            return;
+        }
+        \App\Core\RateLimiter::hit($rlKey, 120, 60, 60);
         $raw = file_get_contents('php://input');
         // Log mínimo sem PII/segredos: nunca gravar query (?secret=) nem corpo.
         @file_put_contents(dirname(__DIR__, 2) . '/storage/logs/webhook.log',

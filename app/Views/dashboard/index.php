@@ -67,6 +67,30 @@ $statusLabels = [
     'resolved' => 'Resolvidos', 'closed' => 'Fechados', 'spam' => 'Spam',
 ];
 
+// ---------- Normal x Grupos: barras agrupadas 7d ----------
+$ngW = 720; $ngH = 250;
+$ngPadL = 40; $ngPadR = 14; $ngPadT = 22; $ngPadB = 30;
+$ngPlotW = $ngW - $ngPadL - $ngPadR;
+$ngPlotH = $ngH - $ngPadT - $ngPadB;
+$ngRawMax = max(array_merge($trendNormalValues, $trendGroupValues, [1]));
+$ngStep = $ngRawMax > 100 ? 50 : ($ngRawMax > 20 ? 10 : ($ngRawMax > 5 ? 2 : 1));
+$ngMax = max((int) ceil($ngRawMax / $ngStep) * $ngStep, $ngStep);
+$ngScale = $ngPlotH / $ngMax;
+$ngDays = count($trendLabels);
+$ngSlot = $ngDays > 0 ? $ngPlotW / $ngDays : $ngPlotW;
+$ngBarW = (int) min(30, max(10, ($ngSlot - 26) / 2));
+$ngBaseY = $ngPadT + $ngPlotH;
+
+// ---------- Normal x Grupos: donut abertos ----------
+$ngOpenTotal = ($normalOpen ?? 0) + ($groupOpen ?? 0);
+$ngDonutTotal = $ngOpenTotal > 0 ? $ngOpenTotal : 1;
+$ngNormalLen = ($normalOpen ?? 0) / $ngDonutTotal * $donutC;
+$ngGroupLen = ($groupOpen ?? 0) / $ngDonutTotal * $donutC;
+$ngDonutSegs = [
+    ['color' => '#0078d4', 'dash' => round($ngNormalLen, 2), 'offset' => round($donutC, 2)],
+    ['color' => '#12b76a', 'dash' => round($ngGroupLen, 2), 'offset' => round($donutC - $ngNormalLen, 2)],
+];
+
 // ---------- Agentes ----------
 $maxActive = 1;
 foreach ($agentData as $a) { $maxActive = max($maxActive, (int) $a['active_convos']); }
@@ -103,25 +127,43 @@ $newWaiting = (int) ($globalCounts['new'] ?? 0);
         <i class="fas fa-arrow-right dash-attention-go"></i>
     </a>
     <?php endif; ?>
+    <?php if ($hasGroups && $groupMentionsUnread > 0): ?>
+    <a href="<?= url('whatsapp/groups') ?>" class="dash-attention dash-attention-groups">
+        <span class="dash-attention-icon"><i class="fas fa-users"></i></span>
+        <span><strong><?= $groupMentionsUnread ?> menç<?= $groupMentionsUnread > 1 ? 'ões' : 'ão' ?> não lida<?= $groupMentionsUnread > 1 ? 's' : '' ?></strong> em grupos de WhatsApp. Clique para ver.</span>
+        <i class="fas fa-arrow-right dash-attention-go"></i>
+    </a>
+    <?php endif; ?>
 
-    <!-- Operação agora -->
+    <!-- Operação agora: atendimento normal x grupos -->
     <div class="dash-section-title"><span>Operação agora</span></div>
     <div class="stats-grid dash-stats">
         <div class="stat-card stat-hero">
             <div class="stat-icon stat-icon-primary"><i class="fas fa-comments"></i></div>
             <div class="stat-info">
-                <span class="stat-value" id="statGlobalOpen" data-count="<?= $globalOpen ?>"><?= $globalOpen ?></span>
-                <span class="stat-label">Em aberto</span>
-                <span class="stat-sub"><i class="fas fa-circle" style="color:#2e90fa;font-size:7px"></i> <?= $globalCounts['new'] ?> novos &middot; <?= $globalCounts['open'] ?? 0 ?> em atendimento</span>
+                <span class="stat-value" id="statNormalOpen" data-count="<?= $normalOpen ?>"><?= $normalOpen ?></span>
+                <span class="stat-label">Normal em aberto</span>
+                <span class="stat-sub"><i class="fas fa-circle" style="color:#2e90fa;font-size:7px"></i> <?= $split['normal']['new'] ?? 0 ?> novos &middot; <?= $split['normal']['open'] ?? 0 ?> em atendimento</span>
             </div>
         </div>
+
+        <?php if ($hasGroups): ?>
+        <div class="stat-card stat-hero-groups">
+            <div class="stat-icon stat-icon-group"><i class="fas fa-users"></i></div>
+            <div class="stat-info">
+                <span class="stat-value" id="statGroupOpen" data-count="<?= $groupOpen ?>"><?= $groupOpen ?></span>
+                <span class="stat-label">Grupos em aberto</span>
+                <span class="stat-sub" id="statGroupMentions"><i class="fas fa-at" style="font-size:9px"></i> <?= $groupMentionsUnread ?> menções não lidas &middot; <?= $totalGroups ?> grupos</span>
+            </div>
+        </div>
+        <?php endif; ?>
 
         <div class="stat-card">
             <div class="stat-icon stat-icon-danger"><i class="fas fa-inbox"></i></div>
             <div class="stat-info">
-                <span class="stat-value" id="statTodayNew" data-count="<?= $globalCounts['new'] ?? 0 ?>"><?= $globalCounts['new'] ?? 0 ?></span>
+                <span class="stat-value" id="statTodayNew" data-count="<?= $split['normal']['new'] ?? $globalCounts['new'] ?? 0 ?>"><?= $split['normal']['new'] ?? $globalCounts['new'] ?? 0 ?></span>
                 <span class="stat-label">Novos aguardando</span>
-                <span class="stat-sub"><i class="fas fa-bell" style="font-size:9px"></i> precisam de atenção</span>
+                <span class="stat-sub"><i class="fas fa-bell" style="font-size:9px"></i> atendimento normal</span>
             </div>
         </div>
 
@@ -165,6 +207,9 @@ $newWaiting = (int) ($globalCounts['new'] ?? 0);
                         <i class="fas fa-<?= $deltaConv >= 0 ? 'arrow-up' : 'arrow-down' ?>"></i> <?= abs($deltaConv) ?>% vs ontem
                     </span>
                 <?php endif; ?>
+                <?php if ($hasGroups): ?>
+                    <span class="stat-sub" id="subTodayConvs"><i class="fas fa-circle" style="color:var(--primary);font-size:7px"></i> <?= $todayNormalConvs ?> normal &middot; <i class="fas fa-circle" style="color:var(--success);font-size:7px"></i> <?= $todayGroupConvs ?> grupos</span>
+                <?php endif; ?>
             </div>
         </div>
 
@@ -179,6 +224,9 @@ $newWaiting = (int) ($globalCounts['new'] ?? 0);
                     <span class="stat-delta <?= $deltaMsgs >= 0 ? 'delta-up' : 'delta-down' ?>" id="dTodayMsgs">
                         <i class="fas fa-<?= $deltaMsgs >= 0 ? 'arrow-up' : 'arrow-down' ?>"></i> <?= abs($deltaMsgs) ?>% vs ontem
                     </span>
+                <?php endif; ?>
+                <?php if ($hasGroups): ?>
+                    <span class="stat-sub" id="subTodayMsgs"><i class="fas fa-circle" style="color:var(--primary);font-size:7px"></i> <?= $todayNormalMsgs ?> normal &middot; <i class="fas fa-circle" style="color:var(--success);font-size:7px"></i> <?= $todayGroupMsgs ?> grupos</span>
                 <?php endif; ?>
             </div>
         </div>
@@ -225,6 +273,12 @@ $newWaiting = (int) ($globalCounts['new'] ?? 0);
                 <span class="my-stat-value" id="myOpen"><?= $myOpen ?></span>
                 <span class="my-stat-label"><i class="fas fa-inbox"></i> Abertos</span>
             </div>
+            <?php if ($hasGroups): ?>
+            <div class="my-stat">
+                <span class="my-stat-value" id="myGroupOpen"><?= $myGroupOpen ?></span>
+                <span class="my-stat-label"><i class="fas fa-users" style="color:var(--success)"></i> Grupos</span>
+            </div>
+            <?php endif; ?>
             <div class="my-stat">
                 <span class="my-stat-value" id="myWaiting"><?= $myCounts['waiting_customer'] ?? 0 ?></span>
                 <span class="my-stat-label"><i class="fas fa-hourglass-half" style="color:var(--success)"></i> Agu. cliente</span>
@@ -243,6 +297,117 @@ $newWaiting = (int) ($globalCounts['new'] ?? 0);
             </div>
         </div>
     </div>
+
+    <?php if ($hasGroups): ?>
+    <!-- Atendimento x Grupos -->
+    <div class="dash-section-title" style="margin-top:20px"><span>Atendimento × Grupos</span><a href="<?= url('whatsapp/groups') ?>" class="dash-section-link">Ver grupos <i class="fas fa-arrow-right"></i></a></div>
+    <div class="dashboard-grid" style="grid-template-columns:2fr 1fr;margin-top:0">
+        <div class="card chart-card">
+            <div class="card-header">
+                <h3><i class="fas fa-chart-column" style="color:var(--primary)"></i> Novas por dia <small class="card-header-sub">últimos 7 dias</small></h3>
+                <div class="chart-legend">
+                    <span class="chart-legend-item"><span class="legend-dot" style="background:#0078d4"></span> Normal</span>
+                    <span class="chart-legend-item"><span class="legend-dot" style="background:#12b76a"></span> Grupos</span>
+                </div>
+            </div>
+            <div class="card-body">
+                <div class="trend-chart">
+                    <svg viewBox="0 0 <?= $ngW ?> <?= $ngH ?>" class="trend-svg" preserveAspectRatio="xMidYMid meet">
+                        <?php for ($g = 0; $g <= 4; $g++): $gy = $ngPadT + $ngPlotH - ($ngMax * $g / 4) * $ngScale; $gval = round($ngMax * $g / 4); ?>
+                            <line class="trend-gridline" x1="<?= $ngPadL ?>" y1="<?= $gy ?>" x2="<?= $ngW - $ngPadR ?>" y2="<?= $gy ?>"/>
+                            <text class="trend-y" x="<?= $ngPadL - 8 ?>" y="<?= $gy + 4 ?>"><?= $gval ?></text>
+                        <?php endfor; ?>
+                        <?php foreach ($trendLabels as $i => $label):
+                            $slotX = $ngPadL + $i * $ngSlot;
+                            $pairW = 2 * $ngBarW + 8;
+                            $x0 = $slotX + ($ngSlot - $pairW) / 2;
+                            $nv = $trendNormalValues[$i] ?? 0; $gv = $trendGroupValues[$i] ?? 0;
+                            $nh = $nv * $ngScale; $gh = $gv * $ngScale;
+                        ?>
+                            <rect class="ng-bar" x="<?= round($x0, 1) ?>" y="<?= round($ngBaseY - $nh, 1) ?>" width="<?= $ngBarW ?>" height="<?= round(max($nh, 0), 1) ?>" rx="4" fill="#0078d4">
+                                <title><?= $label ?> — <?= $nv ?> normal</title>
+                            </rect>
+                            <rect class="ng-bar" x="<?= round($x0 + $ngBarW + 8, 1) ?>" y="<?= round($ngBaseY - $gh, 1) ?>" width="<?= $ngBarW ?>" height="<?= round(max($gh, 0), 1) ?>" rx="4" fill="#12b76a">
+                                <title><?= $label ?> — <?= $gv ?> grupos</title>
+                            </rect>
+                            <?php if ($nv > 0): ?><text class="ng-val" x="<?= round($x0 + $ngBarW / 2, 1) ?>" y="<?= round($ngBaseY - $nh - 6, 1) ?>"><?= $nv ?></text><?php endif; ?>
+                            <?php if ($gv > 0): ?><text class="ng-val" x="<?= round($x0 + $ngBarW + 8 + $ngBarW / 2, 1) ?>" y="<?= round($ngBaseY - $gh - 6, 1) ?>"><?= $gv ?></text><?php endif; ?>
+                            <text class="trend-x" x="<?= round($slotX + $ngSlot / 2, 1) ?>" y="<?= $ngH - 10 ?>"><?= $label ?></text>
+                        <?php endforeach; ?>
+                    </svg>
+                </div>
+            </div>
+        </div>
+
+        <div class="card chart-card">
+            <div class="card-header">
+                <h3><i class="fas fa-chart-pie" style="color:var(--primary)"></i> Abertos <small class="card-header-sub">normal × grupos</small></h3>
+            </div>
+            <div class="card-body donut-body">
+                <div class="donut-wrap">
+                    <svg viewBox="0 0 160 160" class="donut-svg">
+                        <g transform="rotate(-90 80 80)">
+                            <circle class="donut-track" cx="80" cy="80" r="<?= $donutR ?>"/>
+                            <?php foreach ($ngDonutSegs as $seg): ?>
+                                <?php if ($seg['dash'] > 0): ?>
+                                <circle class="donut-seg" cx="80" cy="80" r="<?= $donutR ?>"
+                                        stroke="<?= $seg['color'] ?>"
+                                        stroke-dasharray="<?= $seg['dash'] ?> <?= $donutC ?>"
+                                        stroke-dashoffset="<?= $seg['offset'] ?>">
+                                </circle>
+                                <?php endif; ?>
+                            <?php endforeach; ?>
+                        </g>
+                        <text class="donut-total" x="80" y="76" text-anchor="middle" id="donutNGTotal"><?= $ngOpenTotal ?></text>
+                        <text class="donut-total-label" x="80" y="96" text-anchor="middle">abertos</text>
+                    </svg>
+                </div>
+                <div class="donut-legend">
+                    <div class="donut-legend-row">
+                        <span class="legend-dot" style="background:#0078d4"></span>
+                        <span class="donut-legend-name">Normal</span>
+                        <span class="donut-legend-count" id="gCountNormalOpen"><?= $normalOpen ?></span>
+                        <span class="donut-legend-pct"><?= $ngOpenTotal > 0 ? round($normalOpen / $ngOpenTotal * 100) : 0 ?>%</span>
+                    </div>
+                    <div class="donut-legend-row">
+                        <span class="legend-dot" style="background:#12b76a"></span>
+                        <span class="donut-legend-name">Grupos</span>
+                        <span class="donut-legend-count" id="gCountGroupOpen"><?= $groupOpen ?></span>
+                        <span class="donut-legend-pct"><?= $ngOpenTotal > 0 ? round($groupOpen / $ngOpenTotal * 100) : 0 ?>%</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <?php if ($totalGroups > 0): ?>
+    <div class="card chart-card" style="overflow:hidden;margin-top:16px">
+        <div class="card-header">
+            <h3><i class="fas fa-users" style="color:var(--primary)"></i> Grupos WhatsApp <small class="card-header-sub"><?= $totalGroups ?> grupos · <?= $groupMentionsUnread ?> menções não lidas</small></h3>
+            <a href="<?= url('whatsapp/groups') ?>" class="btn btn-sm btn-outline">Ver todos <i class="fas fa-arrow-right" style="font-size:10px"></i></a>
+        </div>
+        <div class="card-body group-list" id="dashGroupList">
+            <?php foreach ($groupsTop as $grp): ?>
+            <div class="group-row">
+                <span class="group-icon"><i class="fas fa-users"></i></span>
+                <div class="group-info">
+                    <strong><?= e($grp['name'] ?? 'Grupo') ?></strong>
+                    <small><?= e($grp['channel_name'] ?? '') ?><?= !empty($grp['inbox_name']) ? ' · ' . e($grp['inbox_name']) : '' ?><?= !empty($grp['last_message_at']) ? ' · ' . e(time_elapsed($grp['last_message_at'])) : '' ?></small>
+                </div>
+                <?php if (($grp['unread_mentions'] ?? 0) > 0): ?>
+                    <span class="chip chip-danger"><?= (int) $grp['unread_mentions'] ?> menç<?= (int) $grp['unread_mentions'] > 1 ? 'ões' : 'ão' ?></span>
+                <?php endif; ?>
+                <?php if (!empty($grp['conversation_id'])): ?>
+                    <a href="<?= url('inbox?conv=' . (int) $grp['conversation_id']) ?>" class="btn btn-sm btn-outline">Abrir na caixa</a>
+                <?php else: ?>
+                    <a href="<?= url('whatsapp/groups/' . (int) $grp['id']) ?>" class="btn btn-sm btn-outline">Ver grupo</a>
+                <?php endif; ?>
+            </div>
+            <?php endforeach; ?>
+        </div>
+    </div>
+    <?php endif; ?>
+    <?php endif; ?>
 
     <!-- Row: trend chart + donut -->
     <div class="dash-section-title" style="margin-top:20px"><span>Tendência e distribuição</span></div>
@@ -437,6 +602,12 @@ $newWaiting = (int) ($globalCounts['new'] ?? 0);
                                         <i class="<?= channel_icon($conv['channel_type'] ?? 'webchat') ?>"></i>
                                         <?= e($conv['channel_name'] ?? '') ?>
                                     </span>
+                                    <?php if (!empty($conv['group_id'])): ?>
+                                    <span class="convo-channel" style="background:#0e9f6e">
+                                        <i class="fas fa-users"></i>
+                                        <?= e($conv['group_name'] ?? 'Grupo') ?>
+                                    </span>
+                                    <?php endif; ?>
                                     <?= status_badge($conv['status']) ?>
                                 </div>
                             </div>
@@ -504,6 +675,21 @@ $newWaiting = (int) ($globalCounts['new'] ?? 0);
 .dash-attention strong{font-weight:800}
 .dash-attention-icon{width:30px;height:30px;border-radius:9px;background:#f59e0b;color:#fff;display:flex;align-items:center;justify-content:center;font-size:13px;flex-shrink:0}
 .dash-attention-go{margin-left:auto;font-size:12px}
+.dash-attention-groups{background:#eff6ff;border-color:#bfdbfe;color:#1e40af}
+.dash-attention-groups .dash-attention-icon{background:#0078d4}
+.stat-icon-group{background:#e7f6ef;color:#0e9f6e}
+.stat-hero-groups{border-color:#bfe8d4;box-shadow:0 1px 3px rgba(18,183,106,.14)}
+.ng-bar{transition:opacity .15s}
+.ng-bar:hover{opacity:.82}
+.ng-val{font-size:10px;font-weight:700;fill:var(--text-secondary);text-anchor:middle}
+.group-list{display:flex;flex-direction:column}
+.group-row{display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--border-soft)}
+.group-row:last-child{border-bottom:none}
+.group-icon{width:36px;height:36px;border-radius:10px;background:#e7f6ef;color:#0e9f6e;display:flex;align-items:center;justify-content:center;font-size:14px;flex-shrink:0}
+.group-info{flex:1;min-width:0}
+.group-info strong{font-size:13.5px;display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.group-info small{font-size:11.5px;color:var(--text-muted)}
+.group-row .btn{flex-shrink:0}
 .dash-section-title{display:flex;align-items:center;justify-content:space-between;margin:18px 0 10px;font-size:11px;font-weight:800;letter-spacing:.09em;text-transform:uppercase;color:var(--text-muted)}
 .dash-section-link{font-size:12px;font-weight:700;color:var(--brand-2);text-transform:none;letter-spacing:0;display:inline-flex;align-items:center;gap:5px}
 .dash-section-link i{font-size:10px}
@@ -633,19 +819,53 @@ $newWaiting = (int) ($globalCounts['new'] ?? 0);
                 if (!d) return;
                 var i, el, ids;
 
-                // Global stats
+                // Global stats (normal x grupos)
                 var map = {
-                    statGlobalOpen: d.globalOpen || 0,
+                    statNormalOpen: (d.normalOpen !== undefined ? d.normalOpen : d.globalOpen) || 0,
+                    statGroupOpen: d.groupOpen || 0,
                     statOnline: d.onlineUsers || 0,
                     statTodayConvs: d.todayConversations || 0,
                     statTodayMsgs: d.todayMessages || 0,
                     statTodayResolved: d.todayResolved || 0,
-                    statTodayNew: (d.counts && (d.counts.new || 0)) || 0
+                    statTodayNew: ((d.counts && (d.counts.new || 0)) - (d.groupNew || 0)) || 0
                 };
                 for (var key in map) {
                     el = document.getElementById(key);
                     if (el) { el.textContent = map[key]; pulse(el); }
                 }
+
+                // Subs normal x grupos (hoje)
+                el = document.getElementById('subTodayConvs');
+                if (el && d.hasGroups) {
+                    el.innerHTML = '<i class="fas fa-circle" style="color:var(--primary);font-size:7px"></i> '
+                        + (d.todayNormalConvs || 0) + ' normal &middot; '
+                        + '<i class="fas fa-circle" style="color:var(--success);font-size:7px"></i> '
+                        + (d.todayGroupConvs || 0) + ' grupos';
+                }
+                el = document.getElementById('subTodayMsgs');
+                if (el && d.hasGroups) {
+                    el.innerHTML = '<i class="fas fa-circle" style="color:var(--primary);font-size:7px"></i> '
+                        + (d.todayNormalMsgs || 0) + ' normal &middot; '
+                        + '<i class="fas fa-circle" style="color:var(--success);font-size:7px"></i> '
+                        + (d.todayGroupMsgs || 0) + ' grupos';
+                }
+
+                // Grupos: menções + donut + minha fila
+                el = document.getElementById('statGroupMentions');
+                if (el && d.hasGroups) {
+                    el.innerHTML = '<i class="fas fa-at" style="font-size:9px"></i> '
+                        + (d.groupMentionsUnread || 0) + ' menções não lidas &middot; '
+                        + (d.totalGroups || 0) + ' grupos';
+                    pulse(el);
+                }
+                el = document.getElementById('gCountNormalOpen');
+                if (el && d.hasGroups) el.textContent = d.normalOpen || 0;
+                el = document.getElementById('gCountGroupOpen');
+                if (el && d.hasGroups) { el.textContent = d.groupOpen || 0; pulse(el); }
+                el = document.getElementById('donutNGTotal');
+                if (el && d.hasGroups) { el.textContent = (d.normalOpen || 0) + (d.groupOpen || 0); pulse(el); }
+                el = document.getElementById('myGroupOpen');
+                if (el && d.hasGroups) { el.textContent = d.myGroupOpen || 0; pulse(el); }
 
                 // CSAT
                 el = document.getElementById('dashCsat');

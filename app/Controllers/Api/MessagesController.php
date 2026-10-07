@@ -30,12 +30,25 @@ class MessagesController
      */
     public function markRead(Request $request, int $id): void
     {
+        $userId = Auth::id();
+        if (!$userId) {
+            View::json(['error' => 'Não autenticado'], 401);
+            return;
+        }
         $row = \App\Core\Database::getInstance()->fetch(
-            "SELECT id, conversation_id, direction FROM messages WHERE id = ?",
+            "SELECT m.id, m.conversation_id, m.direction, c.assigned_user_id, c.inbox_id FROM messages m JOIN conversations c ON c.id = m.conversation_id WHERE m.id = ?",
             [$id]
         );
         if (!$row) {
             View::json(['ok' => false, 'error' => 'Mensagem não encontrada'], 404);
+            return;
+        }
+        // Ownership: só quem tem acesso à conversa pode confirmar leitura.
+        $canSee = Auth::isAdmin()
+            || ((int) ($row['assigned_user_id'] ?? 0) === (int) $userId)
+            || (!empty($row['inbox_id']) && \App\Models\Inbox::canAccess((int) $row['inbox_id'], (int) $userId));
+        if (!$canSee) {
+            View::json(['ok' => false, 'error' => 'Sem acesso'], 403);
             return;
         }
         if ($row['direction'] !== 'outbound') {
@@ -62,6 +75,13 @@ class MessagesController
         $conv = Conversation::find($id);
         if (!$conv) {
             View::json(['ok' => false], 404);
+            return;
+        }
+        $userId = Auth::id();
+        if (!Auth::isAdmin()
+            && (int) ($conv['assigned_user_id'] ?? 0) !== (int) $userId
+            && (empty($conv['inbox_id']) || !\App\Models\Inbox::canAccess((int) $conv['inbox_id'], (int) $userId))) {
+            View::json(['ok' => false, 'error' => 'Sem acesso'], 403);
             return;
         }
         \App\Core\Database::getInstance()->update(

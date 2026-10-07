@@ -234,7 +234,7 @@ $router->group('', function (Router $router) {
 
 }, ['auth', 'csrf']);
 
-// Internal JSON API routes (auth only, no CSRF — called via fetch())
+// Internal JSON API routes (auth + csrf — fetch() envia via FormData ou X-CSRF-TOKEN)
 $router->group('', function (Router $router) {
     $router->get('/api/conversations', [InboxController::class, 'apiConversations']);
     $router->get('/api/conversations-list', [InboxController::class, 'conversationsListFragment']);
@@ -293,4 +293,4 @@ $router->group('', function (Router $router) {
 
     // Dashboard stats (auto-refresh)
     $router->get('/api/dashboard-stats', [\App\Controllers\Api\DashboardStatsController::class, 'index']);
-}, ['auth']);
+}, ['auth', 'csrf']);

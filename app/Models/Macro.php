@@ -9,7 +9,7 @@ class Macro
     public static function all(): array
     {
         $macros = Database::getInstance()->fetchAll(
-            "SELECT * FROM macros ORDER BY title ASC"
+            "SELECT * FROM macros ORDER BY title ASC LIMIT 200"
         );
         foreach ($macros as &$m) {
             $m['items'] = self::items((int) $m['id']);
@@ -29,7 +29,7 @@ class Macro
             $sql .= " AND (user_id IS NULL OR user_id = ?)";
             $params[] = $userId;
         }
-        $sql .= " ORDER BY title ASC";
+        $sql .= " ORDER BY title ASC LIMIT 200";
         $macros = Database::getInstance()->fetchAll($sql, $params);
         foreach ($macros as &$m) {
             $m['items'] = self::items((int) $m['id']);

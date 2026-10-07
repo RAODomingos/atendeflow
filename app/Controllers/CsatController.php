@@ -13,8 +13,22 @@ use App\Models\Contact;
  */
 class CsatController
 {
+    private function rateLimited(): bool
+    {
+        // Anti brute-force de token: 30 tentativas / 10min por IP, bloqueio 10min.
+        $key = \App\Core\RateLimiter::clientKey('csat');
+        if (\App\Core\RateLimiter::blocked($key) > 0) {
+            http_response_code(429);
+            echo '<h1>Muitas tentativas. Tente novamente mais tarde.</h1>';
+            return true;
+        }
+        \App\Core\RateLimiter::hit($key, 30, 600, 600);
+        return false;
+    }
+
     public function show(Request $request, string $token): void
     {
+        if ($this->rateLimited()) return;
         $conversation = Conversation::findByPublicId($token);
         if (!$conversation) {
             http_response_code(404);
@@ -35,6 +49,7 @@ class CsatController
 
     public function submit(Request $request, string $token): void
     {
+        if ($this->rateLimited()) return;
         $conversation = Conversation::findByPublicId($token);
         if (!$conversation) {
             http_response_code(404);
