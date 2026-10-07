@@ -1,4 +1,4 @@
-<div class="modal-overlay" id="transferModal" style="display:none" onclick="if(event.target===this)closeTransferModal()">
+<div class="modal-overlay" role="dialog" aria-modal="true" id="transferModal" style="display:none" onclick="if(event.target===this)closeTransferModal()">
     <div class="modal-container" style="max-width:460px">
         <div class="modal-header"><h3>Transferir Atendimento</h3><button class="modal-close" onclick="closeTransferModal()">&times;</button></div>
         <form action="<?= url('inbox/') ?><?= $conv['id'] ?>/transfer" method="POST">
@@ -26,7 +26,7 @@
     </div>
 </div>
 
-<div class="modal-overlay" id="priorityModal" style="display:none" onclick="if(event.target===this)closePriorityModal()">
+<div class="modal-overlay" role="dialog" aria-modal="true" id="priorityModal" style="display:none" onclick="if(event.target===this)closePriorityModal()">
     <div class="modal-container" style="max-width:440px">
         <div class="modal-header">
             <h3><i class="fas fa-flag"></i> Selecionar prioridade</h3>
@@ -67,7 +67,7 @@
     </div>
 </div>
 
-<div class="modal-overlay" id="subjectModal" style="display:none" onclick="if(event.target===this)closeSubjectModal()">
+<div class="modal-overlay" role="dialog" aria-modal="true" id="subjectModal" style="display:none" onclick="if(event.target===this)closeSubjectModal()">
     <div class="modal-container" style="max-width:520px">
         <div class="modal-header">
             <h3><i class="fas fa-tag"></i> Selecionar assunto</h3>
@@ -110,7 +110,7 @@
     </div>
 </div>
 
-<div class="modal-overlay" id="cannedModal" style="display:none" onclick="if(event.target===this)closeCannedModal()">
+<div class="modal-overlay" role="dialog" aria-modal="true" id="cannedModal" style="display:none" onclick="if(event.target===this)closeCannedModal()">
     <div class="modal-container" style="max-width:480px">
         <div class="modal-header"><h3>Respostas Prontas</h3><button class="modal-close" onclick="closeCannedModal()">&times;</button></div>
         <div class="modal-body">
@@ -122,7 +122,7 @@
     </div>
 </div>
 
-<div class="modal-overlay" id="macroModal" style="display:none" onclick="if(event.target===this)closeMacroModal()">
+<div class="modal-overlay" role="dialog" aria-modal="true" id="macroModal" style="display:none" onclick="if(event.target===this)closeMacroModal()">
     <div class="modal-container" style="max-width:480px">
         <div class="modal-header"><h3>Macros</h3><button class="modal-close" onclick="closeMacroModal()">&times;</button></div>
     <div class="modal-body">
@@ -135,7 +135,7 @@
 </div>
 </div>
 
-<div class="modal-overlay" id="wikiModal" style="display:none" onclick="if(event.target===this)closeWikiModal()">
+<div class="modal-overlay" role="dialog" aria-modal="true" id="wikiModal" style="display:none" onclick="if(event.target===this)closeWikiModal()">
     <div class="modal-container" style="max-width:480px">
         <div class="modal-header"><h3><i class="fas fa-book-open"></i> Sugerir artigo da Wiki</h3><button class="modal-close" onclick="closeWikiModal()">&times;</button></div>
         <div class="modal-body">
@@ -148,7 +148,7 @@
     </div>
 </div>
 
-<div class="modal-overlay" id="statusModal" style="display:none" onclick="if(event.target===this)closeStatusModal()">
+<div class="modal-overlay" role="dialog" aria-modal="true" id="statusModal" style="display:none" onclick="if(event.target===this)closeStatusModal()">
     <div class="modal-container" style="max-width:520px">
         <div class="modal-header">
             <h3><i class="fas fa-comments"></i> Selecionar status</h3>
@@ -245,7 +245,7 @@
     </div>
 </div>
 
-<div class="modal-overlay" id="snoozeModal" style="display:none" onclick="if(event.target===this)closeSnoozeModal()">
+<div class="modal-overlay" role="dialog" aria-modal="true" id="snoozeModal" style="display:none" onclick="if(event.target===this)closeSnoozeModal()">
     <div class="modal-container" style="max-width:460px">
         <div class="modal-header"><h3>Agendar Atendimento</h3><button class="modal-close" onclick="closeSnoozeModal()">&times;</button></div>
         <form action="<?= url('inbox/') ?><?= $conv['id'] ?>/snooze" method="POST">
@@ -271,7 +271,7 @@
 </div>
 
 
-<div class="modal-overlay" id="mergeModal" style="display:none" onclick="if(event.target===this)closeMergeModal()">
+<div class="modal-overlay" role="dialog" aria-modal="true" id="mergeModal" style="display:none" onclick="if(event.target===this)closeMergeModal()">
     <div class="modal-container" style="max-width:460px">
         <div class="modal-header"><h3>Mesclar Conversa</h3><button class="modal-close" onclick="closeMergeModal()">&times;</button></div>
         <form action="<?= url('inbox/') ?><?= $conv['id'] ?>/merge" method="POST">
@@ -296,7 +296,7 @@
     </div>
 </div>
 
-<div class="modal-overlay" id="editModal" style="display:none" onclick="if(event.target===this)closeEditModal()">
+<div class="modal-overlay" role="dialog" aria-modal="true" id="editModal" style="display:none" onclick="if(event.target===this)closeEditModal()">
     <div class="modal-container" style="max-width:460px">
         <div class="modal-header"><h3>Editar Mensagem</h3><button class="modal-close" onclick="closeEditModal()">&times;</button></div>
         <div class="modal-body">
@@ -310,7 +310,7 @@
     </div>
 </div>
 
-<div class="modal-overlay" id="contactEditModal" style="display:none" onclick="if(event.target===this)closeContactEditModal()">
+<div class="modal-overlay" role="dialog" aria-modal="true" id="contactEditModal" style="display:none" onclick="if(event.target===this)closeContactEditModal()">
     <div class="modal-container" style="max-width:480px">
         <div class="modal-header">
             <h3><i class="fas fa-user-edit"></i> Editar Contato</h3>

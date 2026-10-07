@@ -394,7 +394,7 @@ document.addEventListener('keydown', function(e) {
     window.addMacroItem = function(type, preset) {
         preset = preset || {};
         var idx = container.children.length;
-        if (idx >= 10) { alert('Limite de 10 mensagens por macro.'); return; }
+        if (idx >= 10) { window.toast('Limite de 10 mensagens por macro.'); return; }
         var div = document.createElement('div');
         div.className = 'macro-item';
         div.dataset.type = type;

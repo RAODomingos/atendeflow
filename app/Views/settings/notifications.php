@@ -363,7 +363,7 @@ function addCustomOptionToSelects(s) {
     });
 }
 function deleteCustomSound(id, btn) {
-    if (!confirm('Excluir este áudio? Conversas que o usam voltam ao toque padrão.')) return;
+    var doDelete = function() {
     var fd = new FormData();
     fetch(baseUrl() + '/api/sounds/' + id + '/delete', { method: 'POST', headers: { 'X-Requested-With': 'XMLHttpRequest' }, body: fd })
         .then(function (r) { return r.json(); })
@@ -374,7 +374,9 @@ function deleteCustomSound(id, btn) {
             if (row) row.remove();
             document.querySelectorAll('select.sound-select option[value="custom:' + id + '"]').forEach(function (o) { o.remove(); });
         })
-        .catch(function (e) { alert(e.message || 'Falha ao excluir'); });
+        .catch(function (e) { window.toast(e.message || 'Falha ao excluir'); });
+    };
+    (window.confirmModal ? window.confirmModal('Excluir este áudio? Conversas que o usam voltam ao toque padrão.', 'Excluir áudio') : Promise.resolve(confirm('Excluir este áudio? Conversas que o usam voltam ao toque padrão.'))).then(function(ok) { if (ok) doDelete(); });
 }
 // — Notificações do navegador (PC) —
 function refreshBrowserNotifStatus() {
@@ -397,7 +399,7 @@ function refreshBrowserNotifStatus() {
 }
 function enableBrowserNotif(btn) {
     var gn = window.__enhancements && window.__enhancements.GlobalNotifier;
-    if (!('Notification' in window)) { alert('Este navegador não suporta notificações.'); return; }
+    if (!('Notification' in window)) { window.toast('Este navegador não suporta notificações.'); return; }
     if (Notification.permission === 'granted') {
         refreshBrowserNotifStatus();
         if (gn) gn.testBrowserNotif();
@@ -408,13 +410,13 @@ function enableBrowserNotif(btn) {
         if (btn) btn.disabled = false;
         refreshBrowserNotifStatus();
         if (perm === 'granted' && gn) gn.testBrowserNotif();
-        if (perm === 'denied') alert('Permissão bloqueada. Libere no cadeado da barra de endereço e tente de novo.');
+        if (perm === 'denied') window.toast('Permissão bloqueada. Libere no cadeado da barra de endereço e tente de novo.');
     }).catch(function () { if (btn) btn.disabled = false; refreshBrowserNotifStatus(); });
 }
 function sendBrowserTestNotif() {
     var gn = window.__enhancements && window.__enhancements.GlobalNotifier;
-    if (!('Notification' in window)) { alert('Este navegador não suporta notificações.'); return; }
-    if (Notification.permission !== 'granted') { alert('Clique em "Ativar notificações" primeiro.'); return; }
+    if (!('Notification' in window)) { window.toast('Este navegador não suporta notificações.'); return; }
+    if (Notification.permission !== 'granted') { window.toast('Clique em "Ativar notificações" primeiro.'); return; }
     if (gn) gn.testBrowserNotif();
 }
 document.addEventListener('DOMContentLoaded', refreshBrowserNotifStatus);

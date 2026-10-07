@@ -92,8 +92,8 @@
         if (data.url) {
           var range = quill.getSelection(true);
           quill.insertEmbed(range.index, 'image', data.url);
-        } else { alert(data.error || 'Erro ao fazer upload.'); }
-      } catch(e) { alert('Falha na conexão ao fazer upload.'); }
+        } else { window.toast(data.error || 'Erro ao fazer upload.'); }
+      } catch(e) { window.toast('Falha na conexão ao fazer upload.'); }
     };
   });
   document.getElementById('wikiArticleForm').addEventListener('submit', function(){

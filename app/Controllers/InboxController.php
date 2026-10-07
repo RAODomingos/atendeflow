@@ -298,6 +298,8 @@ class InboxController
 
     public function show(Request $request, int $id): void
     {
+        // Legado inbox/show.php aposentado: a visão 3 colunas (/inbox?conv=)
+        // usa inbox/panel + partials. Mantém checagem e redireciona.
         $conversation = Conversation::find($id);
         if (!$conversation) {
             Session::setFlash('error', 'Conversa não encontrada.');
@@ -309,33 +311,7 @@ class InboxController
             View::redirect('/inbox');
         }
 
-        $messages = Conversation::getMessages($id);
-        $events = Conversation::getEvents($id);
-        $departments = Department::all();
-
-        Conversation::markMessagesAsRead($id, Auth::id());
-        \App\Models\Notification::markConversationNotificationsRead($id, Auth::id());
-        $this->markGroupMentionRead($conversation);
-
-        $unread = Conversation::getUnreadCount(Auth::id());
-
-        $counts = Conversation::countByStatus(Auth::id());
-
-        $contact = Contact::find($conversation['contact_id']);
-
-        View::renderWithLayout('inbox/show', 'main', [
-            'title' => 'Conversa',
-            'activePage' => 'inbox',
-            'conversation' => $conversation,
-            'messages' => $messages,
-            'events' => $events,
-            'departments' => $departments,
-            'contact' => $contact,
-            'unread' => $unread,
-            'counts' => $counts,
-            'csat' => Conversation::getCsat($conversation['id']),
-            'allTags' => Tag::all(),
-        ]);
+        View::redirect('/inbox?conv=' . $id);
     }
 
     public function downloadPdf(Request $request, int $id): void
