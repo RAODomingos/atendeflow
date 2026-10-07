@@ -254,7 +254,22 @@ class ReportsController
         $whereC = $timeline['where'];
         $paramsC = $timeline['params'];
 
-        // Carrega todas as conversas do período (limit razoável, ordenado desc).
+        // Paginação real: evita renderizar 2000 cards de uma vez.
+        $page = max(1, (int) $request->get('page', 1));
+        $perPage = (int) $request->get('per_page', 100);
+        if ($perPage < 20) $perPage = 20;
+        if ($perPage > 200) $perPage = 200;
+
+        $totalRow = $db->fetch(
+            "SELECT COUNT(*) as t FROM conversations c {$whereC}",
+            $paramsC
+        );
+        $totalAll = (int) ($totalRow['t'] ?? 0);
+        $pages = max(1, (int) ceil($totalAll / $perPage));
+        $page = min($page, $pages);
+        $offset = ($page - 1) * $perPage;
+
+        // Página atual (leve, só o necessário p/ listagem).
         $rows = $db->fetchAll(
             "SELECT c.id, c.contact_id, c.department_id, c.assigned_user_id, c.channel_id,
                     c.status, c.priority, c.subject, c.created_at, c.last_message_at,
@@ -270,12 +285,16 @@ class ReportsController
              LEFT JOIN channels ch ON ch.id = c.channel_id
              {$whereC}
              ORDER BY c.created_at DESC
-             LIMIT 2000",
+             LIMIT {$perPage} OFFSET {$offset}",
             $paramsC
         );
 
         $groups = $this->groupByTimeline($rows, $timeline['granularity']);
         $stats = $this->computeTimelineStats($rows);
+        $stats['total'] = $totalAll;
+        $stats['pages'] = $pages;
+        $stats['page'] = $page;
+        $stats['per_page'] = $perPage;
         $comparison = $this->computeComparison($db, $timeline);
         $heatmap = $this->computeHeatmap($rows);
         $peakHour = $this->findPeakHour($heatmap);
@@ -336,18 +355,31 @@ class ReportsController
             \App\Core\Session::setFlash('error', 'Nenhuma conversa encontrada para os filtros selecionados.');
             \App\Core\View::redirect('/reports/timeline');
         }
+        if (count($rows) > 100 && empty($ids)) {
+            // PDF com 500 conversas estoura memória/DOMPDF: pagina na fonte.
+            \App\Core\Session::setFlash('error', 'Filtro muito amplo para PDF (máx. 100). Refine o período ou selecione conversas específicas.');
+            \App\Core\View::redirect('/reports/timeline');
+        }
 
         $allTags = $db->fetchAll("SELECT * FROM tags ORDER BY name");
+        // Tags em lote (1 query, não N).
+        $tagsByConv = [];
+        $rowIds = array_map(fn($c) => (int) $c['id'], $rows);
+        if ($rowIds) {
+            $ph = implode(',', array_fill(0, count($rowIds), '?'));
+            foreach ($db->fetchAll(
+                "SELECT ct.conversation_id as cid, t.* FROM tags t
+                 INNER JOIN conversation_tags ct ON ct.tag_id = t.id
+                 WHERE ct.conversation_id IN ($ph)",
+                $rowIds
+            ) as $t) {
+                $tagsByConv[(int) $t['cid']][] = $t;
+            }
+        }
         $conversationsData = [];
         foreach ($rows as $conv) {
             $cid = (int) $conv['id'];
-            $tags = $db->fetchAll(
-                "SELECT t.* FROM tags t
-                 INNER JOIN conversation_tags ct ON ct.tag_id = t.id
-                 WHERE ct.conversation_id = ?",
-                [$cid]
-            );
-            $conv['tags'] = $tags;
+            $conv['tags'] = $tagsByConv[$cid] ?? [];
             $conversationsData[] = [
                 'conversation' => $conv,
                 'messages'     => \App\Models\Conversation::getMessages($cid),
@@ -634,8 +666,61 @@ class ReportsController
         // Ordena do mais recente para o mais antigo
         krsort($buckets);
 
-        // Pós-processa cada bucket: top agent, top channel, CSAT, tempo médio
+        // Pós-processa cada bucket: top agent, top channel (PHP), CSAT e
+        // tempo médio em lote (2 queries p/ todos os ids, não 2 por bucket).
         $db = Database::getInstance();
+        $allIds = [];
+        foreach ($buckets as $b) {
+            foreach ($b['conversations'] as $c) {
+                $allIds[] = (int) $c['id'];
+            }
+        }
+        $allIds = array_values(array_unique($allIds));
+        $csatByConv = [];
+        $respByConv = [];
+        if (!empty($allIds)) {
+            $ph = implode(',', array_fill(0, count($allIds), '?'));
+            foreach ($db->fetchAll(
+                "SELECT conversation_id, AVG(rating) as a FROM conversation_csats WHERE conversation_id IN ($ph) GROUP BY conversation_id",
+                $allIds
+            ) as $r) {
+                $csatByConv[(int) $r['conversation_id']] = (float) $r['a'];
+            }
+            // Primeira resposta outbound por conversa + último inbound anterior.
+            $outRows = $db->fetchAll(
+                "SELECT m1.conversation_id as cid, MIN(m1.created_at) as out_t
+                 FROM messages m1
+                 WHERE m1.direction = 'outbound' AND m1.conversation_id IN ($ph)
+                 GROUP BY m1.conversation_id",
+                $allIds
+            );
+            $inMap = [];
+            if ($outRows) {
+                $outIds = array_column($outRows, 'cid');
+                $ph2 = implode(',', array_fill(0, count($outIds), '?'));
+                // Último inbound por conversa (aproximação em lote; refinado abaixo pelo out_t).
+                foreach ($db->fetchAll(
+                    "SELECT conversation_id as cid, MAX(created_at) as in_t FROM messages
+                     WHERE direction = 'inbound' AND conversation_id IN ($ph2) GROUP BY conversation_id",
+                    $outIds
+                ) as $r) {
+                    $inMap[(int) $r['cid']] = $r['in_t'];
+                }
+            }
+            $outByConv = [];
+            foreach ($outRows as $r) {
+                $outByConv[(int) $r['cid']] = $r['out_t'];
+            }
+            foreach ($outByConv as $cid => $outT) {
+                $inT = $inMap[$cid] ?? null;
+                if ($inT !== null && $outT > $inT) {
+                    $diff = (strtotime($outT) - strtotime($inT)) / 60;
+                    if ($diff >= 0 && $diff < 10080) {
+                        $respByConv[$cid] = $diff;
+                    }
+                }
+            }
+        }
         foreach ($buckets as &$b) {
             // Top agent
             $agents = [];
@@ -651,40 +736,20 @@ class ReportsController
             $b['top_agent'] = $agents ? array_key_first($agents) . ' (' . current($agents) . ')' : '—';
             $b['top_channel'] = $channels ? array_key_first($channels) . ' (' . current($channels) . ')' : '—';
 
-            // CSAT médio e tempo médio de resposta (1 query por bucket)
+            // CSAT médio e tempo médio a partir dos mapas em lote (sem query por bucket).
             $ids = array_column($b['conversations'], 'id');
             if (!empty($ids)) {
-                $ph = implode(',', array_fill(0, count($ids), '?'));
-                $csatAvg = $db->fetch(
-                    "SELECT AVG(rating) as a FROM conversation_csats WHERE conversation_id IN ($ph)",
-                    $ids
-                );
-                $b['csat_avg'] = $csatAvg && $csatAvg['a'] !== null ? round((float) $csatAvg['a'], 2) : null;
+                $sum = 0; $n = 0;
+                foreach ($ids as $cid) {
+                    if (isset($csatByConv[(int) $cid])) { $sum += $csatByConv[(int) $cid]; $n++; }
+                }
+                $b['csat_avg'] = $n > 0 ? round($sum / $n, 2) : null;
 
-                // Tempo médio de resposta (em min) — primeira resposta outbound após mensagem inbound
-                // Compatível com ONLY_FULL_GROUP_BY: agrega MIN(outbound) por conversa
-                // primeiro, depois busca o último inbound anterior a esse timestamp.
-                $resp = $db->fetch(
-                    "SELECT ROUND(AVG(diff_min), 0) as avg_min FROM (
-                        SELECT TIMESTAMPDIFF(MINUTE, in_t, out_t) as diff_min
-                        FROM (
-                            SELECT o.conversation_id, o.out_t,
-                                   (SELECT MAX(m2.created_at) FROM messages m2
-                                    WHERE m2.conversation_id = o.conversation_id
-                                      AND m2.direction = 'inbound' AND m2.created_at < o.out_t) as in_t
-                            FROM (
-                                SELECT m1.conversation_id, MIN(m1.created_at) as out_t
-                                FROM messages m1
-                                WHERE m1.direction = 'outbound'
-                                  AND m1.conversation_id IN ($ph)
-                                GROUP BY m1.conversation_id
-                            ) o
-                        ) t
-                        WHERE in_t IS NOT NULL AND out_t > in_t
-                     ) x",
-                    $ids
-                );
-                $b['avg_response_min'] = $resp && $resp['avg_min'] !== null ? (int) $resp['avg_min'] : null;
+                $rsum = 0; $rn = 0;
+                foreach ($ids as $cid) {
+                    if (isset($respByConv[(int) $cid])) { $rsum += $respByConv[(int) $cid]; $rn++; }
+                }
+                $b['avg_response_min'] = $rn > 0 ? (int) round($rsum / $rn) : null;
             }
         }
         unset($b);
