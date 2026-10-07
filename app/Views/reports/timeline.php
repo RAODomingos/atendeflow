@@ -240,7 +240,7 @@ function renderDeltaBadge($delta) {
 
     <div class="tl-export-bar" id="tlExportBar">
         <div class="tl-export-info">
-            <span class="tl-export-count"><i class="fas fa-comments"></i> <span id="tlVisibleCount"><?= $totalAll ?></span> visíveis</span>
+            <span class="tl-export-count"><i class="fas fa-comments"></i> <span id="tlVisibleCount"><?= $totalAll ?></span> no período — página <?= (int) ($stats['page'] ?? 1) ?> de <?= (int) ($stats['pages'] ?? 1) ?></span>
             <span class="tl-export-selected" id="tlSelectedBadge" style="display:none">
                 <i class="fas fa-check-square"></i> <span id="tlSelectedCount">0</span> selecionada(s)
             </span>
@@ -355,6 +355,37 @@ function renderDeltaBadge($delta) {
             </div>
         <?php endforeach; ?>
     </div>
+    <?php endif; ?>
+    <?php
+    $tlPage = (int) ($stats['page'] ?? 1);
+    $tlPages = (int) ($stats['pages'] ?? 1);
+    $tlPerPage = (int) ($stats['per_page'] ?? 100);
+    if ($tlPages > 1):
+        $baseQs = array_diff_key($timeline, ['where' => null, 'params' => null]);
+        $pageUrl = function ($p) use ($baseQs, $tlPerPage) {
+            return url('reports/timeline') . '?' . http_build_query($baseQs + ['page' => $p, 'per_page' => $tlPerPage]);
+        };
+        $win = [];
+        for ($p = max(1, $tlPage - 2); $p <= min($tlPages, $tlPage + 2); $p++) $win[] = $p;
+    ?>
+    <nav class="tl-pagination" aria-label="Paginação do timeline" style="display:flex;gap:8px;align-items:center;justify-content:center;margin:16px 0">
+        <?php if ($tlPage > 1): ?>
+            <a class="btn btn-sm btn-outline" href="<?= $pageUrl(1) ?>">&laquo; Primeira</a>
+            <a class="btn btn-sm btn-outline" href="<?= $pageUrl($tlPage - 1) ?>">&lsaquo; Anterior</a>
+        <?php endif; ?>
+        <?php foreach ($win as $p): ?>
+            <?php if ($p === $tlPage): ?>
+                <strong class="btn btn-sm btn-primary" aria-current="page"><?= $p ?></strong>
+            <?php else: ?>
+                <a class="btn btn-sm btn-outline" href="<?= $pageUrl($p) ?>"><?= $p ?></a>
+            <?php endif; ?>
+        <?php endforeach; ?>
+        <?php if ($tlPage < $tlPages): ?>
+            <a class="btn btn-sm btn-outline" href="<?= $pageUrl($tlPage + 1) ?>">Próxima &rsaquo;</a>
+            <a class="btn btn-sm btn-outline" href="<?= $pageUrl($tlPages) ?>">Última &raquo;</a>
+        <?php endif; ?>
+        <span class="text-muted" style="font-size:12px">Página <?= $tlPage ?> de <?= $tlPages ?> — <?= number_format($totalAll) ?> conversas</span>
+    </nav>
     <?php endif; ?>
 </div>
 
