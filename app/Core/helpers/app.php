@@ -12,10 +12,30 @@ function base_url(string $path = '/'): string
         if (!empty($appUrl)) {
             $basePath = rtrim($appUrl, '/');
         } else {
-            $protocol = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
-            $host = $_SERVER['HTTP_HOST'] ?? $_SERVER['SERVER_NAME'] ?? 'localhost';
+            // Auto-detecção: funciona com QUALQUER host que aponte para o
+            // projeto (atendeflow.test, localhost, ngrok, ...), na raiz ou
+            // sob subpasta (/atendeflow). Atrás de proxy/túnel (ngrok), o
+            // protocolo/host reais vêm dos headers X-Forwarded-*.
+            $proto = $_SERVER['HTTP_X_FORWARDED_PROTO'] ?? null;
+            if (empty($proto)) {
+                $proto = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
+            }
+            $host = $_SERVER['HTTP_X_FORWARDED_HOST'] ?? $_SERVER['HTTP_HOST'] ?? $_SERVER['SERVER_NAME'] ?? 'localhost';
+            // Host pode vir com porta do túnel — preserva como veio.
             $scriptName = $_SERVER['SCRIPT_NAME'] ?? '';
-            $basePath = rtrim($protocol . '://' . $host . str_replace('\\', '/', dirname(dirname($scriptName))), '/');
+            // /index.php (raiz) -> ''; /atendeflow/index.php -> '/atendeflow';
+            // /foo/public/index.php (Apache c/ rewrite) -> '/foo' (o /public
+            // é interno e nunca aparece na URL pública).
+            $dir = str_replace('\\', '/', dirname($scriptName));
+            $parent = str_replace('\\', '/', dirname($dir));
+            if (str_ends_with($dir, '/public')) {
+                // /public/index.php -> raiz; /foo/public/index.php -> '/foo'
+                // (o /public é interno do rewrite e nunca aparece na URL).
+                $base = ($parent === '/' || $parent === '.' || $parent === '') ? '' : $parent;
+            } else {
+                $base = ($dir === '/' || $dir === '.' || $dir === '') ? '' : $dir;
+            }
+            $basePath = rtrim($proto . '://' . $host . $base, '/');
         }
     }
 

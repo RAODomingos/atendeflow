@@ -134,7 +134,7 @@ class InboxController
                 'counts' => Conversation::countByStatus(Auth::id()),
                 'unread' => Conversation::getUnreadCount(Auth::id()),
                 'departments' => Department::all(),
-                'contacts' => Contact::all(),
+                'contacts' => Contact::all(['limit' => 200]),
                 'inboxes' => $inboxes,
                 'activeInbox' => (int) $inboxId,
                 'search' => $search,
@@ -155,7 +155,7 @@ class InboxController
             'counts' => Conversation::countByStatus(Auth::id()),
             'unread' => Conversation::getUnreadCount(Auth::id()),
             'departments' => Department::all(),
-            'contacts' => Contact::all(),
+            'contacts' => Contact::all(['limit' => 200]),
             'inboxes' => $inboxes,
             'search' => $search,
             'fstatus' => $statusFilter,
@@ -375,21 +375,33 @@ class InboxController
         $isInternal = $request->post('type') === 'internal';
 
         $file = $request->file('file');
-        if (!empty($file['tmp_name'])) {
-            $uploaded = save_uploaded_file('file');
-            // Não convertemos a imagem aqui. A Uazapi é capaz de aceitar PNG e
-            // JPEG nativamente via /send/media (com o campo mimetype). WebP é
-            // tentado como image primeiro; se a Uazapi rejeitar, o provider
-            // faz fallback de conversão para JPEG automaticamente.
-        }
+        $hasFile = !empty($file['tmp_name']) && ($file['error'] ?? UPLOAD_ERR_OK) === UPLOAD_ERR_OK;
 
-        if (!$hasText && !$uploaded) {
+        // Valida ANTES de mover para disco: evita arquivo órfão se a mensagem for vazia.
+        if (!$hasText && !$hasFile) {
             if ($request->isAjax()) {
                 View::json(['ok' => false, 'error' => 'Digite uma mensagem ou anexe um arquivo.']);
                 return;
             }
             Session::setFlash('error', 'Digite uma mensagem ou anexe um arquivo.');
             View::back();
+        }
+
+        if ($hasFile) {
+            $uploaded = save_uploaded_file('file');
+            if ($uploaded === null) {
+                $msg = 'Arquivo inválido. Verifique tipo (imagem/áudio/vídeo/doc) e tamanho máximo.';
+                if ($request->isAjax()) {
+                    View::json(['ok' => false, 'error' => $msg]);
+                    return;
+                }
+                Session::setFlash('error', $msg);
+                View::back();
+            }
+            // Não convertemos a imagem aqui. A Uazapi é capaz de aceitar PNG e
+            // JPEG nativamente via /send/media (com o campo mimetype). WebP é
+            // tentado como image primeiro; se a Uazapi rejeitar, o provider
+            // faz fallback de conversão para JPEG automaticamente.
         }
 
         $text = $hasText ? trim((string) $content) : '';
@@ -601,7 +613,7 @@ class InboxController
 
     public function newConversation(Request $request): void
     {
-        $contacts = Contact::all();
+        $contacts = Contact::all(['limit' => 200]);
         $departments = Department::all();
 
         View::renderWithLayout('inbox/new', 'main', [

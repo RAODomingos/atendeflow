@@ -4,6 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Avalie seu atendimento - OminiDesk</title>
+    <link rel="icon" type="image/png" href="<?= asset('assets/img/favicon.png') ?>">
     <style>
         * { box-sizing: border-box; }
         body { margin: 0; font-family: "Segoe UI", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
@@ -27,10 +28,15 @@
         button.send:disabled { opacity: .5; cursor: not-allowed; }
         .thanks { color: #107c10; font-weight: 600; font-size: 16px; margin-top: 10px; }
         .existing { color: #605e5c; font-size: 14px; margin-top: 8px; }
+        .csat-logo { margin: 0 0 12px; }
+        .csat-logo img { height: 54px; width: auto; max-width: 230px; object-fit: contain; }
     </style>
 </head>
 <body>
     <div class="card">
+        <div class="csat-logo">
+            <img src="<?= asset('assets/img/ominidesk-logo.jpg') ?>" alt="Ominidesk">
+        </div>
         <h1>Avalie seu atendimento</h1>
         <p class="sub">
             <?php if (!empty($contact['name'])): ?>

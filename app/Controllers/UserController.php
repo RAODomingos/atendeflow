@@ -49,8 +49,12 @@ class UserController
         $errors = $request->validate([
             'name' => 'required|min:3',
             'email' => 'required|email',
-            'password' => 'required|min:6',
+            'password' => 'required|min:10',
         ]);
+
+        if (($pwError = self::passwordError($password)) !== null) {
+            $errors['password'][] = $pwError;
+        }
 
         if (!empty($errors)) {
             Session::setFlash('errors', $errors);
@@ -126,6 +130,10 @@ class UserController
 
         $password = $request->post('password');
         if (!empty($password)) {
+            if (($pwError = self::passwordError($password)) !== null) {
+                Session::setFlash('error', $pwError);
+                View::back();
+            }
             $data['password'] = $password;
         }
 
@@ -214,6 +222,10 @@ class UserController
 
         $password = $request->post('password');
         if (!empty($password)) {
+            if (($pwError = self::passwordError($password)) !== null) {
+                Session::setFlash('error', $pwError);
+                View::back();
+            }
             $data['password'] = $password;
         }
 
@@ -240,6 +252,11 @@ class UserController
 
         Session::setFlash('success', 'Perfil atualizado com sucesso.');
         View::redirect('/profile');
+    }
+
+    private static function passwordError(?string $password): ?string
+    {
+        return password_strength_error($password);
     }
 
     private function processAvatar(Request $request): ?string

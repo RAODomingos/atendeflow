@@ -72,10 +72,28 @@ class Request
         $uri = parse_url($this->server['REQUEST_URI'] ?? '/', PHP_URL_PATH);
 
         $scriptName = $this->server['SCRIPT_NAME'] ?? '';
-        $basePath = str_replace('\\', '/', dirname(dirname($scriptName)));
+        $dir = str_replace('\\', '/', dirname($scriptName));
+        $parent = str_replace('\\', '/', dirname($dir));
 
-        if ($basePath !== '/' && str_starts_with($uri, $basePath)) {
-            $uri = substr($uri, strlen($basePath));
+        // Candidatos a prefixo de instalação, do mais específico ao genérico:
+        // - /atendeflow/index.php (nginx subpasta) -> '/atendeflow'
+        // - /foo/public/index.php (Apache c/ rewrite) -> '/foo/public', '/foo'
+        // - /index.php (raiz) -> nenhum (dir '/')
+        $candidates = [];
+        if ($dir !== '/' && $dir !== '.' && $dir !== '') {
+            $candidates[] = $dir;
+        }
+        if (str_ends_with($dir, '/public') && $parent !== '/' && $parent !== '.' && $parent !== '') {
+            $candidates[] = $parent;
+        } elseif ($parent !== '/' && $parent !== '.' && $parent !== '' && $parent !== $dir) {
+            $candidates[] = $parent;
+        }
+
+        foreach ($candidates as $basePath) {
+            if (str_starts_with($uri, $basePath . '/') || $uri === $basePath) {
+                $uri = substr($uri, strlen($basePath));
+                break;
+            }
         }
 
         return rtrim($uri, '/') ?: '/';

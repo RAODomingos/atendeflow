@@ -16,6 +16,7 @@
     },
     "scripts": {
         "serve": "php -S localhost:8080 -t public",
-        "migrate": "php database/migrate.php"
+        "migrate": "php database/migrate.php",
+        "test": "php tests/run.php"
     }
 }

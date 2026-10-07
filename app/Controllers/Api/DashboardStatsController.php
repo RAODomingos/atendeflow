@@ -66,8 +66,65 @@ class DashboardStatsController
             $myOpen += $myCounts[$s] ?? 0;
         }
 
+        // Separação normal x grupos (espelha o DashboardController)
+        $hasGroups = Conversation::hasGroupColumn();
+        $normalOpen = $globalOpen;
+        $groupOpen = 0;
+        $groupNew = 0;
+        $myGroupOpen = 0;
+        $todayNormalConvs = $todayConversations;
+        $todayGroupConvs = 0;
+        $todayNormalMsgs = $todayMessages;
+        $todayGroupMsgs = 0;
+        $groupMentionsUnread = 0;
+        $totalGroups = 0;
+        if ($hasGroups) {
+            try {
+                $split = Conversation::countByStatusSplit();
+                $mySplit = Conversation::countByStatusSplit($userId);
+                foreach (['new', 'open', 'waiting_customer', 'waiting_internal'] as $s) {
+                    $groupOpen += $split['groups'][$s] ?? 0;
+                    $myGroupOpen += $mySplit['groups'][$s] ?? 0;
+                }
+                $groupNew = $split['groups']['new'] ?? 0;
+                $normalOpen = $globalOpen - $groupOpen;
+                $row = $db->fetch(
+                    "SELECT SUM(group_id IS NULL) as n, SUM(group_id IS NOT NULL) as g FROM conversations WHERE created_at >= ?",
+                    [$todayStart]
+                );
+                $todayNormalConvs = (int) ($row['n'] ?? 0);
+                $todayGroupConvs = (int) ($row['g'] ?? 0);
+                $row = $db->fetch(
+                    "SELECT SUM(c.group_id IS NULL) as n, SUM(c.group_id IS NOT NULL) as g FROM messages m
+                     JOIN conversations c ON c.id = m.conversation_id WHERE m.created_at >= ?",
+                    [$todayStart]
+                );
+                $todayNormalMsgs = (int) ($row['n'] ?? 0);
+                $todayGroupMsgs = (int) ($row['g'] ?? 0);
+                $groupMentionsUnread = \App\Models\WhatsAppGroup::unreadMentionsTotal();
+                try {
+                    $totalGroups = (int) ($db->fetch("SELECT COUNT(*) as c FROM whatsapp_groups")['c'] ?? 0);
+                } catch (\Throwable $e) {
+                    $totalGroups = 0;
+                }
+            } catch (\Throwable $e) {
+                $hasGroups = false;
+            }
+        }
+
         return [
             'globalOpen' => $globalOpen,
+            'normalOpen' => $normalOpen,
+            'groupOpen' => $groupOpen,
+            'groupNew' => $groupNew,
+            'myGroupOpen' => $myGroupOpen,
+            'groupMentionsUnread' => $groupMentionsUnread,
+            'hasGroups' => $hasGroups,
+            'todayNormalConvs' => $todayNormalConvs,
+            'todayGroupConvs' => $todayGroupConvs,
+            'todayNormalMsgs' => $todayNormalMsgs,
+            'todayGroupMsgs' => $todayGroupMsgs,
+            'totalGroups' => $totalGroups,
             'myOpen' => $myOpen,
             'unread' => $unread,
             'onlineUsers' => $onlineUsers,

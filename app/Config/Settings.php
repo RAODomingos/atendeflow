@@ -57,7 +57,7 @@ class Settings
             // App Settings
             'app_name' => 'OminiDesk',
             'app_description' => 'Central de Atendimento Omnichannel',
-            'app_logo' => '/assets/img/logo.png',
+            'app_logo' => '/assets/img/ominidesk-logo.jpg',
             'app_favicon' => '/assets/img/favicon.png',
             
             // Theme Settings

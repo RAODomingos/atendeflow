@@ -28,6 +28,7 @@ function env(string $key, mixed $default = null): mixed
 
 // Helpers fatiados por tema (mesmas funções globais de antes).
 require_once __DIR__ . '/helpers/app.php';
+require_once __DIR__ . '/helpers/security.php';
 require_once __DIR__ . '/helpers/view.php';
 require_once __DIR__ . '/helpers/text.php';
 require_once __DIR__ . '/helpers/uploads.php';

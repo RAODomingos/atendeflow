@@ -3,7 +3,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Login - Atendeflow</title>
+    <title>Login - OminiDesk</title>
+    <link rel="icon" type="image/png" href="<?= asset('assets/img/favicon.png') ?>">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
     <link rel="stylesheet" href="<?= asset('assets/css/app.css') ?>">
 </head>
@@ -12,8 +13,8 @@
         <aside class="login-hero">
             <div class="login-hero-inner">
                 <a href="<?= base_url('login') ?>" class="login-brand">
-                    <span class="login-brand-mark"><i class="fas fa-headset"></i></span>
-                    Atendeflow
+                    <img src="<?= asset('assets/img/ominidesk-mark.png') ?>" alt="Ominidesk" width="40" height="40">
+                    Ominidesk
                 </a>
                 <h1>Central de atendimento omnichannel</h1>
                 <p>Gerencie conversas de WhatsApp, e-mail e chat em um só lugar, com sua equipe.</p>
@@ -28,11 +29,9 @@
         <main class="login-main">
             <div class="login-card">
                 <div class="login-header">
-                    <div class="login-logo">
-                        <i class="fas fa-headset"></i>
-                    </div>
+                    <img class="login-logo-img" src="<?= asset('assets/img/ominidesk-logo.jpg') ?>" alt="Ominidesk - Central de Multiatendimento">
                     <h1>Entrar</h1>
-                    <p>Use sua conta Atendeflow para continuar</p>
+                    <p>Use sua conta Ominidesk para continuar</p>
                 </div>
 
                 <?php $error = \App\Core\Session::getFlash('error'); ?>

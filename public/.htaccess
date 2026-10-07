@@ -7,14 +7,16 @@ RewriteRule ^ index.php [QSA,L]
 RewriteCond %{HTTP:Authorization} .
 RewriteRule .* - [E=HTTP_AUTHORIZATION:%{HTTP:Authorization}]
 
-# Security headers (CSP propositalmente ausente: o app usa JS inline)
+# Security headers (CSP bloqueante ausente: o app usa JS inline — usa Report-Only p/ mapear)
 <IfModule mod_headers.c>
     Header always set X-Frame-Options "SAMEORIGIN"
     Header always set X-Content-Type-Options "nosniff"
     Header always set Referrer-Policy "strict-origin-when-cross-origin"
     Header always set Permissions-Policy "microphone=(self), camera=(), geolocation=()"
+    Header always set Cross-Origin-Opener-Policy "same-origin"
     # HSTS só em HTTPS (env=HTTPS). Sem efeito em HTTP.
     Header always set Strict-Transport-Security "max-age=31536000; includeSubDomains" env=HTTPS
+    Header always set Content-Security-Policy-Report-Only "default-src 'self' https: data: blob:; script-src 'self' 'unsafe-inline' https:; style-src 'self' 'unsafe-inline' https:; img-src 'self' https: data: blob:; media-src 'self' https: data: blob:; font-src 'self' https: data:; connect-src 'self' https: wss:; frame-ancestors 'self'"
 </IfModule>
 
 # Cache agressivo para assets versionados (?v=)

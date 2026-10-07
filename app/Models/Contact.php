@@ -207,6 +207,9 @@ class Contact
             if (!empty($filters['offset'])) {
                 $sql .= " OFFSET " . max(0, (int) $filters['offset']);
             }
+        } else {
+            // Trava de segurança: sem filtro explícito nunca retorna a tabela inteira.
+            $sql .= " LIMIT 500";
         }
 
         return Database::getInstance()->fetchAll($sql, $params);
