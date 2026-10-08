@@ -119,6 +119,17 @@ if (isset($conv) && $conv) {
     }
 }
 
+// Fix review — allowlist + extensão do tmp remoto
+check(\App\Services\TranscriptionService::isTranscribableMime('audio/ogg'), 'mime audio/ogg ok');
+check(\App\Services\TranscriptionService::isTranscribableMime('video/webm'), 'mime video/webm ok (WebChat)');
+check(\App\Services\TranscriptionService::isTranscribableMime('audio/webm'), 'mime audio/webm ok');
+check(\App\Services\TranscriptionService::isTranscribableMime('video/ogg'), 'mime video/ogg ok');
+check(!\App\Services\TranscriptionService::isTranscribableMime('text/plain'), 'mime text/plain rejeitado');
+check(!\App\Services\TranscriptionService::isTranscribableMime('application/pdf'), 'mime pdf rejeitado');
+check(\App\Services\TranscriptionService::extensionForAudio('https://x/audio.ogg', '') === '.ogg', 'ext preserva .ogg da URL');
+check(\App\Services\TranscriptionService::extensionForAudio('https://x/file?x=1', 'audio/mpeg') === '.mp3', 'ext via mime audio/mpeg');
+check(\App\Services\TranscriptionService::extensionForAudio('https://x/file', 'video/webm') === '.webm', 'ext via mime video/webm');
+
 // Task 5 — PDFs exibem transcrição abaixo de "Áudio"
 $pdfInbox = file_get_contents(__DIR__ . '/../../app/Views/inbox/pdf.php');
 $pdfFull = file_get_contents(__DIR__ . '/../../app/Views/contacts/pdf_full.php');
