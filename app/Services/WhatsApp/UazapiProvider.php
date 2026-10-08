@@ -955,6 +955,91 @@ class UazapiProvider implements WhatsAppProviderInterface
         return null;
     }
 
+    /**
+     * Busca participantes do grupo para aprender pares LID -> telefone.
+     * Usado como fallback quando uma menção chega como @lid sem mapeamento.
+     *
+     * @return array<int, array{0:string,1:string}> pares [lid_digits, phone_digits]
+     */
+    public function fetchGroupParticipants(array $connection, string $groupJid): array
+    {
+        $headers = $this->instanceAuthHeaders($connection);
+        $pairs = [];
+        $bodies = [];
+        try {
+            $resp = $this->client->post('/group/info', ['GroupJID' => $groupJid], $headers);
+            if (($resp['status'] ?? 0) === 200 && is_array($resp['body'] ?? null)) {
+                $bodies[] = $resp['body'];
+            }
+        } catch (\Throwable $e) {
+            error_log('Uazapi group/info error: ' . $e->getMessage());
+        }
+        // Variação de casing caso a versão exija minúsculas.
+        if (empty($bodies)) {
+            try {
+                $resp = $this->client->post('/group/info', ['groupJid' => $groupJid, 'force' => false], $headers);
+                if (($resp['status'] ?? 0) === 200 && is_array($resp['body'] ?? null)) {
+                    $bodies[] = $resp['body'];
+                }
+            } catch (\Throwable $e) {
+            }
+        }
+        foreach ($bodies as $body) {
+            $list = $body['Participants'] ?? $body['participants'] ?? null;
+            if (!is_array($list)) {
+                continue;
+            }
+            foreach ($list as $p) {
+                if (!is_array($p)) {
+                    continue;
+                }
+                // Varre o objeto do participante: um valor é o LID (>14 dígitos),
+                // outro é o telefone (8-14 dígitos).
+                $lid = '';
+                $phone = '';
+                $stack = [$p];
+                while ($stack) {
+                    $v = array_pop($stack);
+                    if (is_array($v)) {
+                        foreach ($v as $sv) {
+                            $stack[] = $sv;
+                        }
+                        continue;
+                    }
+                    if (!is_string($v) || $v === '') {
+                        continue;
+                    }
+                    // Ignora JID do grupo (@g.us) se vier aninhado no participante.
+                    if (str_contains($v, '@g.us')) {
+                        continue;
+                    }
+                    $digits = preg_replace('/\D/', '', $v);
+                    if ($digits === '') {
+                        continue;
+                    }
+                    if (strlen($digits) > 14 && $lid === '') {
+                        $lid = $digits;
+                    } elseif (strlen($digits) >= 8 && strlen($digits) <= 14 && $phone === '') {
+                        $phone = $digits;
+                    }
+                }
+                if ($lid !== '' && $phone !== '' && $lid !== $phone) {
+                    $pairs[] = [$lid, $phone];
+                }
+            }
+        }
+        // Dedup por LID.
+        $uniq = [];
+        foreach ($pairs as [$lid, $phone]) {
+            $uniq[$lid] = $phone;
+        }
+        $out = [];
+        foreach ($uniq as $lid => $phone) {
+            $out[] = [(string) $lid, $phone];
+        }
+        return $out;
+    }
+
     public function sendReaction(array $connection, string $messageId, string $reaction, ?string $to = null): bool
     {
         if ($messageId === '') {

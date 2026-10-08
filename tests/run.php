@@ -72,6 +72,8 @@ check('phone atualiza ao mudar (log PHONE_CHANGED)', str_contains($waSrc, 'PHONE
 check('phone nao apaga com null no poll', str_contains($waSrc, 'Nunca apaga número salvo com null'));
 $uazSrc = file_get_contents(__DIR__ . '/../app/Services/WhatsApp/UazapiProvider.php');
 check('uazapi prioriza owner da API', str_contains($uazSrc, 'Owner da API tem prioridade'));
+check('uazapi busca participantes do grupo', str_contains($uazSrc, 'fetchGroupParticipants'));
+check('grupo aprende LID e tenta de novo', str_contains($waSrc, 'learnGroupLidMappings'));
 
 // Fluxo: nao reinicia em conversa Aberta / em atendimento / com historico
 check('fluxo tem trava shouldAutoStartFlow', str_contains($waSrc, 'shouldAutoStartFlow'));
