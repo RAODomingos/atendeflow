@@ -956,10 +956,9 @@ class UazapiProvider implements WhatsAppProviderInterface
     }
 
     /**
-     * Busca participantes do grupo para aprender pares LID -> telefone.
-     * Usado como fallback quando uma menção chega como @lid sem mapeamento.
+     * Busca participantes do grupo para exibição tempo-real e aprendizado LID.
      *
-     * @return array<int, array{0:string,1:string}> pares [lid_digits, phone_digits]
+     * @return array<int, array{phone:string, lid:?string, name:?string, is_admin:bool}>
      */
     public function fetchGroupParticipants(array $connection, string $groupJid): array
     {
@@ -1023,21 +1022,34 @@ class UazapiProvider implements WhatsAppProviderInterface
                         $phone = $digits;
                     }
                 }
-                if ($lid !== '' && $phone !== '' && $lid !== $phone) {
-                    $pairs[] = [$lid, $phone];
+                if ($lid !== '' && $lid !== $phone) {
+                    $name = null;
+                    foreach (['name', 'pushName', 'pushname', 'notifyName', 'wa_contactName'] as $nk) {
+                        if (!empty($p[$nk]) && is_string($p[$nk])) {
+                            $name = $p[$nk];
+                            break;
+                        }
+                    }
+                    $admin = $p['isAdmin'] ?? $p['is_admin'] ?? $p['admin'] ?? false;
+                    $pairs[] = [
+                        'phone' => $phone,
+                        'lid' => $lid,
+                        'name' => $name,
+                        'is_admin' => (bool) $admin,
+                    ];
                 }
             }
         }
-        // Dedup por LID.
+        // Dedup por LID (ou telefone quando sem LID).
         $uniq = [];
-        foreach ($pairs as [$lid, $phone]) {
-            $uniq[$lid] = $phone;
+        foreach ($pairs as $row) {
+            $key = $row['lid'] !== '' ? 'lid:' . $row['lid'] : 'phone:' . $row['phone'];
+            if ($key === 'lid:' || $key === 'phone:') {
+                continue;
+            }
+            $uniq[$key] = $row;
         }
-        $out = [];
-        foreach ($uniq as $lid => $phone) {
-            $out[] = [(string) $lid, $phone];
-        }
-        return $out;
+        return array_values($uniq);
     }
 
     public function sendReaction(array $connection, string $messageId, string $reaction, ?string $to = null): bool
@@ -1073,16 +1085,34 @@ class UazapiProvider implements WhatsAppProviderInterface
     }
 
     /**
-     * Envia texto para um grupo (JID @g.us preservado — sem normalizar dígitos).
+     * Envia texto para um grupo (JID @g.us preservado — sem normalizar dígitos),
+     * com menções opcionais (dígitos separados por vírgula; 'all' p/ todos).
      */
-    public function sendGroupText(array $connection, string $groupJid, string $text): array
+    public function sendGroupText(array $connection, string $groupJid, string $text, array $mentions = []): array
     {
         $headers = $this->instanceAuthHeaders($connection);
-        $resp = $this->client->post('/send/text', [
+        $body = [
             'number' => $groupJid,
             'text' => $text,
             'delay' => 0,
-        ], $headers);
+        ];
+        $normalized = [];
+        foreach ($mentions as $m) {
+            $m = trim((string) $m, "@ \t");
+            if (strtolower($m) === 'all') {
+                $normalized[] = 'all';
+                continue;
+            }
+            $digits = preg_replace('/\D/', '', $m);
+            if ($digits !== '' && strlen($digits) >= 8) {
+                $normalized[] = $digits;
+            }
+        }
+        $normalized = array_values(array_unique($normalized));
+        if ($normalized !== []) {
+            $body['mentions'] = implode(',', $normalized);
+        }
+        $resp = $this->client->post('/send/text', $body, $headers);
         $this->guard($resp['body'] ?? []);
         return [
             'provider_message_id' => $this->extractMessageId($resp['body'] ?? []),

@@ -726,22 +726,137 @@ class WahaProvider implements WhatsAppProviderInterface
     }
 
     /**
-     * Envia texto para um grupo (chatId @g.us preservado).
+     * Envia texto para um grupo (chatId @g.us preservado), com menções opcionais.
+     * WAHA exige @numero no texto E mentions ["xxx@c.us"] (ou ["all"] p/ todos).
      */
-    public function sendGroupText(array $connection, string $groupJid, string $text): array
+    public function sendGroupText(array $connection, string $groupJid, string $text, array $mentions = []): array
     {
         $session = $connection['instance_name'] ?? '';
-        $resp = $this->client->post('/api/sendText', [
+        $body = [
             'session' => $session,
             'chatId' => $groupJid,
             'text' => $text,
-        ], $this->authHeaders());
-        $this->guard($resp);
-        $body = $resp['body'] ?? [];
-        return [
-            'provider_message_id' => $body['id'] ?? $body['messageId'] ?? null,
-            'raw' => $body,
         ];
+        $normalized = $this->normalizeGroupMentions($mentions);
+        if ($normalized !== []) {
+            $body['mentions'] = $normalized;
+        }
+        $resp = $this->client->post('/api/sendText', $body, $this->authHeaders());
+        $this->guard($resp);
+        $respBody = $resp['body'] ?? [];
+        return [
+            'provider_message_id' => $this->extractMessageId($respBody),
+            'raw' => $respBody,
+        ];
+    }
+
+    /**
+     * Normaliza menções p/ o formato WAHA: dígitos -> xxx@c.us; 'all' preservado.
+     *
+     * @return string[]
+     */
+    private function normalizeGroupMentions(array $mentions): array
+    {
+        $out = [];
+        foreach ($mentions as $m) {
+            $m = trim((string) $m, "@ \t");
+            if (strtolower($m) === 'all') {
+                $out[] = 'all';
+                continue;
+            }
+            if (str_contains($m, '@')) {
+                $out[] = $m;
+                continue;
+            }
+            $digits = preg_replace('/\D/', '', $m);
+            if ($digits !== '' && strlen($digits) >= 8) {
+                $out[] = $digits . '@c.us';
+            }
+        }
+        return array_values(array_unique($out));
+    }
+
+    /**
+     * Lista participantes do grupo em tempo real (sem persistir).
+     * Tenta GET /api/{session}/groups/{groupJid}; cai p/ listagem + filtro.
+     * Qualquer falha retorna [] (nunca throw) — a UI degrada p/ "indisponível".
+     *
+     * @return array<int, array{phone:string, lid:?string, name:?string, is_admin:bool}>
+     */
+    public function fetchGroupParticipants(array $connection, string $groupJid): array
+    {
+        $session = $connection['instance_name'] ?? '';
+        if ($session === '' || $groupJid === '') {
+            return [];
+        }
+        try {
+            $resp = $this->client->get('/api/' . rawurlencode($session) . '/groups/' . rawurlencode($groupJid), $this->authHeaders());
+            $group = ($resp['status'] ?? 0) === 200 ? ($resp['body'] ?? null) : null;
+            $participants = is_array($group) ? ($group['participants'] ?? null) : null;
+            if (!is_array($participants)) {
+                // Fallback: lista todos e filtra pelo id.
+                $listResp = $this->client->get('/api/' . rawurlencode($session) . '/groups', $this->authHeaders());
+                $list = ($listResp['status'] ?? 0) === 200 ? ($listResp['body'] ?? []) : [];
+                if (is_array($list)) {
+                    foreach ($list as $g) {
+                        if (is_array($g) && (($g['id'] ?? '') === $groupJid)) {
+                            $participants = $g['participants'] ?? null;
+                            break;
+                        }
+                    }
+                }
+            }
+            if (!is_array($participants)) {
+                return [];
+            }
+            return $this->mapGroupParticipants($participants);
+        } catch (\Throwable $e) {
+            return [];
+        }
+    }
+
+    /**
+     * Mapeia participantes WAHA p/ shape padrão (tolerando variações de campo).
+     *
+     * @return array<int, array{phone:string, lid:?string, name:?string, is_admin:bool}>
+     */
+    private function mapGroupParticipants(array $participants): array
+    {
+        $out = [];
+        $seen = [];
+        foreach ($participants as $p) {
+            if (!is_array($p)) {
+                $p = ['id' => (string) $p];
+            }
+            $rawId = (string) ($p['id'] ?? $p['jid'] ?? $p['phone'] ?? '');
+            $name = $p['name'] ?? $p['pushName'] ?? $p['notifyName'] ?? null;
+            $admin = $p['isAdmin'] ?? $p['is_admin'] ?? $p['admin'] ?? false;
+            $phone = '';
+            $lid = null;
+            if (str_ends_with($rawId, '@lid')) {
+                $lid = $this->normalizePhone($rawId);
+            } elseif ($rawId !== '') {
+                $phone = (string) ($this->normalizePhone($rawId) ?? '');
+            }
+            if (($p['lid'] ?? '') !== '') {
+                $lid = (string) ($this->normalizePhone((string) $p['lid']) ?? $lid);
+            }
+            if (($p['phone'] ?? '') !== '' && $phone === '') {
+                $phone = (string) ($this->normalizePhone((string) $p['phone']) ?? '');
+            }
+            $key = ($phone !== '' ? $phone : 'lid:' . (string) $lid);
+            if ($key === '' || $key === 'lid:' || isset($seen[$key])) {
+                continue;
+            }
+            $seen[$key] = true;
+            $out[] = [
+                'phone' => $phone,
+                'lid' => $lid,
+                'name' => is_string($name) && $name !== '' ? $name : null,
+                'is_admin' => (bool) $admin,
+            ];
+        }
+        return $out;
     }
 
     public function resolvePhone(array $connection, string $contactId): ?string

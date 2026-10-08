@@ -124,9 +124,20 @@ interface WhatsAppProviderInterface
      *
      * @param array  $connection Linha de whatsapp_connections
      * @param string $groupJid   JID do grupo (ex.: 120363012345678@g.us)
+     * @param string[] $mentions Dígitos/JIDs a mencionar (ou 'all' p/ todos)
      * @return array{provider_message_id:?string, raw:mixed}
      */
-    public function sendGroupText(array $connection, string $groupJid, string $text): array;
+    public function sendGroupText(array $connection, string $groupJid, string $text, array $mentions = []): array;
+
+    /**
+     * Lista participantes do grupo em tempo real (sem persistir).
+     *
+     * @param array  $connection Linha de whatsapp_connections
+     * @param string $groupJid   JID do grupo (ex.: 120363012345678@g.us)
+     * @return array<int, array{phone:string, lid:?string, name:?string, is_admin:bool}>
+     *         phone = dígitos do telefone ('' quando só há LID sem telefone conhecido)
+     */
+    public function fetchGroupParticipants(array $connection, string $groupJid): array;
 
     /**
      * Obtém a URL da foto de perfil de um contato no WhatsApp.
