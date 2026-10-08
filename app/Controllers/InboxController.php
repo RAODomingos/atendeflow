@@ -469,10 +469,21 @@ class InboxController
             if ($type === 'text') {
                 $text = $this->applyWhatsAppSignature($id, $text);
             }
+            // @menções em conversa de grupo (só texto outbound, não nota interna).
+            $mentionsRaw = $request->post('mentions');
+            if (!is_array($mentionsRaw)) {
+                $mentionsRaw = $mentionsRaw === null || $mentionsRaw === '' ? [] : [$mentionsRaw];
+            }
+            $mentions = ($type === 'text')
+                ? array_values(array_filter(array_map(
+                    fn($m) => trim((string) $m, "@ \t"),
+                    $mentionsRaw
+                ), fn($m) => $m !== ''))
+                : [];
             $msgId = $this->conversationService->sendMessage($id, $text, $type, Auth::id(), null, $replyTo);
             $createdIds[] = $msgId;
             if ($type !== 'internal_note') {
-                $delivery[$msgId] = $this->dispatchWhatsApp($id, $msgId, $type, $text);
+                $delivery[$msgId] = $this->dispatchWhatsApp($id, $msgId, $type, $text, $mentions);
             }
         }
 
@@ -791,9 +802,56 @@ class InboxController
      *
      * @return array{delivered: bool, error: ?string}
      */
-    private function dispatchWhatsApp(int $conversationId, int $messageId, string $type, string $content): array
+    /**
+     * GET /inbox/{id}/group-members — participantes do grupo espelhado nesta
+     * conversa (autocomplete de @menções). 404 sem conversa/grupo, 502 se o
+     * provedor estiver fora.
+     */
+    public function groupMembers(Request $request, int $id): void
+    {
+        if ($this->denyUnlessCanAccess($request, $id)) return;
+        $conv = Conversation::find($id);
+        $groupId = (int) ($conv['group_id'] ?? 0);
+        if (!$conv || $groupId <= 0) {
+            View::json(['error' => 'Conversa não é de grupo'], 404);
+            return;
+        }
+        $members = (new \App\Services\WhatsAppService())->fetchGroupMembersForDisplay($groupId);
+        if ($members === null) {
+            View::json(['error' => 'Lista de participantes indisponível no momento'], 502);
+            return;
+        }
+        View::json(['members' => $members, 'fetched_at' => date('c')]);
+    }
+
+    private function dispatchWhatsApp(int $conversationId, int $messageId, string $type, string $content, array $mentions = []): array
     {
         $conv = Conversation::find($conversationId);
+        // Conversa de grupo: envio vai pelo JID do grupo (com @menções),
+        // nunca pelo 1:1 (o contato do grupo é sintético e miraria errado).
+        if (!empty($conv['group_id'])) {
+            if ($type !== 'text') {
+                return ['delivered' => false, 'error' => 'Nesta conversa de grupo só é possível enviar texto com @menções.'];
+            }
+            try {
+                $service = new \App\Services\WhatsAppService();
+                $providerId = $service->sendGroupConversationMessage($conversationId, $messageId, $content, $mentions);
+            } catch (\Throwable $e) {
+                error_log('WhatsApp group outbound error: ' . $e->getMessage());
+                Database::getInstance()->update(
+                    'messages',
+                    ['delivery_status' => 'failed'],
+                    'id = ?',
+                    [$messageId]
+                );
+                return ['delivered' => false, 'error' => 'Falha ao enviar: ' . $e->getMessage()];
+            }
+            if (!$providerId) {
+                $detail = 'Provedor não confirmou o envio. Use "Tentar de novo".';
+                return ['delivered' => false, 'error' => $detail];
+            }
+            return ['delivered' => true, 'error' => null];
+        }
         if (($conv['channel_type'] ?? '') !== 'whatsapp') {
             return ['delivered' => true, 'error' => null];
         }

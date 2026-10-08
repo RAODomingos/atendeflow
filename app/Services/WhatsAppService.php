@@ -1051,6 +1051,68 @@ class WhatsAppService
     }
 
     /**
+     * Envia texto de uma conversa do inbox que espelha um grupo: resolve o
+     * grupo, envia via sendGroupText (JID + menções) e carimba o status
+     * da mensagem local. Nunca faz throw (falha graciosa p/ retry).
+     *
+     * @return string|null provider_message_id ou null em falha/sem grupo
+     */
+    public function sendGroupConversationMessage(int $conversationId, int $messageId, string $text, array $mentions = []): ?string
+    {
+        $db = Database::getInstance();
+        $conv = Conversation::find($conversationId);
+        $groupId = (int) ($conv['group_id'] ?? 0);
+        if ($groupId <= 0) {
+            return null;
+        }
+        try {
+            $result = $this->sendGroupMessage($groupId, $text, $mentions);
+        } catch (\Throwable $e) {
+            $db->update('messages', ['delivery_status' => 'failed'], 'id = ?', [$messageId]);
+            return null;
+        }
+        $providerMessageId = $result['provider_message_id'] ?? null;
+        $db->update(
+            'messages',
+            $providerMessageId
+                ? ['channel_message_id' => $providerMessageId, 'delivery_status' => 'sent']
+                : ['delivery_status' => 'failed'],
+            'id = ?',
+            [$messageId]
+        );
+        return $providerMessageId;
+    }
+
+    /**
+     * Participantes do grupo p/ exibição e autocomplete (tempo real, sem
+     * persistir). Retorna null quando grupo/conexão ausente ou provedor fora;
+     * array (possivelmente vazio) quando a busca ok.
+     *
+     * @return array<int, array{phone:string, lid:?string, name:?string, is_admin:bool}>|null
+     */
+    public function fetchGroupMembersForDisplay(int $groupId): ?array
+    {
+        $group = \App\Models\WhatsAppGroup::find($groupId);
+        if (!$group) {
+            return null;
+        }
+        $connection = WhatsAppConnection::find((int) $group['connection_id']);
+        if (!$connection) {
+            return null;
+        }
+        try {
+            $provider = WhatsAppManager::forConnection($connection);
+            if (!method_exists($provider, 'fetchGroupParticipants')) {
+                return null;
+            }
+            $raw = $provider->fetchGroupParticipants($connection, (string) $group['group_jid']);
+        } catch (\Throwable $e) {
+            return null;
+        }
+        return \App\Controllers\WhatsAppGroupController::mapMembersForDisplay($raw);
+    }
+
+    /**
      * Envia texto para um grupo gerenciado, com menções opcionais.
      *
      * @param string[] $mentions Dígitos a mencionar (ou 'all' p/ todos).

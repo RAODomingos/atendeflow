@@ -605,6 +605,7 @@ $renderReceipts = function (array $msg) {
 
 <script>
 var CONV_ID = <?= (int) $conv['id'] ?>;
+var CONV_GROUP_ID = <?= (int) ($conv['group_id'] ?? 0) ?>;
 var DEPT_ID = <?= (int) ($conv['department_id'] ?? 0) ?>;
 var CONTACT_INITIAL = '<?= e($initial) ?>';
 var CONTACT_AVATAR = '<?= e($contact['avatar'] ?? '') ?>';
@@ -2035,12 +2036,109 @@ function acceptSuggest(i) {
 }
 function closeSuggest() { if (suggestBox) suggestBox.style.display = 'none'; suggestIndex = -1; }
 
+/* ---------- Autocomplete de @menções em conversa de grupo ---------- */
+var mentionBox = null, mentionItems = [], mentionIndex = -1, mentionTokenStart = -1;
+var groupMembersCache = null; // null = ainda não buscou
+var groupMentionSelected = {}; // chave (@telefone ou @lid) -> true
+function groupMembersUrl() {
+    return '<?= url('inbox/') ?>' + CONV_ID + '/group-members';
+}
+function getAtToken() {
+    if (!CONV_GROUP_ID || (typeof internalOn !== 'undefined' && internalOn)) return null;
+    var ta = document.getElementById('messageInput');
+    if (!ta) return null;
+    var pos = ta.selectionStart;
+    var text = ta.value.slice(0, pos);
+    var m = text.match(/(?:^|\s)@([\p{L}\p{N}_]*)$/u);
+    if (!m) return null;
+    return { query: m[1], start: pos - m[1].length - 1 };
+}
+function ensureGroupMembers(cb) {
+    if (groupMembersCache !== null) { cb(); return; }
+    groupMembersCache = [];
+    fetch(groupMembersUrl(), { headers: { 'X-Requested-With': 'XMLHttpRequest', 'Accept': 'application/json' } })
+        .then(function(r) { return r.json(); })
+        .then(function(j) { groupMembersCache = (j && j.members) || []; cb(); })
+        .catch(function() { cb(); });
+}
+function mentionKey(m) { return m.phone || (m.lid ? m.lid + '@lid' : ''); }
+function mentionLabel(m) { return m.name || m.phone || ('LID ' + (m.lid || '?')); }
+function renderMentionSuggest(token) {
+    var q = (token.query || '').toLowerCase();
+    mentionItems = (groupMembersCache || []).filter(function(m) {
+        var key = mentionKey(m);
+        if (!key) return false;
+        if (!q) return true;
+        return ((m.name || '') + ' ' + (m.phone || '') + ' ' + (m.lid || '')).toLowerCase().indexOf(q) !== -1;
+    }).slice(0, 8);
+    mentionIndex = mentionItems.length ? 0 : -1;
+    if (!mentionBox) {
+        mentionBox = document.createElement('div');
+        mentionBox.id = 'mentionSuggest';
+        mentionBox.className = 'composer-suggest';
+        var composer = document.querySelector('.chat-input');
+        if (composer) { composer.style.position = 'relative'; composer.appendChild(mentionBox); }
+    }
+    if (!mentionItems.length) { mentionBox.style.display = 'none'; return; }
+    function escHtml(s){ return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
+    mentionBox.innerHTML = mentionItems.map(function(m, i) {
+        return '<div class="composer-suggest-item" data-i="' + i + '"><div class="cs-title">@' + escHtml(mentionLabel(m)) + '</div><div class="cs-preview">' + escHtml(m.phone || ('LID ' + (m.lid || ''))) + (m.is_admin ? ' · admin' : '') + '</div></div>';
+    }).join('');
+    mentionBox.querySelectorAll('.composer-suggest-item').forEach(function(el) {
+        el.addEventListener('mousedown', function(e) { e.preventDefault(); acceptMention(parseInt(el.dataset.i, 10)); });
+    });
+    var ta = document.getElementById('messageInput');
+    mentionBox.style.display = 'block';
+    mentionBox.style.bottom = (ta.offsetHeight + 6) + 'px';
+    mentionBox.style.left = '0px';
+    highlightMention();
+}
+function highlightMention() {
+    if (!mentionBox) return;
+    mentionBox.querySelectorAll('.composer-suggest-item').forEach(function(el, i) {
+        el.classList.toggle('active', i === mentionIndex);
+    });
+    var active = mentionBox.querySelector('.composer-suggest-item.active');
+    if (active) active.scrollIntoView({ block: 'nearest' });
+}
+function acceptMention(i) {
+    if (i < 0 || i >= mentionItems.length) return;
+    var key = mentionKey(mentionItems[i]);
+    if (!key) return;
+    var ta = document.getElementById('messageInput');
+    var pos = ta.selectionStart;
+    var before = ta.value.slice(0, mentionTokenStart);
+    var after = ta.value.slice(pos);
+    ta.value = before + '@' + key + ' ' + after;
+    var caret = (before + '@' + key + ' ').length;
+    ta.setSelectionRange(caret, caret);
+    ta.focus();
+    groupMentionSelected[key] = true;
+    mentionBox.style.display = 'none';
+    mentionTokenStart = -1;
+}
+function closeMention() { if (mentionBox) mentionBox.style.display = 'none'; mentionIndex = -1; }
+
 document.getElementById('messageInput')?.addEventListener('input', function() {
+    var at = getAtToken();
+    if (at) {
+        closeSuggest();
+        mentionTokenStart = at.start;
+        ensureGroupMembers(function() { renderMentionSuggest(at); });
+        return;
+    }
+    closeMention();
     var token = getSlashToken();
     if (token) { suggestTokenStart = token.start; renderSuggest(token); }
     else { closeSuggest(); }
 });
 document.getElementById('messageInput')?.addEventListener('keydown', function(e) {
+    if (mentionBox && mentionBox.style.display === 'block' && mentionItems.length) {
+        if (e.key === 'ArrowDown') { e.preventDefault(); mentionIndex = (mentionIndex + 1) % mentionItems.length; highlightMention(); return; }
+        if (e.key === 'ArrowUp') { e.preventDefault(); mentionIndex = (mentionIndex - 1 + mentionItems.length) % mentionItems.length; highlightMention(); return; }
+        if (e.key === 'Enter' || e.key === 'Tab') { e.preventDefault(); acceptMention(mentionIndex); return; }
+        if (e.key === 'Escape') { e.preventDefault(); closeMention(); return; }
+    }
     if (suggestBox && suggestBox.style.display === 'block' && suggestItems.length) {
         if (e.key === 'ArrowDown') { e.preventDefault(); suggestIndex = (suggestIndex + 1) % suggestItems.length; highlightSuggest(); return; }
         if (e.key === 'ArrowUp') { e.preventDefault(); suggestIndex = (suggestIndex - 1 + suggestItems.length) % suggestItems.length; highlightSuggest(); return; }
@@ -2120,6 +2218,14 @@ document.getElementById('messageInput')?.addEventListener('keydown', function(e)
         var fd = new FormData(form);
         var qid = quoteTarget;
         if (qid) fd.set('reply_to', qid);
+        // @menções de grupo: só as que permanecem no texto são enviadas.
+        if (typeof groupMentionSelected !== 'undefined') {
+            var __mt = ta.value;
+            Object.keys(groupMentionSelected).forEach(function(k) {
+                if (__mt.indexOf('@' + k) !== -1) fd.append('mentions[]', k);
+                else delete groupMentionSelected[k];
+            });
+        }
         if (recordedFile && !(fileInput && fileInput.files && fileInput.files.length)) {
             // Substitui o input file vazio pelo arquivo do recorder
             fd.delete('file');
