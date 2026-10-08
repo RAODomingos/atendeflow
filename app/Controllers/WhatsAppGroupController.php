@@ -121,19 +121,11 @@ class WhatsAppGroupController
             View::json(['error' => 'Conexão do grupo não encontrada'], 502);
             return;
         }
-        try {
-            $provider = \App\Services\WhatsApp\WhatsAppManager::forConnection($connection);
-            $raw = method_exists($provider, 'fetchGroupParticipants')
-                ? $provider->fetchGroupParticipants($connection, (string) $group['group_jid'])
-                : [];
-        } catch (\Throwable $e) {
+        $members = (new WhatsAppService())->fetchGroupMembersForDisplay($id);
+        if ($members === null) {
             View::json(['error' => 'Lista de participantes indisponível no momento'], 502);
             return;
         }
-        // Resolve LID -> telefone via mapa aprendido para exibição.
-        // LID sem mapeamento NUNCA vira phone (mencioná-lo como @c.us
-        // notificaria ninguém ou a pessoa errada); vai como `lid` p/ menção @lid.
-        $members = self::mapMembersForDisplay($raw);
         View::json(['members' => $members, 'fetched_at' => date('c')]);
     }
 
