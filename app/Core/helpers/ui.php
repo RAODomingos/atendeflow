@@ -64,3 +64,22 @@ function event_color(string $type): string
     ];
     return $map[$type] ?? 'var(--primary)';
 }
+
+/**
+ * Bloco de transcrição abaixo do player de áudio.
+ * Com texto salvo: exibe. Sem texto: botão sob demanda (handler global em app-enhancements.js).
+ */
+function audio_transcription_html(array $msg): string
+{
+    $text = trim((string) ($msg['transcription'] ?? ''));
+    if ($text !== '') {
+        return '<div class="msg-transcription"><strong>Transcrição:</strong> ' . e($text) . '</div>';
+    }
+    $id = (int) ($msg['id'] ?? 0);
+    if ($id <= 0) {
+        return '';
+    }
+    return '<button type="button" class="btn-transcribe" data-transcribe-id="' . $id . '"'
+        . ' title="Ao transcrever, o áudio é enviado à OpenAI">Transcrever</button>'
+        . '<div class="msg-transcription" hidden></div>';
+}

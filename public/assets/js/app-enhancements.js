@@ -2050,4 +2050,36 @@
       f.setAttribute('data-confirm', msg);
     });
   }, true);
+
+  // Transcrição de áudios sob demanda (botão .btn-transcribe no inbox).
+  // CSRF vai via wrapper global de fetch do layout (X-CSRF-TOKEN).
+  document.addEventListener('click', function (e) {
+    var btn = e.target && e.target.closest ? e.target.closest('.btn-transcribe') : null;
+    if (!btn || btn.disabled) return;
+    var mid = btn.getAttribute('data-transcribe-id');
+    if (!mid) return;
+    btn.disabled = true;
+    btn.innerHTML = 'Transcrevendo…';
+    fetch('/api/messages/' + encodeURIComponent(mid) + '/transcribe', { method: 'POST' })
+      .then(function (r) { return r.json().then(function (d) { return { status: r.status, body: d }; }); })
+      .then(function (res) {
+        var box = btn.parentElement ? btn.parentElement.querySelector('.msg-transcription') : null;
+        if (res.status === 200 && res.body && res.body.text) {
+          var t = document.createElement('div');
+          t.textContent = res.body.text;
+          var html = '<strong>Transcrição:</strong> ' + t.innerHTML;
+          if (box) { box.innerHTML = html; box.hidden = false; }
+          btn.remove();
+        } else {
+          btn.disabled = false;
+          btn.innerHTML = 'Tentar novamente';
+          var err = (res.body && res.body.error) || 'Falha na transcrição.';
+          btn.title = err;
+        }
+      })
+      .catch(function () {
+        btn.disabled = false;
+        btn.innerHTML = 'Tentar novamente';
+      });
+  });
 })();
