@@ -89,6 +89,36 @@ if (function_exists('audio_transcription_html')) {
     check(str_contains($without, 'data-transcribe-id="7"'), 'helper imprime botão quando sem texto');
 }
 
+// Task 6 — erros: sem chave → 501 (service lança 'Transcrição desabilitada.');
+// não-áudio → 422; >25MB → 422
+try {
+    (new \App\Services\Transcription\OpenAiWhisperProvider(null))->transcribe(__FILE__, 'pt');
+    check(false, 'provider sem chave lança');
+} catch (\RuntimeException $e) {
+    check($e->getMessage() === 'Transcrição desabilitada.', 'sem chave → Transcrição desabilitada (501)');
+}
+if (isset($conv) && $conv) {
+    $db->beginTransaction();
+    try {
+        $tid = (int) $db->insert('messages', [
+            'conversation_id' => $conv['id'],
+            'type' => 'text',
+            'content' => 'só texto',
+            'direction' => 'inbound',
+        ]);
+        try {
+            \App\Services\TranscriptionService::transcribeMessage($tid, 1, $fake ?? new class implements \App\Services\Transcription\TranscriptionProviderInterface {
+                public function transcribe(string $f, string $l): string { return 'x'; }
+            });
+            check(false, 'texto não transcreve');
+        } catch (\RuntimeException $e) {
+            check($e->getMessage() === 'Mensagem não é áudio.', 'não-áudio → Mensagem não é áudio (422)');
+        }
+    } finally {
+        $db->rollBack();
+    }
+}
+
 // Task 5 — PDFs exibem transcrição abaixo de "Áudio"
 $pdfInbox = file_get_contents(__DIR__ . '/../../app/Views/inbox/pdf.php');
 $pdfFull = file_get_contents(__DIR__ . '/../../app/Views/contacts/pdf_full.php');
