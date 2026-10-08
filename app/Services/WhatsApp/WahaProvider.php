@@ -544,6 +544,19 @@ class WahaProvider implements WhatsAppProviderInterface
         // Detect type from _data.type (WAHA 2026+ includes msg type in _data)
         $dataType = $msg['_data']['type'] ?? '';
 
+        // Cartão de contato (vCard): type=contact, _data.type=vcard/contact ou
+        // corpo BEGIN:VCARD. Vira IncomingMessage type='contact' (JSON).
+        $contactCard = $this->extractContactCard($msg, $dataType);
+        if ($contactCard !== null) {
+            if (($contactCard['name'] ?? '') === '') {
+                $contactCard['name'] = $senderName ?? $fromPhone;
+            }
+            return IncomingMessage::contact(
+                $session, $messageId, $fromPhone, $contactCard, $timestamp, false,
+                $senderName, null, ['original_from' => $originalFrom]
+            );
+        }
+
         // Ignora notificações do sistema (notification_template, notification, etc.)
         // que não são mensagens de usuário e criariam conversas indevidamente.
         if (in_array($dataType, ['notification_template', 'notification', 'e2e_notification', 'call_log', 'protocol'], true)) {
@@ -611,6 +624,48 @@ class WahaProvider implements WhatsAppProviderInterface
             null,
             $textExtra
         );
+    }
+
+    /**
+     * Extrai cartão de contato do payload WAHA (vários formatos por versão).
+     * Retorna ['name'=>?string,'phone'=>?string] ou null se não for contato.
+     */
+    private function extractContactCard(array $msg, string $dataType): ?array
+    {
+        $isContactType = ($msg['type'] ?? '') === 'contact'
+            || in_array(strtolower($dataType), ['vcard', 'contact'], true);
+        $vcard = $msg['_data']['contactVcard'] ?? $msg['_data']['vcard'] ?? $msg['vcard'] ?? null;
+        $contact = $msg['contact'] ?? $msg['_data']['contact'] ?? null;
+        $body = (string) ($msg['body'] ?? '');
+        $isVcardBody = str_starts_with(ltrim($body), 'BEGIN:VCARD');
+        if (!$isContactType && !is_string($vcard) && !is_array($contact) && !$isVcardBody) {
+            return null;
+        }
+        $name = is_array($contact) ? (string) ($contact['name'] ?? $contact['fullName'] ?? '') : '';
+        $phone = is_array($contact) ? (string) ($contact['phone'] ?? $contact['phoneNumber'] ?? '') : '';
+        if (is_string($vcard) && $vcard !== '') {
+            $parsed = IncomingMessage::parseVcard($vcard);
+            if ($name === '' && $parsed['name'] !== null) {
+                $name = $parsed['name'];
+            }
+            if ($phone === '' && $parsed['phone'] !== null) {
+                $phone = $parsed['phone'];
+            }
+        }
+        if ($isVcardBody) {
+            $parsed = IncomingMessage::parseVcard($body);
+            if ($name === '' && $parsed['name'] !== null) {
+                $name = $parsed['name'];
+            }
+            if ($phone === '' && $parsed['phone'] !== null) {
+                $phone = $parsed['phone'];
+            }
+        }
+        $phone = preg_replace('/\D/', '', $phone);
+        if ($name === '' && $phone === '') {
+            return null;
+        }
+        return ['name' => $name !== '' ? $name : null, 'phone' => $phone !== '' ? $phone : null];
     }
 
     /**
@@ -857,6 +912,35 @@ class WahaProvider implements WhatsAppProviderInterface
             ];
         }
         return $out;
+    }
+
+    /**
+     * Envia um cartão de contato (vCard) para conversa 1:1.
+     */
+    public function sendContact(array $connection, string $to, array $contact): array
+    {
+        $session = $connection['instance_name'] ?? '';
+        $phone = $this->normalizePhone($to);
+        $contactPhone = preg_replace('/\D/', '', (string) ($contact['phone'] ?? ''));
+        if (!$phone || $contactPhone === '') {
+            return ['provider_message_id' => null, 'raw' => []];
+        }
+        $name = trim((string) ($contact['name'] ?? ''));
+        if ($name === '') {
+            $name = $contactPhone;
+        }
+        $vcard = IncomingMessage::buildVcard($name, $contactPhone, $contact['organization'] ?? null);
+        $resp = $this->client->post('/api/sendContactVcard', [
+            'session' => $session,
+            'chatId' => $phone . '@c.us',
+            'contacts' => [['vcard' => $vcard]],
+        ], $this->authHeaders());
+        $this->guard($resp);
+        $body = $resp['body'] ?? [];
+        return [
+            'provider_message_id' => $this->extractMessageId($body),
+            'raw' => $body,
+        ];
     }
 
     public function resolvePhone(array $connection, string $contactId): ?string

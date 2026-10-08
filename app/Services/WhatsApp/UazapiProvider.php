@@ -735,6 +735,45 @@ class UazapiProvider implements WhatsAppProviderInterface
         ];
     }
 
+    /**
+     * Extrai cartão de contato do payload Uazapi (messageType Contact* ou
+     * bloco contact/vcard). Retorna ['name','phone'] ou null.
+     */
+    private static function extractContactCard(string $messageType, array $msg, mixed $content): ?array
+    {
+        $isContactType = str_contains(strtolower($messageType), 'contact');
+        $contact = $msg['contact'] ?? null;
+        if (!is_array($contact) && is_array($content)) {
+            $contact = $content['contact'] ?? null;
+        }
+        $vcard = null;
+        if (is_array($content)) {
+            $vcard = $content['vcard'] ?? $content['contactVcard'] ?? null;
+        }
+        if (is_string($content) && str_starts_with(ltrim($content), 'BEGIN:VCARD')) {
+            $vcard = $content;
+        }
+        if (!$isContactType && !is_array($contact) && !is_string($vcard)) {
+            return null;
+        }
+        $name = is_array($contact) ? (string) ($contact['name'] ?? $contact['fullName'] ?? '') : '';
+        $phone = is_array($contact) ? (string) ($contact['phone'] ?? $contact['phoneNumber'] ?? '') : '';
+        if (is_string($vcard) && $vcard !== '') {
+            $parsed = \App\Services\WhatsApp\IncomingMessage::parseVcard($vcard);
+            if ($name === '' && $parsed['name'] !== null) {
+                $name = $parsed['name'];
+            }
+            if ($phone === '' && $parsed['phone'] !== null) {
+                $phone = $parsed['phone'];
+            }
+        }
+        $phone = preg_replace('/\D/', '', $phone);
+        if ($name === '' && $phone === '') {
+            return null;
+        }
+        return ['name' => $name !== '' ? $name : null, 'phone' => $phone !== '' ? $phone : null];
+    }
+
     public function parseWebhook(array $payload): ?IncomingMessage
     {
         $event = $payload['EventType'] ?? $payload['event'] ?? '';
@@ -799,6 +838,18 @@ class UazapiProvider implements WhatsAppProviderInterface
 
         // Uazapi: message.content pode ser string (texto) ou array (mídia/interativo)
         $content = $msg['content'] ?? null;
+
+        // Cartão de contato: messageType Contact* ou bloco contact/vcard no payload.
+        $contactCard = self::extractContactCard($messageType, $msg, $content);
+        if ($contactCard !== null) {
+            if (($contactCard['name'] ?? '') === '') {
+                $contactCard['name'] = $senderName !== '' ? $senderName : $fromPhone;
+            }
+            return \App\Services\WhatsApp\IncomingMessage::contact(
+                $providerId, $messageId, $fromPhone, $contactCard, $timestamp, false,
+                $senderName, $avatarUrl, $extra
+            );
+        }
 
         // Mídia: content é array com URL, mimetype, caption
         $mediaTypes = ['ImageMessage', 'AudioMessage', 'VideoMessage', 'DocumentMessage', 'StickerMessage', 'PttMessage'];
@@ -946,6 +997,38 @@ class UazapiProvider implements WhatsAppProviderInterface
         } catch (\Throwable $e) {
             return false;
         }
+    }
+
+    /**
+     * Envia um cartão de contato (vCard) para conversa 1:1.
+     */
+    public function sendContact(array $connection, string $to, array $contact): array
+    {
+        $phone = preg_replace('/\D/', '', $to);
+        $contactPhone = preg_replace('/\D/', '', (string) ($contact['phone'] ?? ''));
+        if ($phone === '' || $contactPhone === '') {
+            return ['provider_message_id' => null, 'raw' => []];
+        }
+        $name = trim((string) ($contact['name'] ?? ''));
+        if ($name === '') {
+            $name = $contactPhone;
+        }
+        $body = [
+            'number' => $phone,
+            'fullName' => $name,
+            'phoneNumber' => $contactPhone,
+            'delay' => 0,
+        ];
+        if (!empty($contact['organization'])) {
+            $body['organization'] = (string) $contact['organization'];
+        }
+        $headers = $this->instanceAuthHeaders($connection);
+        $resp = $this->client->post('/send/contact', $body, $headers);
+        $this->guard($resp['body'] ?? []);
+        return [
+            'provider_message_id' => $this->extractMessageId($resp['body'] ?? []),
+            'raw' => $resp['body'],
+        ];
     }
 
     public function resolvePhone(array $connection, string $contactId): ?string
