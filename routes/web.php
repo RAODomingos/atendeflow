@@ -156,6 +156,7 @@ $router->group('', function (Router $router) {
     // Grupos WhatsApp (leitura: qualquer autenticado; gestão: gerente+)
     $router->get('/whatsapp/groups', [WhatsAppGroupController::class, 'index']);
     $router->get('/whatsapp/groups/{id}', [WhatsAppGroupController::class, 'show']);
+    $router->get('/whatsapp/groups/{id}/members', [WhatsAppGroupController::class, 'members']);
     $router->post('/whatsapp/groups/{id}/read', [WhatsAppGroupController::class, 'markRead']);
     $router->post('/whatsapp/groups/{id}/alert', [WhatsAppGroupController::class, 'toggleAlert'], ['manager']);
     $router->post('/whatsapp/groups/{id}/inbox', [WhatsAppGroupController::class, 'setInbox'], ['manager']);
