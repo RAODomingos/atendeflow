@@ -104,6 +104,54 @@ class WhatsAppGroupController
         View::redirect(url('whatsapp/groups/' . $id));
     }
 
+    /**
+     * GET /whatsapp/groups/{id}/members — participantes em tempo real via
+     * provedor (sem persistir). Erro vira 502 com "lista indisponível";
+     * o envio segue funcionando normalmente.
+     */
+    public function members(Request $request, int $id): void
+    {
+        $group = WhatsAppGroup::find($id);
+        if (!$group) {
+            View::json(['error' => 'Grupo não encontrado'], 404);
+            return;
+        }
+        $connection = WhatsAppConnection::find((int) $group['connection_id']);
+        if (!$connection) {
+            View::json(['error' => 'Conexão do grupo não encontrada'], 502);
+            return;
+        }
+        try {
+            $provider = \App\Services\WhatsApp\WhatsAppManager::forConnection($connection);
+            $raw = method_exists($provider, 'fetchGroupParticipants')
+                ? $provider->fetchGroupParticipants($connection, (string) $group['group_jid'])
+                : [];
+        } catch (\Throwable $e) {
+            View::json(['error' => 'Lista de participantes indisponível no momento'], 502);
+            return;
+        }
+        // Resolve LID -> telefone via mapa aprendido para exibição.
+        $members = [];
+        foreach ($raw as $row) {
+            $phone = (string) ($row['phone'] ?? '');
+            $lid = $row['lid'] ?? null;
+            if ($phone === '' && is_string($lid) && $lid !== '') {
+                $resolved = \App\Models\WhatsAppLidMap::resolve($lid);
+                if ($resolved && !\App\Models\WhatsAppLidMap::isLid($resolved)) {
+                    $phone = $resolved;
+                } else {
+                    $phone = $lid;
+                }
+            }
+            $members[] = [
+                'phone' => $phone,
+                'name' => $row['name'] ?? null,
+                'is_admin' => (bool) ($row['is_admin'] ?? false),
+            ];
+        }
+        View::json(['members' => $members, 'fetched_at' => date('c')]);
+    }
+
     public function send(Request $request, int $id): void
     {
         $text = trim((string) ($request->input('message') ?? ''));
@@ -111,8 +159,16 @@ class WhatsAppGroupController
             View::json(['error' => 'Digite uma mensagem'], 422);
             return;
         }
+        $mentionsRaw = $request->input('mentions');
+        if (!is_array($mentionsRaw)) {
+            $mentionsRaw = $mentionsRaw === null || $mentionsRaw === '' ? [] : [$mentionsRaw];
+        }
+        $mentions = array_values(array_filter(array_map(
+            fn($m) => trim((string) $m, "@ \t"),
+            $mentionsRaw
+        ), fn($m) => $m !== ''));
         try {
-            $result = (new WhatsAppService())->sendGroupMessage($id, $text);
+            $result = (new WhatsAppService())->sendGroupMessage($id, $text, $mentions);
             $acceptsJson = str_contains($_SERVER['HTTP_ACCEPT'] ?? '', 'application/json')
                 || ($request->input('_format') === 'json');
             if ($acceptsJson) {

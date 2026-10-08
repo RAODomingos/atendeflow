@@ -1045,11 +1045,12 @@ class WhatsAppService
     }
 
     /**
-     * Envia texto para um grupo gerenciado.
+     * Envia texto para um grupo gerenciado, com menções opcionais.
      *
+     * @param string[] $mentions Dígitos a mencionar (ou 'all' p/ todos).
      * @return array{provider_message_id:?string}
      */
-    public function sendGroupMessage(int $groupId, string $text): array
+    public function sendGroupMessage(int $groupId, string $text, array $mentions = []): array
     {
         $group = \App\Models\WhatsAppGroup::find($groupId);
         if (!$group) {
@@ -1063,11 +1064,36 @@ class WhatsAppService
         if ($text === '') {
             throw new \RuntimeException('Mensagem vazia.');
         }
+        // Normaliza menções: dígitos válidos ou 'all'; garante @ no texto (WAHA exige).
+        $clean = [];
+        foreach ($mentions as $m) {
+            $m = trim((string) $m, "@ \t");
+            if (strtolower($m) === 'all') {
+                $clean[] = 'all';
+                continue;
+            }
+            $digits = preg_replace('/\D/', '', $m);
+            if ($digits !== '' && strlen($digits) >= 8) {
+                $clean[] = $digits;
+            }
+        }
+        $clean = array_values(array_unique($clean));
+        foreach ($clean as $c) {
+            if ($c === 'all') {
+                if (!preg_match('/@todos\b/i', $text)) {
+                    $text .= ' @todos';
+                }
+                continue;
+            }
+            if (!str_contains($text, '@' . $c)) {
+                $text .= ' @' . $c;
+            }
+        }
         $provider = WhatsAppManager::forConnection($connection);
         if (!method_exists($provider, 'sendGroupText')) {
             throw new \RuntimeException('Provedor não suporta envio para grupos.');
         }
-        $result = $provider->sendGroupText($connection, $group['group_jid'], $text);
+        $result = $provider->sendGroupText($connection, $group['group_jid'], $text, $clean);
         // Espelha o envio na conversa do grupo (caixa selecionada).
         try {
             $conv = $this->ensureGroupConversation($connection, $group, $text);
