@@ -34,5 +34,15 @@ try {
     check(false, 'fetch nao deve dar throw sem rede (' . substr($e->getMessage(), 0, 80) . ')');
 }
 
+// 5. Parser Uazapi preserva participante só-telefone (sem LID)
+$parsed = \App\Services\WhatsApp\UazapiProvider::mapParticipantList([
+    ['phone' => '5511999998888', 'name' => 'Ana'],
+    ['sender_lid' => '999999999999993@lid', 'sender_pn' => '5522992036639@s.whatsapp.net'],
+    ['id' => '120363012345678@g.us', 'name' => 'Grupo'],
+]);
+$phones = array_column($parsed, 'phone');
+check(in_array('5511999998888', $phones, true), 'participante só-telefone preservado');
+check(in_array('5522992036639', $phones, true), 'par lid->phone preservado');
+
 echo $ok ? "PASS: group members contrato OK\n" : "SOME FAILURES\n";
 exit($ok ? 0 : 1);

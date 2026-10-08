@@ -48,6 +48,17 @@ class IncomingMessage
     }
 
     /**
+     * Diz se um cartão pode ser compartilhado (nome resolvido + telefone
+     * com ao menos 8 dígitos — mesmo corte dos providers). Usado pelo
+     * inbox para 422 ANTES de criar a mensagem.
+     */
+    public static function isShareableContact(array $card): bool
+    {
+        $phone = preg_replace('/\D/', '', (string) ($card['phone'] ?? ''));
+        return $phone !== '' && strlen($phone) >= 8;
+    }
+
+    /**
      * Gera o vCard 3.0 de um contato (usado no envio aos provedores).
      */
     public static function buildVcard(string $name, string $phone, ?string $organization = null): string

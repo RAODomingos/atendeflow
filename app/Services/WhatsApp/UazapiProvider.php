@@ -750,6 +750,9 @@ class UazapiProvider implements WhatsAppProviderInterface
         if (is_array($content)) {
             $vcard = $content['vcard'] ?? $content['contactVcard'] ?? null;
         }
+        if ($vcard === null && is_array($contact)) {
+            $vcard = $contact['vcard'] ?? $contact['contactVcard'] ?? null;
+        }
         if (is_string($content) && str_starts_with(ltrim($content), 'BEGIN:VCARD')) {
             $vcard = $content;
         }
@@ -759,7 +762,8 @@ class UazapiProvider implements WhatsAppProviderInterface
         $name = is_array($contact) ? (string) ($contact['name'] ?? $contact['fullName'] ?? '') : '';
         $phone = is_array($contact) ? (string) ($contact['phone'] ?? $contact['phoneNumber'] ?? '') : '';
         if (is_string($vcard) && $vcard !== '') {
-            $parsed = \App\Services\WhatsApp\IncomingMessage::parseVcard($vcard);
+            // Trunca antes de parsear: vCard gigante não pode estourar memória/log.
+            $parsed = \App\Services\WhatsApp\IncomingMessage::parseVcard(substr($vcard, 0, 2000));
             if ($name === '' && $parsed['name'] !== null) {
                 $name = $parsed['name'];
             }
@@ -769,7 +773,9 @@ class UazapiProvider implements WhatsAppProviderInterface
         }
         $phone = preg_replace('/\D/', '', $phone);
         if ($name === '' && $phone === '') {
-            return null;
+            // Tipo é contato mas sem dados: callers aplicam fallback
+            // (senderName/fromPhone) em vez de cair p/ texto vazio.
+            return $isContactType ? ['name' => null, 'phone' => null] : null;
         }
         return ['name' => $name !== '' ? $name : null, 'phone' => $phone !== '' ? $phone : null];
     }
@@ -1071,56 +1077,8 @@ class UazapiProvider implements WhatsAppProviderInterface
             if (!is_array($list)) {
                 continue;
             }
-            foreach ($list as $p) {
-                if (!is_array($p)) {
-                    continue;
-                }
-                // Varre o objeto do participante: um valor é o LID (>14 dígitos),
-                // outro é o telefone (8-14 dígitos).
-                $lid = '';
-                $phone = '';
-                $stack = [$p];
-                while ($stack) {
-                    $v = array_pop($stack);
-                    if (is_array($v)) {
-                        foreach ($v as $sv) {
-                            $stack[] = $sv;
-                        }
-                        continue;
-                    }
-                    if (!is_string($v) || $v === '') {
-                        continue;
-                    }
-                    // Ignora JID do grupo (@g.us) se vier aninhado no participante.
-                    if (str_contains($v, '@g.us')) {
-                        continue;
-                    }
-                    $digits = preg_replace('/\D/', '', $v);
-                    if ($digits === '') {
-                        continue;
-                    }
-                    if (strlen($digits) > 14 && $lid === '') {
-                        $lid = $digits;
-                    } elseif (strlen($digits) >= 8 && strlen($digits) <= 14 && $phone === '') {
-                        $phone = $digits;
-                    }
-                }
-                if ($lid !== '' && $lid !== $phone) {
-                    $name = null;
-                    foreach (['name', 'pushName', 'pushname', 'notifyName', 'wa_contactName'] as $nk) {
-                        if (!empty($p[$nk]) && is_string($p[$nk])) {
-                            $name = $p[$nk];
-                            break;
-                        }
-                    }
-                    $admin = $p['isAdmin'] ?? $p['is_admin'] ?? $p['admin'] ?? false;
-                    $pairs[] = [
-                        'phone' => $phone,
-                        'lid' => $lid,
-                        'name' => $name,
-                        'is_admin' => (bool) $admin,
-                    ];
-                }
+            foreach (self::mapParticipantList($list) as $row) {
+                $pairs[] = $row;
             }
         }
         // Dedup por LID (ou telefone quando sem LID).
@@ -1133,6 +1091,70 @@ class UazapiProvider implements WhatsAppProviderInterface
             $uniq[$key] = $row;
         }
         return array_values($uniq);
+    }
+
+    /**
+     * Mapeia a lista bruta de participantes do /group/info p/ shape padrão.
+     * Aceita entradas só-telefone (sem LID) — antes eram descartadas.
+     *
+     * @return array<int, array{phone:string, lid:?string, name:?string, is_admin:bool}>
+     */
+    public static function mapParticipantList(array $list): array
+    {
+        $out = [];
+        foreach ($list as $p) {
+            if (!is_array($p)) {
+                continue;
+            }
+            // Varre o objeto do participante: um valor é o LID (>14 dígitos),
+            // outro é o telefone (8-14 dígitos).
+            $lid = '';
+            $phone = '';
+            $stack = [$p];
+            while ($stack) {
+                $v = array_pop($stack);
+                if (is_array($v)) {
+                    foreach ($v as $sv) {
+                        $stack[] = $sv;
+                    }
+                    continue;
+                }
+                if (!is_string($v) || $v === '') {
+                    continue;
+                }
+                // Ignora JID do grupo (@g.us) se vier aninhado no participante.
+                if (str_contains($v, '@g.us')) {
+                    continue;
+                }
+                $digits = preg_replace('/\D/', '', $v);
+                if ($digits === '') {
+                    continue;
+                }
+                if (strlen($digits) > 14 && $lid === '') {
+                    $lid = $digits;
+                } elseif (strlen($digits) >= 8 && strlen($digits) <= 14 && $phone === '') {
+                    $phone = $digits;
+                }
+            }
+            if (($lid === '' && $phone === '') || $lid === $phone) {
+                continue;
+            }
+            $name = null;
+            foreach (['name', 'pushName', 'pushname', 'notifyName', 'wa_contactName'] as $nk) {
+                if (!empty($p[$nk]) && is_string($p[$nk])) {
+                    $name = $p[$nk];
+                    break;
+                }
+            }
+            $admin = $p['isAdmin'] ?? $p['is_admin'] ?? $p['admin'] ?? false;
+            $out[] = [
+                'phone' => $phone,
+                'lid' => $lid !== '' ? $lid : null,
+                'name' => $name,
+                'is_admin' => (bool) $admin,
+            ];
+        }
+        return $out;
     }
 
     public function sendReaction(array $connection, string $messageId, string $reaction, ?string $to = null): bool

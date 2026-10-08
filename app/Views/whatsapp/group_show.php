@@ -145,7 +145,8 @@
         } else {
             delete selected[phone];
             if (ta) {
-                var re = phone === 'all' ? /@todos/gi : new RegExp('@' + phone.replace(/\D/g, ''), 'g');
+                var needle = phone === 'all' ? '@todos' : '@' + phone;
+                var re = phone === 'all' ? /@todos/gi : new RegExp(needle.replace(/[^a-zA-Z0-9@]/g, '\\$&'), 'g');
                 ta.value = ta.value.replace(re, '').replace(/\s{2,}/g, ' ').trim();
             }
         }
@@ -163,11 +164,13 @@
         listEl.appendChild(all);
         var limit = 200;
         members.slice(0, limit).forEach(function (m) {
+            var key = m.phone || (m.lid ? m.lid + '@lid' : '');
+            if (!key) return;
             var row = document.createElement('label');
             row.className = 'member-row';
-            var label = esc(m.name || m.phone || '?');
-            row.innerHTML = '<input type="checkbox" data-mention="' + esc(m.phone) + '"> <span><strong>' + label + '</strong>'
-                + ' <small class="form-hint">' + esc(m.phone || '') + '</small></span>'
+            var label = esc(m.name || m.phone || ('LID ' + (m.lid || '?')));
+            row.innerHTML = '<input type="checkbox" data-mention="' + esc(key) + '"> <span><strong>' + label + '</strong>'
+                + ' <small class="form-hint">' + esc(m.phone || ('LID ' + (m.lid || ''))) + '</small></span>'
                 + (m.is_admin ? ' <span class="badge-admin">admin</span>' : '');
             listEl.appendChild(row);
         });
@@ -203,5 +206,12 @@
             });
     }
     reloadBtn.addEventListener('click', load);
+    // Anti duplo-submit: POST síncrono — desabilita o botão no envio.
+    if (form) {
+        form.addEventListener('submit', function () {
+            var btn = form.querySelector('button[type=submit]');
+            if (btn) btn.disabled = true;
+        });
+    }
 })();
 </script>

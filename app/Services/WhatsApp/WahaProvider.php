@@ -643,17 +643,12 @@ class WahaProvider implements WhatsAppProviderInterface
         }
         $name = is_array($contact) ? (string) ($contact['name'] ?? $contact['fullName'] ?? '') : '';
         $phone = is_array($contact) ? (string) ($contact['phone'] ?? $contact['phoneNumber'] ?? '') : '';
-        if (is_string($vcard) && $vcard !== '') {
-            $parsed = IncomingMessage::parseVcard($vcard);
-            if ($name === '' && $parsed['name'] !== null) {
-                $name = $parsed['name'];
+        foreach ([$vcard, $isVcardBody ? $body : null] as $raw) {
+            if (!is_string($raw) || $raw === '') {
+                continue;
             }
-            if ($phone === '' && $parsed['phone'] !== null) {
-                $phone = $parsed['phone'];
-            }
-        }
-        if ($isVcardBody) {
-            $parsed = IncomingMessage::parseVcard($body);
+            // Trunca antes de parsear: vCard gigante não pode estourar memória/log.
+            $parsed = IncomingMessage::parseVcard(substr($raw, 0, 2000));
             if ($name === '' && $parsed['name'] !== null) {
                 $name = $parsed['name'];
             }
@@ -663,7 +658,9 @@ class WahaProvider implements WhatsAppProviderInterface
         }
         $phone = preg_replace('/\D/', '', $phone);
         if ($name === '' && $phone === '') {
-            return null;
+            // Tipo é contato mas sem dados: caller aplica fallback
+            // (senderName/fromPhone) em vez de cair p/ texto vazio.
+            return $isContactType ? ['name' => null, 'phone' => null] : null;
         }
         return ['name' => $name !== '' ? $name : null, 'phone' => $phone !== '' ? $phone : null];
     }
