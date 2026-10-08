@@ -70,6 +70,8 @@ check('avatar trata url expirada', str_contains($waSrc, "str_starts_with(\$avata
 // Conexão: phone_number atualiza ao trocar de número e nunca apaga com null
 check('phone atualiza ao mudar (log PHONE_CHANGED)', str_contains($waSrc, 'PHONE_CHANGED'));
 check('phone nao apaga com null no poll', str_contains($waSrc, 'Nunca apaga número salvo com null'));
+$uazSrc = file_get_contents(__DIR__ . '/../app/Services/WhatsApp/UazapiProvider.php');
+check('uazapi prioriza owner da API', str_contains($uazSrc, 'Owner da API tem prioridade'));
 
 // Fluxo: nao reinicia em conversa Aberta / em atendimento / com historico
 check('fluxo tem trava shouldAutoStartFlow', str_contains($waSrc, 'shouldAutoStartFlow'));
