@@ -140,6 +140,16 @@ interface WhatsAppProviderInterface
     public function fetchGroupParticipants(array $connection, string $groupJid): array;
 
     /**
+     * Envia um cartão de contato (vCard) para uma conversa 1:1.
+     *
+     * @param array $connection Linha de whatsapp_connections
+     * @param string $to        Número do destinatário (somente dígitos)
+     * @param array{name:string, phone:string, organization:?string} $contact
+     * @return array{provider_message_id:?string, raw:mixed}
+     */
+    public function sendContact(array $connection, string $to, array $contact): array;
+
+    /**
      * Obtém a URL da foto de perfil de um contato no WhatsApp.
      *
      * @param array  $connection Linha de whatsapp_connections
