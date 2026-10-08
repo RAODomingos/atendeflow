@@ -612,6 +612,18 @@ class WhatsAppService
             $mentioned = $this->resolveMentionedPhones($connection, $rawMentioned);
             $mentionEveryone = self::isEveryoneMentioned($rawMentioned, $text);
             $isMention = $mentionEveryone || self::connectionMentioned($connDigits, $mentioned, $text);
+            if (!$isMention) {
+                // Diagnóstico: menção perdida — registra por que não detectou.
+                $this->logWebhook('GROUP_MENTION_MISS', [
+                    'group_id' => $group['id'] ?? null,
+                    'conn_empty' => $connDigits === '',
+                    'mentioned_raw' => count($rawMentioned),
+                    'mentioned_resolved' => count($mentioned),
+                    'has_at' => str_contains($text, '@'),
+                ]);
+            }
+        } elseif (!$isSelf && empty($group['mention_alert'])) {
+            $this->logWebhook('GROUP_MENTION_OFF', ['group_id' => $group['id'] ?? null]);
         }
 
         // 1) Espelha na caixa selecionada (toda msg de grupo vira mensagem da
