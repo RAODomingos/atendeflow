@@ -125,16 +125,16 @@ class UazapiProvider implements WhatsAppProviderInterface
 
             $status = $this->normalizeStatus($body);
 
+            // Owner da API tem prioridade: a instância pode ter sido pareada
+            // com outro número e o valor salvo estaria desatualizado.
             $phone = null;
-            if (!empty($connection['phone_number'])) {
-                $phone = preg_replace('/\D/', '', (string) $connection['phone_number']);
+            $instanceInfo = $body['instance'] ?? $body;
+            $owner = $instanceInfo['owner'] ?? $body['owner'] ?? null;
+            if ($owner) {
+                $phone = preg_replace('/\D/', '', (string) $owner);
             }
-            if (!$phone) {
-                $instanceInfo = $body['instance'] ?? $body;
-                $owner = $instanceInfo['owner'] ?? $body['owner'] ?? null;
-                if ($owner) {
-                    $phone = preg_replace('/\D/', '', (string) $owner);
-                }
+            if (!$phone && !empty($connection['phone_number'])) {
+                $phone = preg_replace('/\D/', '', (string) $connection['phone_number']);
             }
 
             $qr = null;
@@ -142,7 +142,6 @@ class UazapiProvider implements WhatsAppProviderInterface
                 $qr = $this->extractQr($body);
             }
 
-            $instanceInfo = $body['instance'] ?? $body;
             $instanceId = $instanceInfo['name'] ?? $instanceInfo['instanceName'] ?? null;
 
             return [
