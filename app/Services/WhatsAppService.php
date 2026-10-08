@@ -606,6 +606,12 @@ class WhatsAppService
         $senderDigits = \App\Models\WhatsAppLidMap::resolve((string) $message->from) ?? '';
         $isSelf = $connDigits !== '' && $senderDigits !== '' && self::samePhoneDigits($connDigits, $senderDigits);
 
+        // Aprende o nome do participante (pushName/notifyName): o /group/info
+        // não retorna nomes, então quem já falou fica conhecido p/ menções.
+        if (!$isSelf && $senderDigits !== '' && !\App\Models\WhatsAppLidMap::isLid($senderDigits) && !empty($message->senderName)) {
+            \App\Models\WhatsAppContactName::learn($senderDigits, (string) $message->senderName);
+        }
+
         $text = $message->type === 'text' ? (string) $message->content : (string) ($message->caption ?? '');
         if ($text === '' && $message->type !== 'text') {
             $text = '[' . $message->type . ']';
@@ -1716,6 +1722,12 @@ class WhatsAppService
             }
         } catch (\Throwable $e) {
             error_log("sendOutbound: {$conversationId}/{$messageId} exception: " . $e->getMessage());
+            Database::getInstance()->update(
+                'messages',
+                ['delivery_status' => 'failed'],
+                'id = ?',
+                [$messageId]
+            );
             return null;
         }
 
