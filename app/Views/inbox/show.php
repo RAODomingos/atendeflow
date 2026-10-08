@@ -1,3 +1,8 @@
+<style>
+.contact-card { display: flex; align-items: center; gap: 10px; background: #f0f7ff; border: 1px solid #cfe3ff; border-radius: 10px; padding: 10px 12px; max-width: 280px; }
+.contact-card-icon { font-size: 28px; color: #0b5ed7; }
+.contact-card-info { display: flex; flex-direction: column; gap: 2px; font-size: 13px; }
+</style>
 <div class="conversation-view">
     <div class="conv-sidebar">
         <div class="conv-sidebar-header">
@@ -194,6 +199,21 @@
                                     <a href="<?= e($csatUrl) ?>" target="_blank" rel="noopener">Avaliar</a>
                                 <?php endif; ?>
                             </div>
+                        <?php elseif ($msg['type'] === 'contact'):
+                            $cardData = json_decode((string) ($msg['content'] ?? ''), true) ?: [];
+                            $cardName = (string) ($cardData['name'] ?? '');
+                            $cardPhone = preg_replace('/\D/', '', (string) ($cardData['phone'] ?? ''));
+                        ?>
+                            <div class="message-content contact-card">
+                                <div class="contact-card-icon"><i class="fas fa-address-card"></i></div>
+                                <div class="contact-card-info">
+                                    <strong><?= e($cardName !== '' ? $cardName : $cardPhone) ?></strong>
+                                    <?php if ($cardPhone): ?>
+                                        <div><a href="tel:+<?= e($cardPhone) ?>"><?= e($cardPhone) ?></a>
+                                        <a href="https://wa.me/<?= e($cardPhone) ?>" target="_blank" rel="noopener" title="Abrir no WhatsApp"><i class="fab fa-whatsapp"></i></a></div>
+                                    <?php endif; ?>
+                                </div>
+                            </div>
                         <?php elseif ($isFile && $meta): ?>
                                 <?php
                                     $cap = (string) ($meta['caption'] ?? '');
@@ -272,6 +292,11 @@
                         <i class="fas fa-signature"></i> <span>Assinatura</span>
                     </button>
                     <?php endif; ?>
+                    <?php if (($conversation['channel_type'] ?? '') === 'whatsapp'): ?>
+                    <button type="button" class="btn btn-sm btn-outline" title="Enviar contato" onclick="openContactModal()" <?= $convFinished ? 'disabled' : '' ?>>
+                        <i class="fas fa-address-card"></i>
+                    </button>
+                    <?php endif; ?>
                     <button type="submit" class="btn btn-primary btn-sm send-btn" <?= $convFinished ? 'disabled' : '' ?>>
                         <i class="fas fa-paper-plane"></i> Enviar
                     </button>
@@ -308,12 +333,25 @@
         </div>
     </div>
 
+    <div id="contactModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:9999;align-items:center;justify-content:center" onclick="if(event.target===this)closeContactModal()">
+        <div style="background:#fff;border-radius:12px;max-width:480px;width:calc(100% - 32px);max-height:80vh;display:flex;flex-direction:column">
+            <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 16px;border-bottom:1px solid #eee">
+                <h3 style="margin:0;font-size:16px"><i class="fas fa-address-card"></i> Enviar contato</h3>
+                <button type="button" onclick="closeContactModal()" style="border:none;background:none;font-size:22px;cursor:pointer;line-height:1">&times;</button>
+            </div>
+            <div style="padding:14px 16px;overflow-y:auto">
+                <input type="text" id="contactSearch" class="form-control" placeholder="Buscar contato por nome ou telefone..." onkeyup="filterContactSuggest()">
+                <div id="contactList" style="margin-top:10px;display:flex;flex-direction:column;gap:8px"></div>
+                <p style="margin:12px 0 0;font-size:12px;color:#6c757d">Envia o cartão do contato da base como mensagem.</p>
+            </div>
+        </div>
+    </div>
+
     <div class="conv-history">
         <div class="card">
             <div class="card-header">
                 <h4><i class="fas fa-history"></i> Histórico <span class="badge badge-tag-count"><?= count($events) ?></span></h4>
-            </div>
-            <div class="card-body p-0">
+            </div>            <div class="card-body p-0">
                 <div class="history-list-modern" id="convHistoryS">
                     <?php if (empty($events)): ?>
                         <p class="tag-empty-msg">Nenhum evento registrado.</p>
@@ -563,6 +601,18 @@ document.getElementById('messageInput')?.addEventListener('keydown', function(e)
         var size = m.size ? ' (' + fmtBytes(m.size) + ')' : '';
         return '<a class="msg-file" href="' + esc(url) + '" target="_blank" rel="noopener" download><i class="fas fa-file-download"></i><span class="msg-file-name">' + esc(name) + '</span><span class="msg-file-size">' + esc(size) + '</span></a>' + cap;
     }
+    function contactCardHtml(content) {
+        var c = {}; try { c = JSON.parse(content || '{}'); } catch (e) {}
+        var name = c.name || c.phone || '?';
+        var phone = String(c.phone || '').replace(/\D/g, '');
+        var html = '<div class="contact-card"><div class="contact-card-icon"><i class="fas fa-address-card"></i></div>'
+            + '<div class="contact-card-info"><strong>' + esc(name) + '</strong>';
+        if (phone) {
+            html += '<div><a href="tel:+' + esc(phone) + '">' + esc(phone) + '</a>'
+                + ' <a href="https://wa.me/' + esc(phone) + '" target="_blank" rel="noopener" title="Abrir no WhatsApp"><i class="fab fa-whatsapp"></i></a></div>';
+        }
+        return html + '</div></div>';
+    }
     function appendTempMessageShow(text, file) {
         var wrap = document.createElement('div');
         wrap.className = 'message message-out';
@@ -604,6 +654,8 @@ document.getElementById('messageInput')?.addEventListener('keydown', function(e)
             var cdat = {}; try { cdat = JSON.parse(msg.content); } catch (e) {}
             body += '<div class="message-content csat-request-note"><i class="fas fa-smile"></i> ' + nl2br(cdat.prompt || 'Solicitação de avaliação enviada ao cliente.') +
                 (cdat.url ? ' <a href="' + esc(cdat.url) + '" target="_blank" rel="noopener">Avaliar</a>' : '') + '</div>';
+        } else if (msg.type === 'contact') {
+            body += '<div class="message-content">' + contactCardHtml(msg.content) + '</div>';
         } else if (mtype) {
             body += '<div class="message-content">' + fileContentHtml(mtype, msg.content) + '</div>';
         } else {
@@ -622,6 +674,7 @@ document.getElementById('messageInput')?.addEventListener('keydown', function(e)
     }
 
     var lastMid = 0;
+    window.appendInboxMessage = appendMessage;
     convEl.querySelectorAll('.message[data-mid]').forEach(function(el) {
         var id = parseInt(el.getAttribute('data-mid'), 10);
         if (id > lastMid) lastMid = id;
@@ -760,6 +813,71 @@ document.getElementById('messageInput')?.addEventListener('keydown', function(e)
         });
     }
 })();
+</script>
+<script>
+/* Envio de contato (vCard) no composer */
+var contactSuggestTimer = null;
+function openContactModal() {
+    var m = document.getElementById('contactModal'); if (!m) return;
+    m.style.display = 'flex';
+    document.getElementById('contactSearch').value = '';
+    loadContactSuggest('');
+    setTimeout(function() { document.getElementById('contactSearch').focus(); }, 50);
+}
+function closeContactModal() { var m = document.getElementById('contactModal'); if (m) m.style.display = 'none'; }
+function filterContactSuggest() {
+    clearTimeout(contactSuggestTimer);
+    contactSuggestTimer = setTimeout(function() {
+        var el = document.getElementById('contactSearch');
+        loadContactSuggest(el ? el.value : '');
+    }, 250);
+}
+function escContact(s) { var d = document.createElement('div'); d.textContent = s == null ? '' : s; return d.innerHTML; }
+function loadContactSuggest(q) {
+    var box = document.getElementById('contactList'); if (!box) return;
+    box.innerHTML = '<p style="font-size:12px;color:#6c757d">Buscando...</p>';
+    var base = '<?= rtrim(parse_url(base_url('/'), PHP_URL_PATH), '/') ?>';
+    fetch(base + '/api/contacts/search?q=' + encodeURIComponent(q || ''), { headers: { 'X-Requested-With': 'XMLHttpRequest' } })
+        .then(function(r) { return r.json(); })
+        .then(function(list) {
+            box.innerHTML = '';
+            (list || []).slice(0, 20).forEach(function(c) {
+                if (!c.phone) return;
+                var row = document.createElement('button');
+                row.type = 'button';
+                row.style.cssText = 'display:flex;align-items:center;gap:8px;text-align:left;border:1px solid #eee;border-radius:8px;padding:8px 10px;background:#fff;cursor:pointer';
+                row.innerHTML = '<i class="fas fa-address-card" style="color:#6c757d"></i><span><strong>' + escContact(c.name || c.phone) + '</strong><br><small style="color:#6c757d">' + escContact(c.phone) + '</small></span>';
+                row.onclick = function() { sendContactCard(c.id); };
+                box.appendChild(row);
+            });
+            if (!box.children.length) box.innerHTML = '<p style="font-size:12px;color:#6c757d">Nenhum contato com telefone encontrado.</p>';
+        })
+        .catch(function() { box.innerHTML = '<p style="font-size:12px;color:#dc2626">Falha na busca. Tente novamente.</p>'; });
+}
+function sendContactCard(contactId) {
+    var form = document.getElementById('composerForm');
+    if (!form) return;
+    var fd = new FormData();
+    var tok = document.querySelector('input[name=_csrf_token]');
+    if (tok) fd.append('_csrf_token', tok.value);
+    fd.append('contact_id', contactId);
+    closeContactModal();
+    fetch(form.action, { method: 'POST', headers: { 'X-Requested-With': 'XMLHttpRequest' }, body: fd })
+        .then(function(r) { return r.json(); })
+        .then(function(resp) {
+            if (resp && resp.ok && resp.messages) {
+                (resp.messages || []).forEach(function(m) {
+                    if (window.appendInboxMessage) window.appendInboxMessage(m);
+                });
+                var convEl = document.getElementById('convMessages');
+                if (convEl) convEl.scrollTop = convEl.scrollHeight;
+                if (resp.delivery_failed) alert(resp.delivery_error || 'Contato salvo, mas NÃO entregue ao WhatsApp.');
+            } else if (resp && resp.error) {
+                alert(resp.error);
+            }
+        })
+        .catch(function() { alert('Erro ao enviar contato. Tente novamente.'); });
+}
 </script>
 <script>
 function toggleSignature(id) {

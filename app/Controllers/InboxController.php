@@ -350,6 +350,47 @@ class InboxController
 
         $isInternal = $request->post('type') === 'internal';
 
+        // Cartão de contato (vCard): contact_id da base, sem texto/arquivo.
+        $contactShareId = (int) ($request->post('contact_id') ?? 0);
+        if ($contactShareId > 0 && !$isInternal) {
+            $share = \App\Models\Contact::find($contactShareId);
+            $sharePhone = preg_replace('/\D/', '', (string) ($share['phone'] ?? ''));
+            if (!$share || $sharePhone === '') {
+                $msg = 'Contato inválido para envio.';
+                if ($request->isAjax()) {
+                    View::json(['ok' => false, 'error' => $msg]);
+                    return;
+                }
+                Session::setFlash('error', $msg);
+                View::back();
+            }
+            $cardJson = json_encode([
+                'name' => ($share['name'] ?? '') !== '' ? (string) $share['name'] : $sharePhone,
+                'phone' => $sharePhone,
+            ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+            $msgId = $this->conversationService->sendMessage($id, $cardJson, 'contact', Auth::id(), null, $replyTo);
+            $delivery = [$msgId => $this->dispatchWhatsApp($id, $msgId, 'contact', $cardJson)];
+            $failed = array_filter($delivery, fn($d) => empty($d['delivered']));
+            if ($request->isAjax()) {
+                $m = Conversation::getMessage($msgId);
+                if ($m) {
+                    $m['user_avatar'] = Auth::user()['avatar'] ?? null;
+                    $m['delivered'] = !empty($delivery[$msgId]['delivered']);
+                }
+                View::json([
+                    'ok' => true,
+                    'messages' => $m ? [$m] : [],
+                    'delivery_failed' => !empty($failed),
+                    'delivery_error' => !empty($failed) ? (string) reset($failed)['error'] : null,
+                ]);
+                return;
+            }
+            if (!empty($failed)) {
+                Session::setFlash('error', (string) reset($failed)['error']);
+            }
+            View::redirect("/inbox?conv={$id}");
+        }
+
         $file = $request->file('file');
         $hasFile = !empty($file['tmp_name']) && ($file['error'] ?? UPLOAD_ERR_OK) === UPLOAD_ERR_OK;
 
