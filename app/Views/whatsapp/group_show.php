@@ -63,12 +63,23 @@
     </div>
 
     <?php if ($isManager): ?>
-        <div class="card mt-2">
+    <div class="card mt-2" id="members-card">
+        <div class="card-header"><h3><i class="fas fa-users"></i> Participantes <small class="form-hint">(tempo real via provedor)</small></h3>
+            <button type="button" id="members-reload" class="btn btn-sm btn-outline"><i class="fas fa-sync"></i> Atualizar lista</button>
+        </div>
+        <div class="card-body">
+            <div id="members-status" class="form-hint">Clique em atualizar para ver quem está no grupo.</div>
+            <div id="members-list" class="members-list"></div>
+        </div>
+    </div>
+
+    <div class="card mt-2">
             <div class="card-header"><h3><i class="fas fa-paper-plane"></i> Enviar mensagem ao grupo</h3></div>
             <div class="card-body">
-                <form action="<?= url('whatsapp/groups/') ?><?= (int) $group['id'] ?>/send" method="POST" class="send-form">
+                <form action="<?= url('whatsapp/groups/') ?><?= (int) $group['id'] ?>/send" method="POST" class="send-form" id="group-send-form">
                     <?= csrf_field() ?>
-                    <textarea name="message" class="form-control" rows="2" maxlength="4000" placeholder="Digite a mensagem enviada pelo número conectado..." required></textarea>
+                    <textarea name="message" id="group-message" class="form-control" rows="2" maxlength="4000" placeholder="Digite a mensagem enviada pelo número conectado... (marque participantes acima para @mencionar)" required></textarea>
+                    <div id="mentions-hidden"></div>
                     <button type="submit" class="btn btn-primary btn-sm mt-1"><i class="fas fa-paper-plane"></i> Enviar</button>
                 </form>
             </div>
@@ -83,9 +94,114 @@
 .group-show-page .form-hint { font-size: 12px; color: #6c757d; }
 .group-show-page .empty-state { text-align: center; padding: 32px 20px; color: #6c757d; }
 .group-show-page .send-form { display: flex; flex-direction: column; gap: 8px; }
+.group-show-page .members-list { display: flex; flex-direction: column; gap: 4px; max-height: 260px; overflow-y: auto; margin-top: 8px; }
+.group-show-page .member-row { display: flex; align-items: center; gap: 8px; padding: 4px 6px; border-radius: 6px; }
+.group-show-page .member-row:hover { background: #f1f3f5; }
+.group-show-page .member-row .badge-admin { font-size: 10px; background: #e7f1ff; color: #0b5ed7; border-radius: 4px; padding: 1px 6px; }
 .group-show-page .mt-2 { margin-top: 16px; }
 .group-show-page .mt-1 { margin-top: 8px; }
 .alert { padding: 10px 14px; border-radius: 8px; margin-bottom: 12px; }
 .alert-success { background: #e6f4ea; color: #1b5e20; }
 .alert-danger { background: #fdecea; color: #8e1414; }
 </style>
+
+<script>
+(function () {
+    var membersUrl = "<?= url('whatsapp/groups/') ?><?= (int) $group['id'] ?>/members";
+    var listEl = document.getElementById('members-list');
+    var statusEl = document.getElementById('members-status');
+    var reloadBtn = document.getElementById('members-reload');
+    var form = document.getElementById('group-send-form');
+    var ta = document.getElementById('group-message');
+    var hiddenBox = document.getElementById('mentions-hidden');
+    if (!listEl || !form) return;
+    var selected = {}; // phone -> true; 'all' -> true
+
+    function esc(s) {
+        return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+            return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+        });
+    }
+    function syncHidden() {
+        hiddenBox.innerHTML = '';
+        Object.keys(selected).forEach(function (k) {
+            if (!selected[k]) return;
+            var i = document.createElement('input');
+            i.type = 'hidden';
+            i.name = 'mentions[]';
+            i.value = k;
+            hiddenBox.appendChild(i);
+        });
+    }
+    function toggleMention(phone, label, on) {
+        if (on) {
+            selected[phone] = true;
+            if (ta && phone !== 'all' && ta.value.indexOf('@' + phone) === -1) {
+                ta.value = (ta.value ? ta.value.replace(/\s+$/, '') + ' ' : '') + '@' + phone;
+            }
+            if (ta && phone === 'all' && !/@todos/i.test(ta.value)) {
+                ta.value = (ta.value ? ta.value.replace(/\s+$/, '') + ' ' : '') + '@todos';
+            }
+        } else {
+            delete selected[phone];
+            if (ta) {
+                var re = phone === 'all' ? /@todos/gi : new RegExp('@' + phone.replace(/\D/g, ''), 'g');
+                ta.value = ta.value.replace(re, '').replace(/\s{2,}/g, ' ').trim();
+            }
+        }
+        syncHidden();
+    }
+    function render(members) {
+        listEl.innerHTML = '';
+        if (!members.length) {
+            statusEl.textContent = 'Nenhum participante retornado pelo provedor.';
+            return;
+        }
+        var all = document.createElement('label');
+        all.className = 'member-row';
+        all.innerHTML = '<input type="checkbox" data-mention="all"> <strong>@todos</strong> <span class="form-hint">menciona todo o grupo</span>';
+        listEl.appendChild(all);
+        var limit = 200;
+        members.slice(0, limit).forEach(function (m) {
+            var row = document.createElement('label');
+            row.className = 'member-row';
+            var label = esc(m.name || m.phone || '?');
+            row.innerHTML = '<input type="checkbox" data-mention="' + esc(m.phone) + '"> <span><strong>' + label + '</strong>'
+                + ' <small class="form-hint">' + esc(m.phone || '') + '</small></span>'
+                + (m.is_admin ? ' <span class="badge-admin">admin</span>' : '');
+            listEl.appendChild(row);
+        });
+        if (members.length > limit) {
+            var more = document.createElement('div');
+            more.className = 'form-hint';
+            more.textContent = 'e mais ' + (members.length - limit) + ' participantes...';
+            listEl.appendChild(more);
+        }
+        statusEl.textContent = members.length + ' participante(s) — marque para @mencionar no envio.';
+        listEl.querySelectorAll('input[data-mention]').forEach(function (cb) {
+            cb.addEventListener('change', function () {
+                toggleMention(cb.getAttribute('data-mention'), '', cb.checked);
+            });
+        });
+    }
+    function load() {
+        statusEl.textContent = 'Carregando participantes...';
+        reloadBtn.disabled = true;
+        fetch(membersUrl, { headers: { 'Accept': 'application/json' } })
+            .then(function (r) { return r.json().then(function (j) { return { status: r.status, body: j }; }); })
+            .then(function (res) {
+                reloadBtn.disabled = false;
+                if (res.status !== 200) {
+                    statusEl.textContent = 'Lista indisponível no momento (' + esc(res.body.error || res.status) + '). O envio segue funcionando.';
+                    return;
+                }
+                render(res.body.members || []);
+            })
+            .catch(function () {
+                reloadBtn.disabled = false;
+                statusEl.textContent = 'Lista indisponível no momento. O envio segue funcionando.';
+            });
+    }
+    reloadBtn.addEventListener('click', load);
+})();
+</script>
