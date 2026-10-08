@@ -54,7 +54,7 @@ class TranscriptionService
             }
             $mime = (string) @mime_content_type($localPath);
             $mime = strtolower(trim(explode(';', $mime)[0]));
-            if ($mime !== '' && !str_starts_with($mime, 'audio/') && !in_array($mime, ['video/ogg', 'application/ogg'], true)) {
+            if (!self::isTranscribableMime($mime)) {
                 throw new \RuntimeException('Arquivo de áudio inválido.');
             }
 
@@ -74,6 +74,46 @@ class TranscriptionService
                 @unlink($localPath);
             }
         }
+    }
+
+    /**
+     * MIME aceitos para transcrição. Inclui video/webm: o container WebM do
+     * audio_recorder.js costuma ser sniffado como video/webm mesmo só com áudio.
+     */
+    public static function isTranscribableMime(string $mime): bool
+    {
+        $mime = strtolower(trim(explode(';', $mime)[0]));
+        if ($mime === '') {
+            return false;
+        }
+        if (str_starts_with($mime, 'audio/')) {
+            return true;
+        }
+        return in_array($mime, ['video/ogg', 'application/ogg', 'video/webm'], true);
+    }
+
+    /**
+     * Extensão para o tmp de download remoto (a Whisper API infere o formato
+     * pela extensão; tmp sem extensão vira 400 Invalid file format).
+     */
+    public static function extensionForAudio(string $url, string $mime): string
+    {
+        $path = strtolower((string) parse_url($url, PHP_URL_PATH));
+        $ext = strtolower(pathinfo($path, PATHINFO_EXTENSION));
+        $known = ['ogg', 'opus', 'mp3', 'm4a', 'aac', 'wav', 'amr', 'webm', 'mpga'];
+        if (in_array($ext, $known, true)) {
+            return '.' . $ext;
+        }
+        return match (strtolower(trim($mime))) {
+            'audio/mpeg', 'audio/mp3' => '.mp3',
+            'audio/mp4', 'audio/x-m4a' => '.m4a',
+            'audio/aac' => '.aac',
+            'audio/wav', 'audio/x-wav', 'audio/vnd.wave' => '.wav',
+            'audio/opus' => '.opus',
+            'audio/webm', 'video/webm' => '.webm',
+            'audio/ogg', 'video/ogg', 'application/ogg' => '.ogg',
+            default => '.ogg',
+        };
     }
 
     /**
@@ -130,9 +170,10 @@ class TranscriptionService
             }
         }
 
-        // URL remota (provedor WhatsApp): baixa p/ tmp com timeout 30s
+        // URL remota (provedor WhatsApp): baixa p/ tmp COM extensão (a Whisper
+        // infere o formato pela extensão) e timeout 30s
         if (str_starts_with($url, 'http://') || str_starts_with($url, 'https://')) {
-            $tmp = sys_get_temp_dir() . '/transc_' . bin2hex(random_bytes(8));
+            $tmp = sys_get_temp_dir() . '/transc_' . bin2hex(random_bytes(8)) . self::extensionForAudio($url, (string) ($meta['mime'] ?? ''));
             $ch = curl_init($url);
             $fh = fopen($tmp, 'wb');
             if ($fh === false) {
@@ -145,9 +186,10 @@ class TranscriptionService
                 CURLOPT_MAXREDIRS => 3,
             ]);
             $ok = curl_exec($ch);
+            $http = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
             curl_close($ch);
             fclose($fh);
-            if ($ok === false || !is_file($tmp) || filesize($tmp) <= 0) {
+            if ($ok === false || $http < 200 || $http >= 300 || !is_file($tmp) || filesize($tmp) <= 0) {
                 @unlink($tmp);
                 throw new \RuntimeException('Arquivo de áudio não encontrado.');
             }
