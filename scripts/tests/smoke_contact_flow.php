@@ -68,10 +68,10 @@ if ($msgId > 0) {
     }
 }
 
-// 4. UI: inbox tem botão/modal/cartão de contato
-$inboxSrc = file_get_contents(__DIR__ . '/../../app/Views/inbox/show.php');
-check(str_contains($inboxSrc, 'contact_id'), 'inbox UI envia contact_id');
-check(str_contains($inboxSrc, "type==='contact'") || str_contains($inboxSrc, '"contact"') || str_contains($inboxSrc, "'contact'"), 'inbox UI renderiza cartao contact');
+// 4. UI viva (panel.php, não a legada show.php): botão + modal + cartão
+$panelSrc = file_get_contents(__DIR__ . '/../../app/Views/inbox/panel.php');
+check(str_contains($panelSrc, 'openContactModal'), 'panel tem botao/modal de contato');
+check(str_contains($panelSrc, 'contactCardHtml') || str_contains($panelSrc, 'contact-card'), 'panel renderiza cartao contact');
 
 // Limpeza
 if ($row) {
