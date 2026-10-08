@@ -30,8 +30,9 @@ $csat = $conversation['csat'] ?? null;
 $convSubjects = [];
 $closeReasons = [];
 try {
-    $convSubjects = \App\Core\Database::getInstance()->fetchAll(
-        "SELECT * FROM conversation_subjects WHERE is_active = 1 ORDER BY sort_order ASC, name ASC"
+    // Assuntos do departamento da conversa + os "Todos" (igual respostas).
+    $convSubjects = \App\Models\ConversationSubject::forDepartment(
+        isset($conv['department_id']) && $conv['department_id'] ? (int) $conv['department_id'] : null
     );
 } catch (\Throwable $e) {}
 try {

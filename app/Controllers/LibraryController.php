@@ -8,6 +8,7 @@ use App\Core\Request;
 use App\Core\Session;
 use App\Core\View;
 use App\Models\CannedResponse;
+use App\Models\ConversationSubject;
 use App\Models\Department;
 use App\Models\Tag;
 
@@ -20,9 +21,11 @@ class LibraryController
             'activePage' => 'library',
             'tags' => Tag::all(),
             'canned' => CannedResponse::all(),
+            'subjects' => ConversationSubject::all(),
             'departments' => Department::all(),
             'editTag' => null,
             'editCanned' => null,
+            'editSubject' => null,
         ]);
     }
 
@@ -38,9 +41,11 @@ class LibraryController
             'activePage' => 'library',
             'tags' => Tag::all(),
             'canned' => CannedResponse::all(),
+            'subjects' => ConversationSubject::all(),
             'departments' => Department::all(),
             'editTag' => $tag,
             'editCanned' => null,
+            'editSubject' => null,
         ]);
     }
 
@@ -102,9 +107,11 @@ class LibraryController
             'activePage' => 'library',
             'tags' => Tag::all(),
             'canned' => CannedResponse::all(),
+            'subjects' => ConversationSubject::all(),
             'departments' => Department::all(),
             'editTag' => null,
             'editCanned' => $canned,
+            'editSubject' => null,
         ]);
     }
 
@@ -157,6 +164,84 @@ class LibraryController
     {
         Database::getInstance()->delete('canned_responses', 'id = ?', [$id]);
         Session::setFlash('success', 'Mensagem pronta removida.');
+        View::redirect('/library');
+    }
+
+    public function editSubject(Request $request, int $id): void
+    {
+        $subject = ConversationSubject::find($id);
+        if (!$subject) {
+            Session::setFlash('error', 'Assunto não encontrado.');
+            View::redirect('/library');
+        }
+        View::renderWithLayout('library/index', 'main', [
+            'title' => 'Editar Assunto',
+            'activePage' => 'library',
+            'tags' => Tag::all(),
+            'canned' => CannedResponse::all(),
+            'subjects' => ConversationSubject::all(),
+            'departments' => Department::all(),
+            'editTag' => null,
+            'editCanned' => null,
+            'editSubject' => $subject,
+        ]);
+    }
+
+    public function storeSubject(Request $request): void
+    {
+        $name = trim((string) $request->post('name'));
+        $sortOrder = (int) ($request->post('sort_order') ?? 0);
+        $departmentId = $request->post('department_id') ? (int) $request->post('department_id') : null;
+        if ($name === '' || mb_strlen($name) > 255) {
+            Session::setFlash('error', 'Informe o nome do assunto (máx. 255 caracteres).');
+            View::redirect('/library');
+        }
+        if ($departmentId !== null && !Department::find($departmentId)) {
+            Session::setFlash('error', 'Departamento inválido.');
+            View::redirect('/library');
+        }
+        Database::getInstance()->insert('conversation_subjects', [
+            'name' => $name,
+            'sort_order' => $sortOrder,
+            'department_id' => $departmentId,
+        ]);
+        Session::setFlash('success', 'Assunto criado.');
+        View::redirect('/library');
+    }
+
+    public function updateSubject(Request $request, int $id): void
+    {
+        $subject = ConversationSubject::find($id);
+        if (!$subject) {
+            Session::setFlash('error', 'Assunto não encontrado.');
+            View::redirect('/library');
+        }
+        $name = trim((string) $request->post('name'));
+        $sortOrder = (int) ($request->post('sort_order') ?? 0);
+        $departmentId = $request->post('department_id') ? (int) $request->post('department_id') : null;
+        $isActive = $request->post('is_active') ? 1 : 0;
+        if ($name === '' || mb_strlen($name) > 255) {
+            Session::setFlash('error', 'Informe o nome do assunto (máx. 255 caracteres).');
+            View::redirect('/library');
+        }
+        if ($departmentId !== null && !Department::find($departmentId)) {
+            Session::setFlash('error', 'Departamento inválido.');
+            View::redirect('/library');
+        }
+        Database::getInstance()->update(
+            'conversation_subjects',
+            ['name' => $name, 'sort_order' => $sortOrder, 'department_id' => $departmentId, 'is_active' => $isActive],
+            'id = ?',
+            [$id]
+        );
+        Session::setFlash('success', 'Assunto atualizado.');
+        View::redirect('/library');
+    }
+
+    public function deleteSubject(Request $request, int $id): void
+    {
+        Database::getInstance()->delete('conversation_subjects', 'id = ?', [$id]);
+        Session::setFlash('success', 'Assunto removido.');
         View::redirect('/library');
     }
 
