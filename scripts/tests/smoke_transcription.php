@@ -74,4 +74,19 @@ check(str_contains($routes, 'TranscriptionController'), 'rota usa TranscriptionC
 check(class_exists(\App\Controllers\Api\TranscriptionController::class), 'TranscriptionController existe');
 check(method_exists(\App\Controllers\Api\TranscriptionController::class, 'transcribe'), 'TranscriptionController::transcribe existe');
 
+// Task 4 — inbox UI (helper + renders + handler global)
+check(function_exists('audio_transcription_html'), 'helper audio_transcription_html existe');
+$panel = file_get_contents(__DIR__ . '/../../app/Views/inbox/panel.php');
+$show = file_get_contents(__DIR__ . '/../../app/Views/inbox/show.php');
+$enh = file_get_contents(__DIR__ . '/../../public/assets/js/app-enhancements.js');
+check(str_contains($panel, 'btn-transcribe') || str_contains($panel, 'audio_transcription_html'), 'panel tem transcrição');
+check(str_contains($show, 'btn-transcribe') || str_contains($show, 'audio_transcription_html'), 'show tem transcrição');
+check(str_contains($enh, 'transcribe'), 'app-enhancements tem handler transcribe');
+if (function_exists('audio_transcription_html')) {
+    $with = audio_transcription_html(['id' => 7, 'transcription' => 'olá mundo']);
+    check(str_contains($with, 'olá mundo'), 'helper imprime texto salvo');
+    $without = audio_transcription_html(['id' => 7, 'transcription' => null]);
+    check(str_contains($without, 'data-transcribe-id="7"'), 'helper imprime botão quando sem texto');
+}
+
 exit($ok ? 0 : 1);

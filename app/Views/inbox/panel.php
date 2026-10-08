@@ -128,7 +128,7 @@ $renderMessageContent = function (array $msg) use ($contact, &$renderMessageCont
                  . '</a>' . $captionHtml . '</div>';
         }
         if ($mediaType === 'audio') {
-            return '<div class="message-content"><audio controls preload="metadata" src="' . e($url) . '"></audio>' . $captionHtml . '</div>';
+            return '<div class="message-content"><audio controls preload="metadata" src="' . e($url) . '"></audio>' . $captionHtml . audio_transcription_html($msg) . '</div>';
         }
         if ($mediaType === 'video') {
             return '<div class="message-content"><a href="' . e($url) . '" target="_blank" rel="noopener" class="msg-lightbox">'
@@ -1662,11 +1662,18 @@ function captionHtml(content) {
     if (!cap) return '';
     return '<div class="message-caption">' + linkify(nl2br(cap)) + '</div>';
 }
-function fileContentHtml(type, content, uploadsBase) {
+function transcriptionHtml(m) {
+    // Chamado só em blocos de áudio (server e realtime); m.type pode vir vazio com áudio inferido.
+    if (!m) return '';
+    if (m.transcription) return '<div class="msg-transcription"><strong>Transcrição:</strong> ' + esc(m.transcription) + '</div>';
+    if (!m.id) return '';
+    return '<button type="button" class="btn-transcribe" data-transcribe-id="' + m.id + '" title="Ao transcrever, o áudio é enviado à OpenAI">Transcrever</button><div class="msg-transcription" hidden></div>';
+}
+function fileContentHtml(type, content, uploadsBase, msg) {
     var m = fileMeta(content); var url = isAbsoluteUrl(m.url) ? m.url : (uploadsBase + '/' + m.url);
     var cap = captionHtml(content);
     if (type === 'image' || type === 'sticker') return '<a href="' + esc(url) + '" target="_blank" rel="noopener" class="msg-lightbox"><img class="msg-img" src="' + esc(url) + '" alt="' + esc(m.name || 'imagem') + '" loading="lazy"></a>' + cap;
-    if (type === 'audio') return '<audio controls preload="metadata" src="' + esc(url) + '"></audio>' + cap;
+    if (type === 'audio') return '<audio controls preload="metadata" src="' + esc(url) + '"></audio>' + cap + transcriptionHtml(msg);
     if (type === 'video') return '<a href="' + esc(url) + '" target="_blank" rel="noopener" class="msg-lightbox"><video controls preload="metadata" src="' + esc(url) + '" class="msg-video" data-alt="' + esc(m.name || 'vídeo') + '"></video></a>' + cap;
     var name = m.name || 'arquivo'; var size = m.size ? ' (' + fmtBytes(m.size) + ')' : '';
     return '<a class="msg-file" href="' + esc(url) + '" target="_blank" rel="noopener" download><i class="fas fa-file-download"></i><span class="msg-file-name">' + esc(name) + '</span><span class="msg-file-size">' + esc(size) + '</span></a>' + cap;
@@ -1766,7 +1773,7 @@ function renderMessageBody(m) {
     } else if (m.type === 'contact') {
         body += '<div class="message-content">' + contactCardHtml(m.content) + '</div>';
     } else if (mtype) {
-        body += '<div class="message-content">' + fileContentHtml(mtype, m.content, uploadsBase) + '</div>';
+        body += '<div class="message-content">' + fileContentHtml(mtype, m.content, uploadsBase, m) + '</div>';
     } else {
         // Texto puro: detecta JSON, linkifica e formata
         var raw = m.content || '';
@@ -1822,9 +1829,10 @@ function renderMessageHtml(m, uploadsBase) {
         '</div></div>';
 }
 function appendMessage(m, uploadsBase) {
+    var mid = parseInt(m.id, 10);
+    if (!isNaN(mid) && msgContainer.querySelector('.message[data-mid="' + mid + '"]')) return;
     var wrap = document.createElement('div'); wrap.innerHTML = renderMessageHtml(m, uploadsBase);
     msgContainer.appendChild(wrap.firstChild);
-    var mid = parseInt(m.id, 10);
     if (!isNaN(mid)) lastMid = Math.max(lastMid, mid);
 }
 function nearBottom() { return msgContainer.scrollHeight - msgContainer.scrollTop - msgContainer.clientHeight < 80; }

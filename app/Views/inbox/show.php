@@ -229,6 +229,7 @@
                                      
                                 <?php elseif ($mediaType === 'audio'): ?>
                                     <audio controls preload="metadata" src="<?= e($meta['url']) ?>"></audio>
+                                    <?= audio_transcription_html($msg) ?>
                                 <?php elseif ($mediaType === 'video'): ?>
                                     <a href="<?= e($meta['url']) ?>" target="_blank" rel="noopener" class="msg-lightbox">
                                         <video controls preload="metadata" src="<?= e($meta['url']) ?>" class="msg-video" data-alt="<?= e($meta['name']) ?>"></video>
@@ -590,19 +591,25 @@ document.getElementById('messageInput')?.addEventListener('keydown', function(e)
         } catch (e) {}
         return null;
     }
-    function fileContentHtml(type, content) {
+    function fileContentHtml(type, content, msg) {
         var m = fileMeta(content);
         var url = /^https?:\/\//i.test(m.url) ? m.url : (uploadsBase + '/' + m.url);
         var cap = m.caption ? '<div class="message-caption">' + linkify(nl2br(String(m.caption))) + '</div>' : '';
         if (type === 'image' || type === 'sticker') return '<a href="' + esc(url) + '" target="_blank" rel="noopener" class="msg-lightbox"><img class="msg-img" src="' + esc(url) + '" alt="' + esc(m.name || 'imagem') + '" loading="lazy"></a>' + cap;
-        if (type === 'audio') return '<audio controls preload="metadata" src="' + esc(url) + '"></audio>' + cap;
+        if (type === 'audio') return '<audio controls preload="metadata" src="' + esc(url) + '"></audio>' + cap + transcriptionHtml(msg);
         if (type === 'video') return '<a href="' + esc(url) + '" target="_blank" rel="noopener" class="msg-lightbox"><video controls preload="metadata" src="' + esc(url) + '" class="msg-video" data-alt="' + esc(m.name || 'vídeo') + '"></video></a>' + cap;
         var name = m.name || 'arquivo';
         var size = m.size ? ' (' + fmtBytes(m.size) + ')' : '';
         return '<a class="msg-file" href="' + esc(url) + '" target="_blank" rel="noopener" download><i class="fas fa-file-download"></i><span class="msg-file-name">' + esc(name) + '</span><span class="msg-file-size">' + esc(size) + '</span></a>' + cap;
     }
-    function contactCardHtml(content) {
-        var c = {}; try { c = JSON.parse(content || '{}'); } catch (e) {}
+    function transcriptionHtml(msg) {
+        // Chamado só em blocos de áudio (server e realtime); msg.type pode vir vazio com áudio inferido.
+        if (!msg) return '';
+        if (msg.transcription) return '<div class="msg-transcription"><strong>Transcrição:</strong> ' + esc(msg.transcription) + '</div>';
+        if (!msg.id) return '';
+        return '<button type="button" class="btn-transcribe" data-transcribe-id="' + msg.id + '" title="Ao transcrever, o áudio é enviado à OpenAI">Transcrever</button><div class="msg-transcription" hidden></div>';
+    }
+    function contactCardHtml(content) {        var c = {}; try { c = JSON.parse(content || '{}'); } catch (e) {}
         var name = c.name || c.phone || '?';
         var phone = String(c.phone || '').replace(/\D/g, '');
         var html = '<div class="contact-card"><div class="contact-card-icon"><i class="fas fa-address-card"></i></div>'
@@ -640,6 +647,8 @@ document.getElementById('messageInput')?.addEventListener('keydown', function(e)
         convEl.querySelectorAll('.message[data-temp]').forEach(function(n) { n.remove(); });
     }
     function appendMessage(msg) {
+        var mid0 = parseInt(msg.id, 10);
+        if (!isNaN(mid0) && convEl.querySelector('.message[data-mid="' + mid0 + '"]')) return;
         var wrap = document.createElement('div');
         var cls = 'message ' + (msg.direction === 'outbound' ? 'message-out' : 'message-in');
         if (msg.type === 'internal_note') cls += ' message-note';
@@ -657,7 +666,7 @@ document.getElementById('messageInput')?.addEventListener('keydown', function(e)
         } else if (msg.type === 'contact') {
             body += '<div class="message-content">' + contactCardHtml(msg.content) + '</div>';
         } else if (mtype) {
-            body += '<div class="message-content">' + fileContentHtml(mtype, msg.content) + '</div>';
+            body += '<div class="message-content">' + fileContentHtml(mtype, msg.content, msg) + '</div>';
         } else {
             body += '<div class="message-content">' + nl2br(msg.content) + '</div>';
         }
