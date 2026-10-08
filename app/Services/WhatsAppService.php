@@ -1071,6 +1071,8 @@ class WhatsAppService
             throw new \RuntimeException('Mensagem vazia.');
         }
         // Normaliza menções: dígitos válidos ou 'all'; garante @ no texto (WAHA exige).
+        // LID com telefone conhecido vira telefone (menção @c.us confiável);
+        // LID sem mapa vai como dígitos@lid (nativo WAHA) — nunca como @c.us.
         $clean = [];
         foreach ($mentions as $m) {
             $m = trim((string) $m, "@ \t");
@@ -1079,9 +1081,19 @@ class WhatsAppService
                 continue;
             }
             $digits = preg_replace('/\D/', '', $m);
-            if ($digits !== '' && strlen($digits) >= 8) {
-                $clean[] = $digits;
+            if ($digits === '' || strlen($digits) < 8) {
+                continue;
             }
+            if (\App\Models\WhatsAppLidMap::isLid($digits)) {
+                $resolved = \App\Models\WhatsAppLidMap::resolve($digits);
+                if ($resolved && !\App\Models\WhatsAppLidMap::isLid($resolved)) {
+                    $clean[] = $resolved;
+                    continue;
+                }
+                $clean[] = $digits . '@lid';
+                continue;
+            }
+            $clean[] = $digits;
         }
         $clean = array_values(array_unique($clean));
         foreach ($clean as $c) {

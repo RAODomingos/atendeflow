@@ -355,7 +355,9 @@ class InboxController
         if ($contactShareId > 0 && !$isInternal) {
             $share = \App\Models\Contact::find($contactShareId);
             $sharePhone = preg_replace('/\D/', '', (string) ($share['phone'] ?? ''));
-            if (!$share || $sharePhone === '') {
+            $shareCard = ['name' => (string) ($share['name'] ?? ''), 'phone' => $sharePhone];
+            // 422 ANTES de criar a mensagem (mesmo corte dos providers).
+            if (!$share || !\App\Services\WhatsApp\IncomingMessage::isShareableContact($shareCard)) {
                 $msg = 'Contato inválido para envio.';
                 if ($request->isAjax()) {
                     View::json(['ok' => false, 'error' => $msg]);
@@ -365,7 +367,7 @@ class InboxController
                 View::back();
             }
             $cardJson = json_encode([
-                'name' => ($share['name'] ?? '') !== '' ? (string) $share['name'] : $sharePhone,
+                'name' => $shareCard['name'] !== '' ? $shareCard['name'] : $sharePhone,
                 'phone' => $sharePhone,
             ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
             $msgId = $this->conversationService->sendMessage($id, $cardJson, 'contact', Auth::id(), null, $replyTo);

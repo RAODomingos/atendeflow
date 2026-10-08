@@ -281,7 +281,7 @@ CREATE TABLE messages (
     id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
     conversation_id BIGINT UNSIGNED NOT NULL,
     message_id VARCHAR(255) NULL,
-    type ENUM('text', 'image', 'audio', 'video', 'file', 'system', 'internal_note', 'csat_request') NOT NULL DEFAULT 'text',
+    type ENUM('text', 'image', 'audio', 'video', 'file', 'system', 'internal_note', 'csat_request', 'button_list', 'list_menu', 'contact') NOT NULL DEFAULT 'text',
     content TEXT NOT NULL,
     direction ENUM('inbound', 'outbound') NOT NULL,
     channel_message_id VARCHAR(255) NULL,

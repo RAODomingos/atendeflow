@@ -131,25 +131,40 @@ class WhatsAppGroupController
             return;
         }
         // Resolve LID -> telefone via mapa aprendido para exibição.
+        // LID sem mapeamento NUNCA vira phone (mencioná-lo como @c.us
+        // notificaria ninguém ou a pessoa errada); vai como `lid` p/ menção @lid.
+        $members = self::mapMembersForDisplay($raw);
+        View::json(['members' => $members, 'fetched_at' => date('c')]);
+    }
+
+    /**
+     * Mapeia participantes brutos do provedor p/ exibição: resolve LID via
+     * mapa aprendido, preserva `lid` quando sem telefone conhecido.
+     *
+     * @param array<int, array{phone?:string, lid?:?string, name?:?string, is_admin?:bool}> $raw
+     * @return array<int, array{phone:string, lid:?string, name:?string, is_admin:bool}>
+     */
+    public static function mapMembersForDisplay(array $raw): array
+    {
         $members = [];
         foreach ($raw as $row) {
             $phone = (string) ($row['phone'] ?? '');
             $lid = $row['lid'] ?? null;
-            if ($phone === '' && is_string($lid) && $lid !== '') {
+            $lid = is_string($lid) && $lid !== '' ? preg_replace('/\D/', '', $lid) : null;
+            if ($phone === '' && $lid !== null && $lid !== '') {
                 $resolved = \App\Models\WhatsAppLidMap::resolve($lid);
                 if ($resolved && !\App\Models\WhatsAppLidMap::isLid($resolved)) {
                     $phone = $resolved;
-                } else {
-                    $phone = $lid;
                 }
             }
             $members[] = [
                 'phone' => $phone,
-                'name' => $row['name'] ?? null,
+                'lid' => $lid,
+                'name' => isset($row['name']) && $row['name'] !== '' ? (string) $row['name'] : null,
                 'is_admin' => (bool) ($row['is_admin'] ?? false),
             ];
         }
-        View::json(['members' => $members, 'fetched_at' => date('c')]);
+        return $members;
     }
 
     public function send(Request $request, int $id): void
