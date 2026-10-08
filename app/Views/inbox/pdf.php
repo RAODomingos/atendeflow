@@ -120,9 +120,10 @@
     $lastDate = null;
     foreach ($messages as $msg):
         $isFile = in_array($msg['type'], ['image', 'audio', 'video', 'file', 'sticker'], true);
+        $mediaType = $msg['type'];
         if (!$isFile) {
             $inferred = media_type_from_content((string) ($msg['content'] ?? ''));
-            if ($inferred !== null) $isFile = true;
+            if ($inferred !== null) { $isFile = true; $mediaType = $inferred; }
         }
         $meta = $isFile ? message_file_meta($msg['content']) : null;
         $msgDate = date('Y-m-d', strtotime($msg['created_at']));
@@ -150,6 +151,9 @@
                     <span class="msg-file"><?= e($meta['name']) ?><?= !empty($meta['size']) ? ' (' . format_bytes($meta['size']) . ')' : '' ?></span>
                     <?php if (!empty($meta['caption'])): ?>
                         <div class="msg-caption"><?= nl2br(e($meta['caption'])) ?></div>
+                    <?php endif; ?>
+                    <?php if ($mediaType === 'audio' && !empty($msg['transcription'])): ?>
+                        <div class="transcription">Transcrição: <?= nl2br(e($msg['transcription'])) ?></div>
                     <?php endif; ?>
                 </div>
             <?php else: ?>

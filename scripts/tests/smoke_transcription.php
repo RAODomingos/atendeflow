@@ -89,4 +89,12 @@ if (function_exists('audio_transcription_html')) {
     check(str_contains($without, 'data-transcribe-id="7"'), 'helper imprime botão quando sem texto');
 }
 
+// Task 5 — PDFs exibem transcrição abaixo de "Áudio"
+$pdfInbox = file_get_contents(__DIR__ . '/../../app/Views/inbox/pdf.php');
+$pdfFull = file_get_contents(__DIR__ . '/../../app/Views/contacts/pdf_full.php');
+$pdfTimeline = file_get_contents(__DIR__ . '/../../app/Views/reports/timeline_pdf.php');
+check(str_contains($pdfInbox, 'transcription'), 'inbox/pdf exibe transcrição');
+check(str_contains($pdfFull, 'transcription'), 'contacts/pdf_full exibe transcrição');
+check(str_contains($pdfTimeline, 'transcription'), 'timeline_pdf exibe transcrição');
+
 exit($ok ? 0 : 1);
