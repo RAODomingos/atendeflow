@@ -37,7 +37,7 @@ class TranscriptionService
         }
 
         $provider ??= new OpenAiWhisperProvider(
-            env('OPENAI_API_KEY') ?: null,
+            self::apiKey(),
             (string) (env('TRANSCRIPTION_MODEL', 'whisper-1') ?: 'whisper-1')
         );
         $lang = (string) (env('TRANSCRIPTION_LANG', 'pt') ?: 'pt');
@@ -74,6 +74,20 @@ class TranscriptionService
                 @unlink($localPath);
             }
         }
+    }
+
+    /**
+     * Chave OpenAI: config do painel (/settings → settings.openai_api_key,
+     * nunca reexibida) tem prioridade; .env OPENAI_API_KEY como fallback.
+     */
+    public static function apiKey(): ?string
+    {
+        $fromDb = trim((string) \App\Models\Setting::get('openai_api_key', ''));
+        if ($fromDb !== '') {
+            return $fromDb;
+        }
+        $fromEnv = trim((string) (env('OPENAI_API_KEY') ?: ''));
+        return $fromEnv !== '' ? $fromEnv : null;
     }
 
     /**

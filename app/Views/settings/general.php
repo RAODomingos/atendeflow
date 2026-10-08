@@ -48,6 +48,21 @@
             </div>
         </div>
 
+        <div class="card" style="border-radius:12px;overflow:hidden;margin-top:16px">
+            <div class="card-header" style="background:var(--bg-card)">
+                <h3><i class="fas fa-microphone" style="color:var(--primary)"></i> Transcrição de Áudios (OpenAI)</h3>
+            </div>
+            <div class="card-body">
+                <div class="form-group">
+                    <label>Chave da API (Whisper)</label>
+                    <input type="password" name="openai_api_key" class="form-control" autocomplete="new-password" placeholder="<?= !empty($settings['openai_api_key']) ? '•••••••• (configurada — preencha para trocar)' : 'sk-...' ?>" value="">
+                    <small class="text-muted" style="display:block;margin-top:4px;font-size:12px">
+                        Usada pelo servidor para transcrever áudios sob demanda no inbox. Nunca é exposta no navegador<?= !empty($settings['openai_api_key']) ? ' — <strong>chave configurada</strong>' : '' ?>; em branco mantém a atual. Alternativa: <code>OPENAI_API_KEY</code> no <code>.env</code>.
+                    </small>
+                </div>
+            </div>
+        </div>
+
         <div class="form-actions" style="margin-top:20px">
             <button type="submit" class="btn btn-primary" style="padding:10px 28px;border-radius:10px">
                 <i class="fas fa-save"></i> Salvar Configurações
