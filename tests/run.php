@@ -67,6 +67,10 @@ $waSrc = file_get_contents(__DIR__ . '/../app/Services/WhatsAppService.php');
 check('avatar tenta multiplos ids', str_contains($waSrc, '@c.us') && str_contains($waSrc, 'candidates'));
 check('avatar trata url expirada', str_contains($waSrc, "str_starts_with(\$avatar, 'http')") || str_contains($waSrc, 'needsAvatar'));
 
+// Conexão: phone_number atualiza ao trocar de número e nunca apaga com null
+check('phone atualiza ao mudar (log PHONE_CHANGED)', str_contains($waSrc, 'PHONE_CHANGED'));
+check('phone nao apaga com null no poll', str_contains($waSrc, 'Nunca apaga número salvo com null'));
+
 // Fluxo: nao reinicia em conversa Aberta / em atendimento / com historico
 check('fluxo tem trava shouldAutoStartFlow', str_contains($waSrc, 'shouldAutoStartFlow'));
 check('fluxo bloqueia open/waiting', str_contains($waSrc, 'waiting_customer') && str_contains($waSrc, 'em atendimento'));
