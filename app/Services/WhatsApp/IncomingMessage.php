@@ -73,26 +73,63 @@ class IncomingMessage
     }
 
     /**
-     * Extrai nome/telefone de um vCard (linhas FN: e TEL:). Retorna
-     * ['name'=>?string, 'phone'=>?string] (null quando ausente).
+     * Extrai nome/telefone de um vCard real do WhatsApp. Cobre:
+     * - `FN:` (prioridade) e `N:Sobrenome;Nome;;;` (ignora `N:;;;;` vazio);
+     * - `TEL:`, `TEL;TYPE=...:` e `item1.TEL;waid=DDI...:` (waid como fallback);
+     * - linhas dobradas (folding: continuação com espaço inicial).
+     * Retorna ['name'=>?string, 'phone'=>?string] (null quando ausente).
      */
     public static function parseVcard(string $vcard): array
     {
         $name = null;
+        $structured = null;
         $phone = null;
+        $waid = null;
+        $prev = null;
+        $lines = [];
         foreach (preg_split('/\r?\n/', $vcard) as $line) {
-            if ($name === null && preg_match('/^(?:FN|N)[;:]/i', $line)) {
-                $v = trim(substr($line, strpos($line, ':') + 1));
-                if ($v !== '') {
-                    $name = $v;
+            if ($prev !== null && preg_match('/^[ \t]/', $line)) {
+                $lines[count($lines) - 1] .= substr($line, 1);
+                continue;
+            }
+            $prev = $line;
+            $lines[] = $line;
+        }
+        foreach ($lines as $line) {
+            $pos = strpos($line, ':');
+            if ($pos === false) {
+                continue;
+            }
+            $prop = substr($line, 0, $pos);
+            $value = trim(substr($line, $pos + 1));
+            $base = strtoupper((string) preg_replace('/^\w+\./', '', strtok($prop, ';')));
+            if ($base === 'FN' && $name === null && $value !== '') {
+                $name = $value;
+            } elseif ($base === 'N' && $structured === null) {
+                $parts = array_values(array_filter(array_map('trim', explode(';', $value)), fn($p) => $p !== ''));
+                if ($parts !== []) {
+                    // N:Sobrenome;Nome;... -> "Nome Sobrenome".
+                    $structured = trim(($parts[1] ?? '') . ' ' . ($parts[0] ?? '')) !== ''
+                        ? trim(($parts[1] ?? '') . ' ' . ($parts[0] ?? ''))
+                        : implode(' ', $parts);
+                }
+            } elseif ($base === 'TEL') {
+                if ($phone === null) {
+                    $digits = preg_replace('/\D/', '', $value);
+                    if ($digits !== '') {
+                        $phone = $digits;
+                    }
+                }
+                if ($waid === null && preg_match('/waid=(\d+)/i', $prop, $m)) {
+                    $waid = $m[1];
                 }
             }
-            if ($phone === null && preg_match('/^TEL[^:]*:(.+)$/i', $line, $m)) {
-                $digits = preg_replace('/\D/', '', $m[1]);
-                if ($digits !== '') {
-                    $phone = $digits;
-                }
-            }
+        }
+        if ($name === null) {
+            $name = $structured;
+        }
+        if (($phone === null || strlen((string) $phone) < 8) && $waid !== null) {
+            $phone = $waid;
         }
         return ['name' => $name, 'phone' => $phone];
     }

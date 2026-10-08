@@ -62,6 +62,7 @@ $router->group('', function (Router $router) {
     $router->get('/inbox/{id}/pdf', [InboxController::class, 'downloadPdf']);
     $router->get('/inbox/{id}', [InboxController::class, 'show']);
     $router->post('/inbox/{id}/messages', [InboxController::class, 'sendMessage']);
+    $router->post('/inbox/contact-chat', [InboxController::class, 'openContactChat']);
     $router->get('/inbox/{id}/group-members', [InboxController::class, 'groupMembers']);
     $router->post('/inbox/{id}/settings', [InboxController::class, 'updateSettings']);
     $router->post('/inbox/{id}/subject', [InboxController::class, 'updateSubject']);

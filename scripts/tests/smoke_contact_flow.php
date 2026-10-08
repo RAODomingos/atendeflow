@@ -68,6 +68,10 @@ if ($msgId > 0) {
     }
 }
 
+// 5. Click-to-chat: endpoint abre/encontra conversa do contato
+check(method_exists(\App\Controllers\InboxController::class, 'openContactChat'), 'inbox tem openContactChat()');
+$routesSrc = file_get_contents(__DIR__ . '/../../routes/web.php');
+check(str_contains($routesSrc, 'contact-chat'), 'rota contact-chat registrada');
 // 4. UI viva (panel.php, não a legada show.php): botão + modal + cartão
 $panelSrc = file_get_contents(__DIR__ . '/../../app/Views/inbox/panel.php');
 check(str_contains($panelSrc, 'openContactModal'), 'panel tem botao/modal de contato');

@@ -88,7 +88,9 @@ $renderMessageContent = function (array $msg) use ($contact, &$renderMessageCont
               . '<div class="contact-card-info"><strong>' . e($cardName !== '' ? $cardName : $cardPhone) . '</strong>';
         if ($cardPhone !== '') {
             $html .= '<div><a href="tel:+' . e($cardPhone) . '">' . e($cardPhone) . '</a>'
-                  . ' <a href="https://wa.me/' . e($cardPhone) . '" target="_blank" rel="noopener" title="Abrir no WhatsApp"><i class="fab fa-whatsapp"></i></a></div>';
+                  . ' <a href="https://wa.me/' . e($cardPhone) . '" target="_blank" rel="noopener" title="Abrir no WhatsApp"><i class="fab fa-whatsapp"></i></a></div>'
+                  . '<button type="button" class="contact-chat-btn" onclick="openContactChat(\'' . e($cardPhone) . '\',\'' . e(str_replace("'", '', $cardName)) . '\')">'
+                  . '<i class="fas fa-comments"></i> Conversar</button>';
         }
         return $html . '</div></div>';
     }
@@ -585,7 +587,10 @@ $renderReceipts = function (array $msg) {
 <style>
 .contact-card { display: flex; align-items: center; gap: 10px; background: #f0f7ff; border: 1px solid #cfe3ff; border-radius: 10px; padding: 10px 12px; max-width: 280px; }
 .contact-card-icon { font-size: 28px; color: #0b5ed7; }
-.contact-card-info { display: flex; flex-direction: column; gap: 2px; font-size: 13px; }
+.contact-card-info { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: #1a1a1a; }
+.contact-card-info a { color: #0b5ed7; }
+.contact-chat-btn { align-self: flex-start; border: 1px solid #0b5ed7; background: #0b5ed7; color: #fff; border-radius: 8px; padding: 4px 10px; font-size: 12px; cursor: pointer; }
+.contact-chat-btn:hover { background: #0949ad; }
 </style>
 <div id="contactModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:9999;align-items:center;justify-content:center" onclick="if(event.target===this)closeContactModal()">
     <div style="background:#fff;border-radius:12px;max-width:480px;width:calc(100% - 32px);max-height:80vh;display:flex;flex-direction:column">
@@ -1707,9 +1712,29 @@ function contactCardHtml(content) {
         + '<div class="contact-card-info"><strong>' + esc(name) + '</strong>';
     if (phone) {
         html += '<div><a href="tel:+' + esc(phone) + '">' + esc(phone) + '</a>'
-            + ' <a href="https://wa.me/' + esc(phone) + '" target="_blank" rel="noopener" title="Abrir no WhatsApp"><i class="fab fa-whatsapp"></i></a></div>';
+            + ' <a href="https://wa.me/' + esc(phone) + '" target="_blank" rel="noopener" title="Abrir no WhatsApp"><i class="fab fa-whatsapp"></i></a></div>'
+            + '<button type="button" class="contact-chat-btn" onclick="openContactChat(\'' + esc(phone) + '\',\'' + esc(String(name).replace(/'/g, '')) + '\')"><i class="fas fa-comments"></i> Conversar</button>';
     }
     return html + '</div></div>';
+}
+function openContactChat(phone, name) {
+    var fd = new FormData();
+    var tok = document.querySelector('#composerForm input[name=_csrf_token]');
+    if (tok) fd.append('_csrf_token', tok.value);
+    fd.append('phone', phone);
+    fd.append('name', name || '');
+    fd.append('conversation_id', (typeof CONV_ID !== 'undefined' ? CONV_ID : 0));
+    var base = '<?= rtrim(parse_url(base_url('/'), PHP_URL_PATH), '/') ?>';
+    fetch(base + '/inbox/contact-chat', { method: 'POST', headers: { 'X-Requested-With': 'XMLHttpRequest' }, body: fd })
+        .then(function(r) { return r.json().then(function(j) { return { status: r.status, body: j }; }); })
+        .then(function(res) {
+            if (res.status === 200 && res.body && res.body.ok && res.body.conversation_id) {
+                window.location.href = base + '/inbox?conv=' + res.body.conversation_id;
+            } else {
+                toast((res.body && res.body.error) || 'Não foi possível abrir a conversa.');
+            }
+        })
+        .catch(function() { toast('Erro ao abrir conversa. Tente novamente.'); });
 }
 function renderMessageBody(m) {
     var body = '';

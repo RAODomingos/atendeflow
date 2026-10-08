@@ -824,6 +824,51 @@ class InboxController
         View::json(['members' => $members, 'fetched_at' => date('c')]);
     }
 
+    /**
+     * POST /inbox/contact-chat — click no cartão de contato: encontra ou cria
+     * o contato pelo telefone e abre (ou cria) a conversa 1:1 no mesmo canal
+     * WhatsApp da conversa atual. Retorna {conversation_id}.
+     */
+    public function openContactChat(Request $request): void
+    {
+        $phone = preg_replace('/\D/', '', (string) ($request->post('phone') ?? ''));
+        $name = trim((string) ($request->post('name') ?? ''));
+        if (strlen($phone) < 8) {
+            View::json(['ok' => false, 'error' => 'Contato sem telefone válido.'], 422);
+            return;
+        }
+        $fromId = (int) ($request->post('conversation_id') ?? 0);
+        $channelId = 0;
+        if ($fromId > 0) {
+            $from = Conversation::find($fromId);
+            if (!$from || !$this->canUserSeeConversation($fromId, Auth::id())) {
+                View::json(['ok' => false, 'error' => 'Sem acesso à conversa.'], 403);
+                return;
+            }
+            if (($from['channel_type'] ?? '') === 'whatsapp' && empty($from['group_id'])) {
+                $channelId = (int) $from['channel_id'];
+            } else {
+                $ch = Database::getInstance()->fetch(
+                    "SELECT ch.id FROM channels ch JOIN whatsapp_connections wc ON wc.channel_id = ch.id WHERE ch.type = 'whatsapp' ORDER BY ch.id LIMIT 1"
+                );
+                $channelId = (int) ($ch['id'] ?? 0);
+            }
+        }
+        if ($channelId <= 0) {
+            $ch = Database::getInstance()->fetch(
+                "SELECT ch.id FROM channels ch JOIN whatsapp_connections wc ON wc.channel_id = ch.id WHERE ch.type = 'whatsapp' ORDER BY ch.id LIMIT 1"
+            );
+            $channelId = (int) ($ch['id'] ?? 0);
+        }
+        if ($channelId <= 0) {
+            View::json(['ok' => false, 'error' => 'Nenhum canal WhatsApp disponível.'], 422);
+            return;
+        }
+        $contact = \App\Models\Contact::findOrCreate($name !== '' ? $name : $phone, null, $phone);
+        $conversation = (new \App\Services\WhatsAppService())->findOrCreateConversation($channelId, (int) $contact['id']);
+        View::json(['ok' => true, 'conversation_id' => (int) $conversation['id']]);
+    }
+
     private function dispatchWhatsApp(int $conversationId, int $messageId, string $type, string $content, array $mentions = []): array
     {
         $conv = Conversation::find($conversationId);
