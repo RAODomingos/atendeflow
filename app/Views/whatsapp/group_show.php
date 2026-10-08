@@ -125,7 +125,6 @@
     function syncHidden() {
         hiddenBox.innerHTML = '';
         Object.keys(selected).forEach(function (k) {
-            if (!selected[k]) return;
             var i = document.createElement('input');
             i.type = 'hidden';
             i.name = 'mentions[]';
@@ -133,21 +132,35 @@
             hiddenBox.appendChild(i);
         });
     }
-    function toggleMention(phone, label, on) {
+    function toggleMention(phone, label, on, displayName) {
         if (on) {
-            selected[phone] = true;
-            if (ta && phone !== 'all' && ta.value.indexOf('@' + phone) === -1) {
-                ta.value = (ta.value ? ta.value.replace(/\s+$/, '') + ' ' : '') + '@' + phone;
+            var shown = (displayName || '').replace(/\s+/g, ' ').trim().substring(0, 60).replace(/@/g, '');
+            selected[phone] = shown;
+            if (ta && phone !== 'all') {
+                var insert = shown !== '' ? '@' + shown + ' @' + phone : '@' + phone;
+                if (ta.value.indexOf('@' + phone) === -1) {
+                    ta.value = (ta.value ? ta.value.replace(/\s+$/, '') + ' ' : '') + insert;
+                }
             }
             if (ta && phone === 'all' && !/@todos/i.test(ta.value)) {
                 ta.value = (ta.value ? ta.value.replace(/\s+$/, '') + ' ' : '') + '@todos';
             }
         } else {
+            var wasShown = selected[phone] || '';
             delete selected[phone];
             if (ta) {
-                var needle = phone === 'all' ? '@todos' : '@' + phone;
-                var re = phone === 'all' ? /@todos/gi : new RegExp(needle.replace(/[^a-zA-Z0-9@]/g, '\\$&'), 'g');
-                ta.value = ta.value.replace(re, '').replace(/\s{2,}/g, ' ').trim();
+                var t = ta.value;
+                if (phone !== 'all') {
+                    if (wasShown !== '') {
+                        t = t.split('@' + wasShown + ' ').join('').split('@' + wasShown).join('');
+                    }
+                    var needle = '@' + phone;
+                    var re = new RegExp(needle.replace(/[^a-zA-Z0-9@]/g, '\\$&'), 'g');
+                    t = t.replace(re, '');
+                } else {
+                    t = t.replace(/@todos/gi, '');
+                }
+                ta.value = t.replace(/\s{2,}/g, ' ').trim();
             }
         }
         syncHidden();
@@ -169,7 +182,7 @@
             var row = document.createElement('label');
             row.className = 'member-row';
             var label = esc(m.name || m.phone || ('LID ' + (m.lid || '?')));
-            row.innerHTML = '<input type="checkbox" data-mention="' + esc(key) + '"> <span><strong>' + label + '</strong>'
+            row.innerHTML = '<input type="checkbox" data-mention="' + esc(key) + '" data-name="' + esc(m.name || '') + '"> <span><strong>' + label + '</strong>'
                 + ' <small class="form-hint">' + esc(m.phone || ('LID ' + (m.lid || ''))) + '</small></span>'
                 + (m.is_admin ? ' <span class="badge-admin">admin</span>' : '');
             listEl.appendChild(row);
@@ -183,7 +196,7 @@
         statusEl.textContent = members.length + ' participante(s) — marque para @mencionar no envio.';
         listEl.querySelectorAll('input[data-mention]').forEach(function (cb) {
             cb.addEventListener('change', function () {
-                toggleMention(cb.getAttribute('data-mention'), '', cb.checked);
+                toggleMention(cb.getAttribute('data-mention'), '', cb.checked, cb.getAttribute('data-name'));
             });
         });
     }

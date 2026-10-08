@@ -96,5 +96,36 @@ if ($conn) {
     $db->delete('whatsapp_groups', 'id = ?', [(int) $gid]);
 }
 
+// 11. Aprendizado: nome do remetente do grupo é gravado no webhook
+$connLearn = $db->fetch("SELECT * FROM whatsapp_connections ORDER BY id LIMIT 1");
+if ($connLearn) {
+    $svcLearn = new \App\Services\WhatsAppService();
+    $inLearn = new \App\Services\WhatsApp\IncomingMessage('test-inst', 'LEARN-' . time(), '5511999990001', 'text',
+        'oi gente', null, null, null, time(), false, 'Nome Aprendido', null,
+        ['is_group' => true, 'group_jid' => '120363099988877@g.us', 'group_name' => 'Learn Group',
+         'mentioned' => [], 'participant_phone' => '5511999990001']);
+    $svcLearn->handleGroupMessage($connLearn, $inLearn);
+    check(\App\Models\WhatsAppContactName::resolve('5511999990001') === 'Nome Aprendido', 'nome aprendido no webhook de grupo');
+    $lg = \App\Models\WhatsAppGroup::findByConnectionJid((int) $connLearn['id'], '120363099988877@g.us');
+    if ($lg) {
+        foreach ($db->fetchAll("SELECT id FROM conversations WHERE group_id = ?", [(int) $lg['id']]) as $c) {
+            $db->delete('messages', 'conversation_id = ?', [(int) $c['id']]);
+            $db->delete('conversation_events', 'conversation_id = ?', [(int) $c['id']]);
+            $db->delete('conversations', 'id = ?', [(int) $c['id']]);
+        }
+        $db->delete('whatsapp_group_mentions', 'group_id = ?', [(int) $lg['id']]);
+        $db->delete('whatsapp_groups', 'id = ?', [(int) $lg['id']]);
+        $ct = $db->fetch("SELECT * FROM contacts WHERE phone = ? LIMIT 1", ['120363099988877@g.us']);
+        if ($ct && !$db->fetch("SELECT id FROM conversations WHERE contact_id = ? LIMIT 1", [(int) $ct['id']])) {
+            $db->delete('contacts', 'id = ?', [(int) $ct['id']]);
+        }
+    }
+    $db->delete('whatsapp_contact_names', 'phone_digits = ?', ['5511999990001']);
+}
+
+// 12. Autocomplete insere @Nome @telefone (nome p/ leitura, dígitos p/ notificar)
+$panelSrc2 = file_get_contents(__DIR__ . '/../../app/Views/inbox/panel.php');
+check(str_contains($panelSrc2, 'mentionDisplayName') || preg_match("/'@' \\+ .* \\+ ' @' \\+ key/", $panelSrc2) === 1, 'autocomplete insere nome + telefone');
+
 echo $ok ? "PASS: group send members OK\n" : "SOME FAILURES\n";
 exit($ok ? 0 : 1);

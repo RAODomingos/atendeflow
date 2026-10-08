@@ -44,5 +44,19 @@ $phones = array_column($parsed, 'phone');
 check(in_array('5511999998888', $phones, true), 'participante só-telefone preservado');
 check(in_array('5522992036639', $phones, true), 'par lid->phone preservado');
 
+// 6. Nomes aprendidos: learn/resolve por telefone
+\App\Models\WhatsAppContactName::learn('5511988887777', 'Maria Silva');
+check(\App\Models\WhatsAppContactName::resolve('5511988887777') === 'Maria Silva', 'nome aprendido resolve');
+check(\App\Models\WhatsAppContactName::resolve('5500000000000') === null, 'telefone desconhecido retorna null');
+App\Core\Database::getInstance()->delete('whatsapp_contact_names', 'phone_digits = ?', ['5511988887777']);
+
+// 7. Exibição enriquece nome aprendido quando o fetch não traz
+\App\Models\WhatsAppContactName::learn('5511999998888', 'Ana Souza');
+$enriched = \App\Controllers\WhatsAppGroupController::mapMembersForDisplay([
+    ['phone' => '5511999998888', 'lid' => null, 'name' => null, 'is_admin' => false],
+]);
+check(($enriched[0]['name'] ?? '') === 'Ana Souza', 'nome aprendido enriquece exibicao');
+App\Core\Database::getInstance()->delete('whatsapp_contact_names', 'phone_digits = ?', ['5511999998888']);
+
 echo $ok ? "PASS: group members contrato OK\n" : "SOME FAILURES\n";
 exit($ok ? 0 : 1);

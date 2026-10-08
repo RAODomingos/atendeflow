@@ -2105,12 +2105,15 @@ function acceptMention(i) {
     if (i < 0 || i >= mentionItems.length) return;
     var key = mentionKey(mentionItems[i]);
     if (!key) return;
+    // Nome p/ leitura + @dígitos p/ notificar (WhatsApp exige @número no texto).
+    var mentionDisplayName = String(mentionItems[i].name || '').replace(/\s+/g, ' ').trim().substring(0, 60).replace(/@/g, '');
+    var insert = mentionDisplayName !== '' ? '@' + mentionDisplayName + ' @' + key : '@' + key;
     var ta = document.getElementById('messageInput');
     var pos = ta.selectionStart;
     var before = ta.value.slice(0, mentionTokenStart);
     var after = ta.value.slice(pos);
-    ta.value = before + '@' + key + ' ' + after;
-    var caret = (before + '@' + key + ' ').length;
+    ta.value = before + insert + ' ' + after;
+    var caret = (before + insert + ' ').length;
     ta.setSelectionRange(caret, caret);
     ta.focus();
     groupMentionSelected[key] = true;

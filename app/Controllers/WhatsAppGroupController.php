@@ -149,10 +149,15 @@ class WhatsAppGroupController
                     $phone = $resolved;
                 }
             }
+            // Nome aprendido do tráfego (o fetch do provedor não traz nomes).
+            $name = isset($row['name']) && $row['name'] !== '' ? (string) $row['name'] : null;
+            if ($name === null && $phone !== '') {
+                $name = \App\Models\WhatsAppContactName::resolve($phone);
+            }
             $members[] = [
                 'phone' => $phone,
                 'lid' => $lid,
-                'name' => isset($row['name']) && $row['name'] !== '' ? (string) $row['name'] : null,
+                'name' => $name,
                 'is_admin' => (bool) ($row['is_admin'] ?? false),
             ];
         }
