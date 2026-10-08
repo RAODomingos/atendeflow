@@ -80,6 +80,19 @@ $renderMessageContent = function (array $msg) use ($contact, &$renderMessageCont
         return '<div class="message-content csat-request-note">' . $html . '</div>';
     }
 
+    if ($type === 'contact') {
+        $card = json_decode($raw, true) ?: [];
+        $cardName = (string) ($card['name'] ?? '');
+        $cardPhone = preg_replace('/\D/', '', (string) ($card['phone'] ?? ''));
+        $html = '<div class="contact-card"><div class="contact-card-icon"><i class="fas fa-address-card"></i></div>'
+              . '<div class="contact-card-info"><strong>' . e($cardName !== '' ? $cardName : $cardPhone) . '</strong>';
+        if ($cardPhone !== '') {
+            $html .= '<div><a href="tel:+' . e($cardPhone) . '">' . e($cardPhone) . '</a>'
+                  . ' <a href="https://wa.me/' . e($cardPhone) . '" target="_blank" rel="noopener" title="Abrir no WhatsApp"><i class="fab fa-whatsapp"></i></a></div>';
+        }
+        return $html . '</div></div>';
+    }
+
     if ($type === 'reaction') {
         $data = json_decode($raw, true) ?: [];
         $emoji = $data['reaction'] ?? '';
@@ -515,6 +528,9 @@ $renderReceipts = function (array $msg) {
                 <button type="button" class="icon-btn" title="Resposta pronta" onclick="openCannedModal()" <?= $panelFinished ? 'disabled' : '' ?>><i class="fas fa-bookmark"></i></button>
                 <button type="button" class="icon-btn" title="Macro" onclick="openMacroModal()" <?= $panelFinished ? 'disabled' : '' ?>><i class="fas fa-bolt"></i></button>
                 <button type="button" class="icon-btn" title="Sugerir artigo da Wiki (envia o link do portal do cliente)" onclick="openWikiModal()" <?= $panelFinished ? 'disabled' : '' ?>><i class="fas fa-book-open"></i></button>
+                <?php if (($conv['channel_type'] ?? '') === 'whatsapp'): ?>
+                <button type="button" class="icon-btn" title="Enviar contato" onclick="openContactModal()" <?= $panelFinished ? 'disabled' : '' ?>><i class="fas fa-address-card"></i></button>
+                <?php endif; ?>
                 <div style="flex:1"></div>
                 <button type="button" class="icon-btn" id="emojiToggle" title="Emoji" <?= $panelFinished ? 'disabled' : '' ?>><i class="fas fa-smile"></i></button>
                 <button type="button" class="icon-btn" id="internalToggle"
@@ -565,6 +581,25 @@ $renderReceipts = function (array $msg) {
     </div><!-- /.conv-main -->
 
 <?php require __DIR__ . "/panel/_drawer.php"; ?>
+
+<style>
+.contact-card { display: flex; align-items: center; gap: 10px; background: #f0f7ff; border: 1px solid #cfe3ff; border-radius: 10px; padding: 10px 12px; max-width: 280px; }
+.contact-card-icon { font-size: 28px; color: #0b5ed7; }
+.contact-card-info { display: flex; flex-direction: column; gap: 2px; font-size: 13px; }
+</style>
+<div id="contactModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:9999;align-items:center;justify-content:center" onclick="if(event.target===this)closeContactModal()">
+    <div style="background:#fff;border-radius:12px;max-width:480px;width:calc(100% - 32px);max-height:80vh;display:flex;flex-direction:column">
+        <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 16px;border-bottom:1px solid #eee">
+            <h3 style="margin:0;font-size:16px"><i class="fas fa-address-card"></i> Enviar contato</h3>
+            <button type="button" onclick="closeContactModal()" style="border:none;background:none;font-size:22px;cursor:pointer;line-height:1">&times;</button>
+        </div>
+        <div style="padding:14px 16px;overflow-y:auto">
+            <input type="text" id="contactSearch" class="form-control" placeholder="Buscar contato por nome ou telefone..." onkeyup="filterContactSuggest()">
+            <div id="contactList" style="margin-top:10px;display:flex;flex-direction:column;gap:8px"></div>
+            <p style="margin:12px 0 0;font-size:12px;color:#6c757d">Envia o cartão do contato da base como mensagem.</p>
+        </div>
+    </div>
+</div>
 
 <?php require __DIR__ . "/panel/_modals.php"; ?>
 
@@ -1329,6 +1364,65 @@ function toggleSignature(id) {
     btn.classList.toggle('active', next === 1);
     postJson('/inbox/' + id + '/settings', { field: 'signature_enabled', value: next });
 }
+/* Envio de contato (vCard) no composer */
+var contactSuggestTimer = null;
+function openContactModal() {
+    var m = document.getElementById('contactModal'); if (!m) return;
+    m.style.display = 'flex';
+    document.getElementById('contactSearch').value = '';
+    loadContactSuggest('');
+    setTimeout(function() { document.getElementById('contactSearch').focus(); }, 50);
+}
+function closeContactModal() { var m = document.getElementById('contactModal'); if (m) m.style.display = 'none'; }
+function filterContactSuggest() {
+    clearTimeout(contactSuggestTimer);
+    contactSuggestTimer = setTimeout(function() {
+        var el = document.getElementById('contactSearch');
+        loadContactSuggest(el ? el.value : '');
+    }, 250);
+}
+function escContact(s) { var d = document.createElement('div'); d.textContent = s == null ? '' : s; return d.innerHTML; }
+function loadContactSuggest(q) {
+    var box = document.getElementById('contactList'); if (!box) return;
+    box.innerHTML = '<p style="font-size:12px;color:#6c757d">Buscando...</p>';
+    fetch(API + '/contacts/search?q=' + encodeURIComponent(q || ''), { headers: { 'X-Requested-With': 'XMLHttpRequest' } })
+        .then(function(r) { return r.json(); })
+        .then(function(list) {
+            box.innerHTML = '';
+            (list || []).slice(0, 20).forEach(function(c) {
+                if (!c.phone) return;
+                var row = document.createElement('button');
+                row.type = 'button';
+                row.style.cssText = 'display:flex;align-items:center;gap:8px;text-align:left;border:1px solid #eee;border-radius:8px;padding:8px 10px;background:#fff;cursor:pointer;width:100%';
+                row.innerHTML = '<i class="fas fa-address-card" style="color:#6c757d"></i><span><strong>' + escContact(c.name || c.phone) + '</strong><br><small style="color:#6c757d">' + escContact(c.phone) + '</small></span>';
+                row.onclick = (function(id) { return function() { sendContactCard(id); }; })(c.id);
+                box.appendChild(row);
+            });
+            if (!box.children.length) box.innerHTML = '<p style="font-size:12px;color:#6c757d">Nenhum contato com telefone encontrado.</p>';
+        })
+        .catch(function() { box.innerHTML = '<p style="font-size:12px;color:#dc2626">Falha na busca. Tente novamente.</p>'; });
+}
+function sendContactCard(contactId) {
+    var form = document.getElementById('composerForm');
+    if (!form) return;
+    var fd = new FormData();
+    var tok = form.querySelector('input[name=_csrf_token]');
+    if (tok) fd.append('_csrf_token', tok.value);
+    fd.append('contact_id', contactId);
+    closeContactModal();
+    fetch(form.action, { method: 'POST', headers: { 'X-Requested-With': 'XMLHttpRequest' }, body: fd })
+        .then(function(r) { return r.json(); })
+        .then(function(resp) {
+            if (resp && resp.ok && resp.messages) {
+                (resp.messages || []).forEach(function(m) { appendMessage(m, uploadsBase); });
+                scrollConvBottom();
+                if (resp.delivery_failed) toast(resp.delivery_error || 'Contato salvo, mas NÃO entregue ao WhatsApp.');
+            } else if (resp && resp.error) {
+                toast(resp.error);
+            }
+        })
+        .catch(function() { toast('Erro ao enviar contato. Tente novamente.'); });
+}
 var EMOJIS = ['😀','😁','😂','🤣','😊','😍','😎','🤔','🙄','😅','👍','👎','👏','🙏','💪','🔥','✅','❌','⚠️','💡','📌','📎','☎️','✉️','⏰','💬'];
 (function() {
     var pop = document.getElementById('emojiPopover');
@@ -1604,6 +1698,18 @@ function retrySend(mid, btn) {
             toast('Erro de rede ao reenviar.');
         });
 }
+function contactCardHtml(content) {
+    var c = {}; try { c = JSON.parse(content || '{}'); } catch (e) {}
+    var name = c.name || c.phone || '?';
+    var phone = String(c.phone || '').replace(/\D/g, '');
+    var html = '<div class="contact-card"><div class="contact-card-icon"><i class="fas fa-address-card"></i></div>'
+        + '<div class="contact-card-info"><strong>' + esc(name) + '</strong>';
+    if (phone) {
+        html += '<div><a href="tel:+' + esc(phone) + '">' + esc(phone) + '</a>'
+            + ' <a href="https://wa.me/' + esc(phone) + '" target="_blank" rel="noopener" title="Abrir no WhatsApp"><i class="fab fa-whatsapp"></i></a></div>';
+    }
+    return html + '</div></div>';
+}
 function renderMessageBody(m) {
     var body = '';
     var mtype = mediaTypeOf(m);
@@ -1629,6 +1735,8 @@ function renderMessageBody(m) {
         } catch (e) {}
     } else if (m.type === 'system') {
         body += '<div class="message-content">' + nl2br(m.content) + '</div>';
+    } else if (m.type === 'contact') {
+        body += '<div class="message-content">' + contactCardHtml(m.content) + '</div>';
     } else if (mtype) {
         body += '<div class="message-content">' + fileContentHtml(mtype, m.content, uploadsBase) + '</div>';
     } else {
