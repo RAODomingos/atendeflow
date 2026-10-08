@@ -220,7 +220,7 @@ $renderReceipts = function (array $msg) {
                                 <i class="fas fa-user" style="font-size:10px"></i> <?= e($conv['assigned_user_name']) ?>
                             </span>
                         <?php endif; ?>
-                        <?php if (empty($contact['stores'])): ?>
+                        <?php if (empty($contact['stores']) && empty($conv['group_id'])): ?>
                         <?php if (!empty($conv['unit'])): ?>
                             <span class="meta-sep">·</span>
                             <span class="meta-tag" onclick="editUnit(event)" style="cursor:pointer" title="Clique para editar">
@@ -236,7 +236,7 @@ $renderReceipts = function (array $msg) {
                 </div>
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="color:var(--text-muted);flex-shrink:0;margin-left:6px"><path d="M9 18l6-6-6-6"/></svg>
             </button>
-            <?php if (empty($contact['stores'])): ?>
+            <?php if (empty($contact['stores']) && empty($conv['group_id'])): ?>
             <input type="text" id="convUnitInput" style="font-size:12px;padding:4px 8px;border:1px solid var(--brand);border-radius:6px;outline:none;width:160px" value="<?= e($conv['unit'] ?? '') ?>" placeholder="Unidade" onblur="saveUnit(this.value)" onkeydown="if(event.key==='Enter')saveUnit(this.value);if(event.key==='Escape')cancelUnitEdit()">
             <?php endif; ?>
         </div>
@@ -277,6 +277,7 @@ $renderReceipts = function (array $msg) {
                 </select>
                 <i class="fas fa-chevron-down" style="font-size:9px;opacity:.5"></i>
             </label>
+            <?php if (empty($conv['group_id'])): ?>
             <label class="header-chip header-chip-select" title="Unidade">
                 <i class="fas fa-tag"></i>
                 <select id="convUnitStore" onchange="saveUnit(this.value)" aria-label="Unidade" data-current-unit="<?= e($conv['unit'] ?? '') ?>" <?= $unitNets ? '' : 'disabled' ?>>
@@ -284,6 +285,7 @@ $renderReceipts = function (array $msg) {
                 </select>
                 <i class="fas fa-chevron-down" style="font-size:9px;opacity:.5"></i>
             </label>
+            <?php endif; ?>
             <div class="modal" id="newStoreModal" style="display:none">
                 <div class="modal-overlay" onclick="closeNewStoreModal()"></div>
                 <div class="modal-content">
