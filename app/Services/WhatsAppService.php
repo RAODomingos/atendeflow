@@ -461,7 +461,7 @@ class WhatsAppService
         } else {
             $channel = Database::getInstance()->fetch("SELECT * FROM channels WHERE id = ?", [$connection['channel_id']]);
             error_log("FLOW_CHECK: channel_id={$connection['channel_id']}, channel_exists=" . ($channel ? 'yes' : 'no') . ", assigned_user_id=" . ($conversation['assigned_user_id'] ?? 'null') . ", channel_flow_id=" . ($channel['flow_id'] ?? 'null'));
-            if ($channel && empty($conversation['assigned_user_id']) && !in_array($conversation['status'], ['closed', 'resolved', 'spam'])) {
+            if ($channel && $this->shouldAutoStartFlow($conversation, $channel)) {
                 if (!empty($channel['flow_id'])) {
                     $flow = \App\Models\Flow::find((int) $channel['flow_id']);
                     if ($flow && $flow['is_active']) {
@@ -507,6 +507,62 @@ class WhatsAppService
         } catch (\Throwable $e) {
             $this->logWebhook('ABSENCE_ERROR', ['error' => $e->getMessage()]);
         }
+    }
+
+    /**
+     * Decide se uma mensagem inbound pode (re)iniciar o fluxo do canal.
+     * Regra: fluxo só inicia em conversa NOVA (status 'new', sem responsável
+     * e sem passagem anterior por fluxo). Conversa Aberta / em atendimento
+     * (open, waiting_*) ou com tag 'Aberto' / histórico de fluxo fica com
+     * o humano e NUNCA volta ao bot sozinha.
+     */
+    private function shouldAutoStartFlow(array $conversation, array $channel): bool
+    {
+        if (empty($channel['flow_id'])) {
+            return false;
+        }
+        // Com responsável → dono humano.
+        if (!empty($conversation['assigned_user_id'])) {
+            return false;
+        }
+        // Finalizadas → nunca.
+        if (in_array($conversation['status'] ?? '', ['closed', 'resolved', 'spam'], true)) {
+            return false;
+        }
+        // Em atendimento (Aberta / aguardando) → humano, nunca o bot.
+        if (in_array($conversation['status'] ?? '', ['open', 'waiting_customer', 'waiting_internal'], true)) {
+            error_log("FLOW_SKIPPED: conversation_id={$conversation['id']} em atendimento (status={$conversation['status']})");
+            return false;
+        }
+        // Já passou pelo fluxo antes (ativo ou finalizado) → não repete.
+        try {
+            $hist = Database::getInstance()->fetch(
+                "SELECT 1 FROM conversation_flow_states WHERE conversation_id = ? LIMIT 1",
+                [$conversation['id']]
+            );
+            if ($hist) {
+                error_log("FLOW_SKIPPED: conversation_id={$conversation['id']} já executou fluxo antes");
+                return false;
+            }
+        } catch (\Throwable $e) {
+            // Tabela ausente em installs antigos: segue para checagem de tag.
+        }
+        // Tag 'Aberto' (fluxo encerrado aguardando humano) → não repete.
+        try {
+            $tag = \App\Models\Tag::findByName('Aberto');
+            if ($tag) {
+                $has = Database::getInstance()->fetch(
+                    "SELECT 1 FROM conversation_tags WHERE conversation_id = ? AND tag_id = ? LIMIT 1",
+                    [$conversation['id'], $tag['id']]
+                );
+                if ($has) {
+                    error_log("FLOW_SKIPPED: conversation_id={$conversation['id']} com tag Aberto");
+                    return false;
+                }
+            }
+        } catch (\Throwable $e) {
+        }
+        return true;
     }
 
     /**

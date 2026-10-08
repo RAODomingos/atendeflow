@@ -67,5 +67,11 @@ $waSrc = file_get_contents(__DIR__ . '/../app/Services/WhatsAppService.php');
 check('avatar tenta multiplos ids', str_contains($waSrc, '@c.us') && str_contains($waSrc, 'candidates'));
 check('avatar trata url expirada', str_contains($waSrc, "str_starts_with(\$avatar, 'http')") || str_contains($waSrc, 'needsAvatar'));
 
+// Fluxo: nao reinicia em conversa Aberta / em atendimento / com historico
+check('fluxo tem trava shouldAutoStartFlow', str_contains($waSrc, 'shouldAutoStartFlow'));
+check('fluxo bloqueia open/waiting', str_contains($waSrc, 'waiting_customer') && str_contains($waSrc, 'em atendimento'));
+check('fluxo bloqueia historico', str_contains($waSrc, 'conversation_flow_states WHERE conversation_id'));
+check('fluxo bloqueia tag Aberto', str_contains($waSrc, "findByName('Aberto')"));
+
 echo "\n$passes passed, $failures failed\n";
 exit($failures > 0 ? 1 : 0);
