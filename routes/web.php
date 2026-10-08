@@ -192,6 +192,10 @@ $router->group('', function (Router $router) {
     $router->get('/library/canned/{id}/edit', [LibraryController::class, 'editCanned'], ['manager']);
     $router->post('/library/canned/{id}', [LibraryController::class, 'updateCanned'], ['manager']);
     $router->post('/library/canned/{id}/delete', [LibraryController::class, 'deleteCanned'], ['manager']);
+    $router->post('/library/subjects', [LibraryController::class, 'storeSubject'], ['manager']);
+    $router->get('/library/subjects/{id}/edit', [LibraryController::class, 'editSubject'], ['manager']);
+    $router->post('/library/subjects/{id}', [LibraryController::class, 'updateSubject'], ['manager']);
+    $router->post('/library/subjects/{id}/delete', [LibraryController::class, 'deleteSubject'], ['manager']);
 
     // Assuntos predefinidos (admin)
     $router->get('/settings/subjects', [SettingsController::class, 'subjects'], ['admin']);
@@ -265,6 +269,7 @@ $router->group('', function (Router $router) {
     $router->get('/api/unread-conversations', [\App\Controllers\Api\UnreadConversationsController::class, 'index']);
     $router->post('/api/messages/read-all', [\App\Controllers\Api\MessagesController::class, 'readAll']);
     $router->post('/api/messages/{id}/read', [\App\Controllers\Api\MessagesController::class, 'markRead']);
+    $router->post('/api/messages/{id}/transcribe', [\App\Controllers\Api\TranscriptionController::class, 'transcribe']);
     $router->post('/api/conversations/{id}/typing', [\App\Controllers\Api\MessagesController::class, 'typing']);
 
     // User notification preferences
