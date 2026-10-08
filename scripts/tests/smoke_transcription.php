@@ -67,4 +67,11 @@ if (interface_exists(\App\Services\Transcription\TranscriptionProviderInterface:
     }
 }
 
+// Task 3 — controller + rota (registro; View::json faz exit, sem teste HTTP in-process)
+$routes = file_get_contents(__DIR__ . '/../../routes/web.php');
+check(str_contains($routes, "/api/messages/{id}/transcribe"), 'rota transcribe registrada');
+check(str_contains($routes, 'TranscriptionController'), 'rota usa TranscriptionController');
+check(class_exists(\App\Controllers\Api\TranscriptionController::class), 'TranscriptionController existe');
+check(method_exists(\App\Controllers\Api\TranscriptionController::class, 'transcribe'), 'TranscriptionController::transcribe existe');
+
 exit($ok ? 0 : 1);
