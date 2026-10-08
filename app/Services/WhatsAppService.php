@@ -622,6 +622,15 @@ class WhatsAppService
             $mentioned = $this->resolveMentionedPhones($connection, $rawMentioned);
             $mentionEveryone = self::isEveryoneMentioned($rawMentioned, $text);
             $isMention = $mentionEveryone || self::connectionMentioned($connDigits, $mentioned, $text);
+            if (!$isMention && !$mentionEveryone && !empty($rawMentioned)) {
+                // Menção como @lid sem mapeamento: busca participantes do grupo
+                // UMA vez, aprende os pares e tenta de novo (self-healing).
+                $learned = $this->learnGroupLidMappings($connection, $groupJid);
+                if ($learned > 0) {
+                    $mentioned = $this->resolveMentionedPhones($connection, $rawMentioned);
+                    $isMention = self::connectionMentioned($connDigits, $mentioned, $text);
+                }
+            }
             if (!$isMention) {
                 // Diagnóstico: menção perdida — registra por que não detectou.
                 $this->logWebhook('GROUP_MENTION_MISS', [
@@ -987,6 +996,42 @@ class WhatsAppService
             }
         }
         return array_values(array_unique($out));
+    }
+
+    /**
+     * Aprende pares LID -> telefone a partir dos participantes do grupo.
+     * Retorna quantos pares novos foram aprendidos. Uma chamada por grupo
+     * por request (cache estático) para não estourar rate limit.
+     */
+    private static array $groupLidLearned = [];
+
+    private function learnGroupLidMappings(array $connection, string $groupJid): int
+    {
+        if ($groupJid === '' || isset(self::$groupLidLearned[$groupJid])) {
+            return 0;
+        }
+        self::$groupLidLearned[$groupJid] = true;
+        try {
+            $provider = WhatsAppManager::forConnection($connection);
+            if (!method_exists($provider, 'fetchGroupParticipants')) {
+                return 0;
+            }
+            $n = 0;
+            foreach ($provider->fetchGroupParticipants($connection, $groupJid) as [$lid, $phone]) {
+                $before = \App\Models\WhatsAppLidMap::resolve($lid);
+                \App\Models\WhatsAppLidMap::learn($lid, $phone);
+                if ($before !== $phone) {
+                    $n++;
+                }
+            }
+            if ($n > 0) {
+                $this->logWebhook('GROUP_LID_LEARNED', ['group_id' => $groupJid, 'pairs' => $n]);
+            }
+            return $n;
+        } catch (\Throwable $e) {
+            $this->logWebhook('GROUP_LID_LEARN_ERROR', ['error' => substr($e->getMessage(), 0, 120)]);
+            return 0;
+        }
     }
 
     /**
