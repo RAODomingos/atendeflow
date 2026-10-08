@@ -130,6 +130,16 @@ check(\App\Services\TranscriptionService::extensionForAudio('https://x/audio.ogg
 check(\App\Services\TranscriptionService::extensionForAudio('https://x/file?x=1', 'audio/mpeg') === '.mp3', 'ext via mime audio/mpeg');
 check(\App\Services\TranscriptionService::extensionForAudio('https://x/file', 'video/webm') === '.webm', 'ext via mime video/webm');
 
+// Chave via config (DB settings tem prioridade; .env como fallback; nunca reexibida)
+check(method_exists(\App\Services\TranscriptionService::class, 'apiKey'), 'TranscriptionService::apiKey existe');
+if (method_exists(\App\Services\TranscriptionService::class, 'apiKey')) {
+    $prev = \App\Models\Setting::get('openai_api_key', '');
+    \App\Models\Setting::set('openai_api_key', 'sk-test-config');
+    check(\App\Services\TranscriptionService::apiKey() === 'sk-test-config', 'apiKey lê do config (DB)');
+    \App\Models\Setting::set('openai_api_key', $prev);
+    check(\App\Services\TranscriptionService::apiKey() === (env('OPENAI_API_KEY') ?: null), 'apiKey volta p/ .env sem config');
+}
+
 // Task 5 — PDFs exibem transcrição abaixo de "Áudio"
 $pdfInbox = file_get_contents(__DIR__ . '/../../app/Views/inbox/pdf.php');
 $pdfFull = file_get_contents(__DIR__ . '/../../app/Views/contacts/pdf_full.php');

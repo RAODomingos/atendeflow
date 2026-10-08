@@ -137,6 +137,12 @@ class SettingsController
             \App\Models\Setting::set('guild_api_token', trim((string) $request->post('guild_api_token')));
         }
 
+        // Transcrição de áudios (OpenAI Whisper, sob demanda no inbox).
+        // A chave nunca é reexibida na tela: em branco mantém a atual.
+        if (trim((string) $request->post('openai_api_key', '')) !== '') {
+            \App\Models\Setting::set('openai_api_key', trim((string) $request->post('openai_api_key')));
+        }
+
         Session::setFlash('success', 'Configurações salvas.');
         View::redirect('/settings');
     }
