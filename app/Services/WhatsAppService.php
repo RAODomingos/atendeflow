@@ -440,6 +440,10 @@ class WhatsAppService
                     'url' => $message->mediaUrl ?? '',
                 ], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
             }
+        } elseif ($message->type === 'contact') {
+            // Cartão de contato (vCard): content já é JSON {name,phone,organization?}.
+            $type = 'contact';
+            $content = $message->content !== '' ? $message->content : json_encode(['name' => '', 'phone' => ''], JSON_UNESCAPED_UNICODE);
         } else {
             $type = 'text';
             $content = $message->content;
@@ -499,7 +503,9 @@ class WhatsAppService
         // reentradas do mesmo webhook.
         $preview = $type === 'text'
             ? (string) $content
-            : ($message->caption ?: (['image' => '📷 Imagem', 'audio' => '🎵 Áudio', 'video' => '🎬 Vídeo', 'file' => '📎 Arquivo', 'sticker' => '🖼️ Sticker'][$type] ?? 'Mídia'));
+            : ($type === 'contact'
+                ? ('📇 Contato: ' . ((json_decode((string) $content, true)['name'] ?? '') ?: 'sem nome'))
+                : ($message->caption ?: (['image' => '📷 Imagem', 'audio' => '🎵 Áudio', 'video' => '🎬 Vídeo', 'file' => '📎 Arquivo', 'sticker' => '🖼️ Sticker'][$type] ?? 'Mídia')));
 
         try {
             \App\Services\NotificationService::notifyNewMessage(
@@ -1623,6 +1629,14 @@ class WhatsAppService
                     $fallbackText = ($meta['text'] ?? '') . "\n\n" . ($meta['title'] ?? 'Opções') . ":\n" . implode("\n", array_map(fn($i, $l) => ($i+1) . ' - ' . $l, array_keys($optionLabels), $optionLabels));
                     $result = $provider->send($connection, $contact['phone'], 'text', $fallbackText, []);
                 }
+            } elseif ($type === 'contact') {
+                // Cartão de contato: content é JSON {name,phone,organization?}.
+                $card = json_decode($content, true) ?: ['name' => '', 'phone' => ''];
+                $result = $provider->sendContact($connection, $contact['phone'], [
+                    'name' => (string) ($card['name'] ?? ''),
+                    'phone' => (string) ($card['phone'] ?? ''),
+                    'organization' => $card['organization'] ?? null,
+                ]);
             } else {
                 $result = $provider->send($connection, $contact['phone'], $type, $content, $options);
             }
