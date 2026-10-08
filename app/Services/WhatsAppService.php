@@ -1952,7 +1952,7 @@ class WhatsAppService
         return WhatsAppManager::defaultProviderName();
     }
 
-    private function findOrCreateConversation(int $channelId, int $contactId): array
+    public function findOrCreateConversation(int $channelId, int $contactId): array
     {
         $existing = Database::getInstance()->fetch(
             "SELECT c.* FROM conversations c

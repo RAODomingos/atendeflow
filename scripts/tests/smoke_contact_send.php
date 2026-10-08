@@ -86,5 +86,14 @@ $schema = file_get_contents(__DIR__ . '/../../database/schema.sql');
 check(preg_match("/CREATE TABLE messages \(.*?`type` ENUM\([^)]*'contact'[^)]*\)/s", $schema) === 1
     || preg_match("/CREATE TABLE messages \(.*?type ENUM\([^)]*'contact'[^)]*\)/s", $schema) === 1, 'schema.sql inclui contact');
 
+// 9. vCard real do WhatsApp: N vazio (;;;;), TEL com item+waid, sem FN
+$real = "BEGIN:VCARD\nVERSION:3.0\nN:;;;;\nitem1.TEL;waid=5511988887777:+55 11 98888-7777\nitem1.X-ABLabel:Celular\nEND:VCARD";
+$parsed = \App\Services\WhatsApp\IncomingMessage::parseVcard($real);
+check(($parsed['phone'] ?? '') === '5511988887777', 'vcard real extrai telefone via item/waid');
+check(($parsed['name'] ?? 'X') === null || ($parsed['name'] ?? '') === '', 'N vazio nao vira nome ";;;;"');
+$real2 = "BEGIN:VCARD\nVERSION:3.0\nN:Silva;Maria;;;\nFN:Maria Silva\nitem1.TEL;waid=5511988887777:+55 11 98888-7777\nEND:VCARD";
+$parsed2 = \App\Services\WhatsApp\IncomingMessage::parseVcard($real2);
+check(($parsed2['name'] ?? '') === 'Maria Silva' && ($parsed2['phone'] ?? '') === '5511988887777', 'vcard completo usa FN + waid');
+
 echo $ok ? "PASS: contact contrato OK\n" : "SOME FAILURES\n";
 exit($ok ? 0 : 1);
