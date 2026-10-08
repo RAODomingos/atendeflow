@@ -3,7 +3,8 @@
  * Partial compartilhado: navegação em abas das telas de Configurações.
  * Variáveis esperadas: $subPage (chave da aba ativa) e opcionalmente $settingsBaseUrl.
  *
- * Chaves aceitas: geral | subjects | close-reasons | inboxes | channels | notifications
+ * Chaves aceitas: geral | close-reasons | inboxes | channels | notifications
+ * (assuntos mudaram para a Biblioteca, em Gestão)
  */
 $subPage = $subPage ?? '';
 $tabs = [
@@ -11,7 +12,6 @@ $tabs = [
     'channels'      => ['label' => 'Canais',         'url' => url('channels')],
     'inboxes'       => ['label' => 'Caixas',         'url' => url('inboxes')],
     'notifications' => ['label' => 'Notificações',   'url' => url('settings/notifications')],
-    'subjects'      => ['label' => 'Assuntos',       'url' => url('settings/subjects')],
     'close-reasons' => ['label' => 'Motivos',        'url' => url('settings/close-reasons')],
 ];
 ?>

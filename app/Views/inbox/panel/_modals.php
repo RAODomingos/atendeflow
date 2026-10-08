@@ -102,7 +102,7 @@
                 <div class="empty-state" style="padding:24px">
                     <i class="fas fa-folder-open" style="font-size:32px;color:var(--text-muted);margin-bottom:8px"></i>
                     <p style="margin:0;font-size:13px">Nenhum assunto cadastrado.</p>
-                    <p style="margin:4px 0 0;font-size:12px"><a href="<?= url('settings/subjects') ?>" target="_blank">Cadastrar assuntos</a></p>
+                    <p style="margin:4px 0 0;font-size:12px"><a href="<?= url('library') ?>" target="_blank">Cadastrar assuntos</a></p>
                 </div>
                 <?php endif; ?>
             </div>

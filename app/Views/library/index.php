@@ -1,10 +1,13 @@
 <?php
 /** @var array $tags */
 /** @var array $canned */
+/** @var array $subjects */
 /** @var array $departments */
 /** @var array|null $editTag */
 /** @var array|null $editCanned */
+/** @var array|null $editSubject */
 $isEditCanned = !empty($editCanned);
+$isEditSubject = !empty($editSubject);
 ?>
 <style>
 .library-page{margin:0;padding:2px 26px 32px 30px}
@@ -158,7 +161,115 @@ $isEditCanned = !empty($editCanned);
             <?php endif; ?>
         </div>
     </div>
+
+    <div class="card" style="border-radius:12px;overflow:hidden">
+        <div class="card-header" style="background:var(--bg-card)">
+            <h4 style="margin:0;font-size:14px;font-weight:700"><i class="fas fa-tag" style="color:var(--primary)"></i> Assuntos por Departamento</h4>
+        </div>
+        <div class="card-body">
+            <div class="lib-cmdbar">
+                <div class="lib-search-box">
+                    <i class="fas fa-search"></i>
+                    <input type="text" id="subjectTableFilter" placeholder="Pesquisar assuntos..." oninput="filterSubjectRows(this.value)">
+                </div>
+                <span class="spacer"></span>
+                <button type="button" class="btn btn-primary btn-sm" onclick="openSubjectDrawer()">
+                    <i class="fas fa-plus"></i> Novo assunto
+                </button>
+            </div>
+
+            <?php if (empty($subjects)): ?>
+                <div style="text-align:center;padding:32px 24px;color:var(--text-muted)">
+                    <i class="fas fa-tag fa-2x" style="opacity:0.3;margin-bottom:8px;display:block"></i>
+                    <p>Nenhum assunto criado.</p>
+                    <button type="button" class="btn btn-primary mt-2" onclick="openSubjectDrawer()">
+                        <i class="fas fa-plus"></i> Criar assunto
+                    </button>
+                </div>
+            <?php else: ?>
+                <table class="table table-hover">
+                    <thead>
+                        <tr><th style="width:30%">Nome</th><th style="width:18%">Departamento</th><th style="width:12%">Ordem</th><th style="width:10%">Ativo</th><th style="width:110px">Gerenciar</th></tr>
+                    </thead>
+                    <tbody id="subjectTableBody">
+                        <?php foreach ($subjects as $s): ?>
+                            <tr data-title="<?= e(mb_strtolower($s['name'])) ?>">
+                                <td><strong><?= e($s['name']) ?></strong></td>
+                                <td>
+                                    <?php if (!empty($s['department_name'])): ?>
+                                        <span class="badge badge-info"><?= e($s['department_name']) ?></span>
+                                    <?php else: ?>
+                                        <span class="text-muted" style="font-size:11.5px">Todos</span>
+                                    <?php endif; ?>
+                                </td>
+                                <td><?= (int) ($s['sort_order'] ?? 0) ?></td>
+                                <td><?= !empty($s['is_active']) ? '<span class="chip chip-success">Sim</span>' : '<span class="chip chip-neutral">Não</span>' ?></td>
+                                <td>
+                                    <a href="<?= url('library/subjects/') ?><?= $s['id'] ?>/edit" class="icon-btn-sm" title="Editar"><i class="fas fa-edit"></i></a>
+                                    <form method="POST" action="<?= url('library/subjects/') ?><?= $s['id'] ?>/delete" style="display:inline" data-confirm="Remover este assunto?">
+                                        <?= csrf_field() ?>
+                                        <button type="submit" class="icon-btn-sm danger" title="Remover"><i class="fas fa-trash"></i></button>
+                                    </form>
+                                </td>
+                            </tr>
+                        <?php endforeach; ?>
+                    </tbody>
+                </table>
+            <?php endif; ?>
+        </div>
+    </div>
 </div>
+
+<div class="drawer-overlay" id="subjectDrawerOverlay" onclick="closeSubjectDrawer()"></div>
+<aside class="lib-drawer" id="subjectDrawer" aria-label="<?= $isEditSubject ? 'Editar assunto' : 'Novo assunto' ?>">
+    <div class="lib-drawer-head">
+        <div>
+            <h3><i class="fas fa-<?= $isEditSubject ? 'edit' : 'plus' ?>" style="color:var(--primary)"></i> <?= $isEditSubject ? 'Editar: ' . e($editSubject['name']) : 'Novo assunto' ?></h3>
+            <p>Assunto exibido no inbox, filtrado pelo departamento da conversa</p>
+        </div>
+        <button type="button" class="lib-drawer-close" onclick="closeSubjectDrawer()" title="Fechar">&times;</button>
+    </div>
+    <form method="POST" action="<?= $isEditSubject ? base_url('library/subjects/' . $editSubject['id']) : url('library/subjects') ?>" style="display:flex;flex-direction:column;flex:1;min-height:0">
+        <?= csrf_field() ?>
+        <div class="lib-drawer-body">
+            <div class="lib-sec-title">Informações</div>
+            <div class="form-group">
+                <label>Nome</label>
+                <input type="text" name="name" class="form-control" required maxlength="255"
+                       value="<?= $isEditSubject ? e($editSubject['name']) : '' ?>"
+                       placeholder="Ex: Suporte Técnico, Dúvidas...">
+            </div>
+            <div class="form-group">
+                <label>Ordem de exibição</label>
+                <input type="number" name="sort_order" class="form-control" min="0" style="width:120px"
+                       value="<?= $isEditSubject ? (int) ($editSubject['sort_order'] ?? 0) : '0' ?>">
+            </div>
+            <?php if ($isEditSubject): ?>
+            <div class="form-group">
+                <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
+                    <input type="checkbox" name="is_active" value="1" style="width:18px;height:18px" <?= !empty($editSubject['is_active']) ? 'checked' : '' ?>>
+                    Assunto ativo
+                </label>
+            </div>
+            <?php endif; ?>
+            <div class="lib-sec-title">Departamento</div>
+            <div class="form-group">
+                <select name="department_id" class="form-control">
+                    <option value="">Todos os departamentos</option>
+                    <?php foreach ($departments as $d): ?>
+                        <option value="<?= $d['id'] ?>" <?= $isEditSubject && ($editSubject['department_id'] ?? null) == $d['id'] ? 'selected' : '' ?>>
+                            <?= e($d['name']) ?>
+                        </option>
+                    <?php endforeach; ?>
+                </select>
+            </div>
+        </div>
+        <div class="lib-drawer-foot">
+            <button type="button" class="btn btn-outline" onclick="closeSubjectDrawer()">Cancelar</button>
+            <button type="submit" class="btn btn-primary"><i class="fas fa-<?= $isEditSubject ? 'check' : 'plus' ?>"></i> <?= $isEditSubject ? 'Salvar alterações' : 'Criar assunto' ?></button>
+        </div>
+    </form>
+</aside>
 
 <div class="drawer-overlay" id="cannedDrawerOverlay" onclick="closeCannedDrawer()"></div>
 <aside class="lib-drawer" id="cannedDrawer" aria-label="<?= $isEditCanned ? 'Editar mensagem' : 'Nova mensagem' ?>">
@@ -238,6 +349,33 @@ document.addEventListener('keydown', function(e) {
 if (CANNED_EDIT_MODE) {
     document.getElementById('cannedDrawer').classList.add('open');
     document.getElementById('cannedDrawerOverlay').classList.add('open');
+    document.body.style.overflow = 'hidden';
+}
+var SUBJECT_EDIT_MODE = <?= $isEditSubject ? 'true' : 'false' ?>;
+function openSubjectDrawer() {
+    if (SUBJECT_EDIT_MODE) { window.location.href = LIBRARY_URL; return; }
+    document.getElementById('subjectDrawer').classList.add('open');
+    document.getElementById('subjectDrawerOverlay').classList.add('open');
+    document.body.style.overflow = 'hidden';
+}
+function closeSubjectDrawer() {
+    if (SUBJECT_EDIT_MODE) { window.location.href = LIBRARY_URL; return; }
+    document.getElementById('subjectDrawer').classList.remove('open');
+    document.getElementById('subjectDrawerOverlay').classList.remove('open');
+    document.body.style.overflow = '';
+}
+function filterSubjectRows(q) {
+    q = (q || '').toLowerCase();
+    document.querySelectorAll('#subjectTableBody tr').forEach(function(tr) {
+        tr.style.display = (!q || (tr.dataset.title || '').indexOf(q) !== -1) ? '' : 'none';
+    });
+}
+document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape') closeSubjectDrawer();
+});
+if (SUBJECT_EDIT_MODE) {
+    document.getElementById('subjectDrawer').classList.add('open');
+    document.getElementById('subjectDrawerOverlay').classList.add('open');
     document.body.style.overflow = 'hidden';
 }
 </script>

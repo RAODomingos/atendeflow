@@ -539,14 +539,8 @@ class SettingsController
 
     public function subjects(Request $request): void
     {
-        $subjects = Database::getInstance()->fetchAll(
-            "SELECT * FROM conversation_subjects ORDER BY sort_order ASC, name ASC"
-        );
-        View::renderWithLayout('settings/subjects', 'main', [
-            'title' => 'Assuntos Predefinidos',
-            'activePage' => 'settings',
-            'subjects' => $subjects,
-        ]);
+        // Gestão de assuntos mudou para a Biblioteca (Gestão, gerente+).
+        View::redirect('/library');
     }
 
     public function createSubject(Request $request): void
