@@ -68,7 +68,7 @@
             <?php else: ?>
                 <table class="table">
                     <thead>
-                        <tr><th>Canal</th><th>Provedor</th><th>Número</th><th>Status</th><th>Setor</th><th>Fluxo</th><th>Última conexão</th><th>Ações</th></tr>
+                        <tr><th>Canal</th><th>Provedor</th><th>Número</th><th>Status</th><th>Setor</th><th>Fluxo</th><th>Última conexão</th><th>Último evento</th><th>Ações</th></tr>
                     </thead>
                     <tbody>
                         <?php foreach ($whatsappConnections as $wc): ?>
@@ -84,6 +84,12 @@
                                 <td><?= e($wc['department_name'] ?? '-') ?></td>
                                 <td><?= e($wc['flow_name'] ?? '-') ?></td>
                                 <td><?= $wc['last_connected_at'] ? format_datetime($wc['last_connected_at']) : '-' ?></td>
+                                <?php
+                                $lastEv = !empty($wc['last_webhook_at']) ? strtotime($wc['last_webhook_at']) : 0;
+                                $evIdle = $lastEv > 0 ? (time() - $lastEv) : null;
+                                $evStale = ($wc['status'] ?? '') === 'connected' && $evIdle !== null && $evIdle > 900;
+                                ?>
+                                <td><?= $lastEv > 0 ? format_datetime($wc['last_webhook_at']) : '-' ?><?php if ($evStale): ?><br><span class="badge badge-warning" title="Conectado, mas sem nenhum evento do provedor há <?= (int) floor($evIdle / 60) ?> min — sintoma de queda silenciosa">sem eventos há <?= (int) floor($evIdle / 60) ?> min</span><?php endif; ?></td>
                                 <td class="action-cell">
                                     <button class="btn btn-sm btn-outline" onclick="openQrModal(<?= (int) $wc['channel_id'] ?>, '<?= e($wc['channel_name']) ?>')" title="Conectar / QR Code">
                                         <i class="fas fa-qrcode"></i> Conectar

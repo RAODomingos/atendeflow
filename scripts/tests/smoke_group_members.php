@@ -58,5 +58,16 @@ $enriched = \App\Controllers\WhatsAppGroupController::mapMembersForDisplay([
 check(($enriched[0]['name'] ?? '') === 'Ana Souza', 'nome aprendido enriquece exibicao');
 App\Core\Database::getInstance()->delete('whatsapp_contact_names', 'phone_digits = ?', ['5511999998888']);
 
+// 8. Latência upstream: segundos entre envio real e chegada (null se desconhecido)
+check(\App\Services\WhatsAppService::upstreamDelaySeconds(1700000000, 1700000120) === 120, 'delay 120s calculado');
+check(\App\Services\WhatsAppService::upstreamDelaySeconds(null, 1700000120) === null, 'sem timestamp => null');
+check(\App\Services\WhatsAppService::upstreamDelaySeconds(1700000200, 1700000120) === 0, 'relogio futuro => 0');
+
+// 9. Migração last_webhook_at aplicada + view de canais exibe último evento
+$cols = array_column(App\Core\Database::getInstance()->fetchAll("SHOW COLUMNS FROM whatsapp_connections"), 'Field');
+check(in_array('last_webhook_at', $cols, true), 'coluna last_webhook_at existe');
+$chSrc = file_get_contents(__DIR__ . '/../../app/Views/settings/channels.php');
+check(str_contains($chSrc, 'last_webhook_at'), 'canais exibe ultimo evento');
+
 echo $ok ? "PASS: group members contrato OK\n" : "SOME FAILURES\n";
 exit($ok ? 0 : 1);

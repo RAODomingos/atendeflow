@@ -237,6 +237,20 @@ class WhatsAppService
     }
 
     /**
+     * Segundos entre o envio real da mensagem e a chegada do webhook.
+     * Null quando o timestamp de origem é desconhecido; nunca negativo.
+     * Usado para provar atraso upstream (provedor/aparelho), não interno.
+     */
+    public static function upstreamDelaySeconds(?int $sentTimestamp, ?int $arrivedTimestamp = null): ?int
+    {
+        if ($sentTimestamp === null || $sentTimestamp <= 0) {
+            return null;
+        }
+        $arrived = $arrivedTimestamp ?? time();
+        return max(0, $arrived - $sentTimestamp);
+    }
+
+    /**
      * Recebe o payload bruto do webhook, normaliza e cria/atualiza a conversa.
      */
     public function handleWebhook(array $payload, string $rawBody = ''): void
@@ -280,6 +294,17 @@ class WhatsAppService
             'content' => substr($message->content, 0, 120),
         ]);
 
+        // Prova de atraso upstream: compara o horário real de envio com a chegada.
+        // Delay alto = mensagem enfileirada no provedor/aparelho, não lentidão aqui.
+        $delay = self::upstreamDelaySeconds($message->timestamp);
+        if ($delay !== null && $delay >= 60) {
+            $this->logWebhook('UPSTREAM_DELAY', [
+                'providerId' => $message->providerId,
+                'mid' => $message->messageId,
+                'delay_seconds' => $delay,
+            ]);
+        }
+
         // Aprende pares LID -> telefone do payload (essencial p/ menções em
         // grupo, onde tudo chega como @lid). Provedores nunca tocam o banco.
         $this->learnLidMappings($payload);
@@ -299,11 +324,18 @@ class WhatsAppService
         }
 
         // Tráfego real da instância implica que ela está conectada: destrava o envio.
+        // last_webhook_at registra o último evento (a página de canais avisa
+        // quando há "conectado" sem eventos — sintoma de queda silenciosa).
         if ($connection['status'] !== 'connected') {
             WhatsAppConnection::update((int) $connection['id'], [
                 'status' => 'connected',
                 'last_connected_at' => date('Y-m-d H:i:s'),
+                'last_webhook_at' => date('Y-m-d H:i:s'),
                 'error_message' => null,
+            ]);
+        } else {
+            WhatsAppConnection::update((int) $connection['id'], [
+                'last_webhook_at' => date('Y-m-d H:i:s'),
             ]);
         }
 
@@ -674,6 +706,45 @@ class WhatsAppService
                     "SELECT id FROM messages WHERE conversation_id = ? AND channel_message_id = ? LIMIT 1",
                     [(int) $conversation['id'], $providerMsgId]
                 );
+                if (!$dup && $isSelf) {
+                    // Eco do próprio envio (painel ou tela de grupos): o provedor
+                    // costuma devolver no webhook um messageId DIFERENTE do
+                    // retornado no /send, então o dedup por channel_message_id
+                    // acima não segura e gravava a 2ª linha (duplicada).
+                    // Se já existe outbound idêntico recente, é eco → pula.
+                    // Envio feito pelo celular (sem linha no painel) não tem
+                    // correspondente recente e continua sendo espelhado.
+                    $echoContent = $text !== '' ? $text : ('[' . $message->type . ']');
+                    try {
+                        $recent = Database::getInstance()->fetch(
+                            "SELECT id, channel_message_id FROM messages
+                              WHERE conversation_id = ? AND direction = 'outbound' AND type = 'text'
+                                AND content = ? AND created_at >= ?
+                              ORDER BY id DESC LIMIT 1",
+                            [(int) $conversation['id'], $echoContent, date('Y-m-d H:i:s', time() - 120)]
+                        );
+                    } catch (\Throwable $e) {
+                        $recent = null;
+                    }
+                    if ($recent) {
+                        if (empty($recent['channel_message_id']) && $providerMsgId !== '') {
+                            try {
+                                Database::getInstance()->update(
+                                    'messages',
+                                    ['channel_message_id' => $providerMsgId],
+                                    'id = ?',
+                                    [$recent['id']]
+                                );
+                            } catch (\Throwable $e) {
+                            }
+                        }
+                        $this->logWebhook('GROUP_SELF_DEDUP', [
+                            'group_id' => $group['id'] ?? null,
+                            'kept_message_id' => $recent['id'],
+                        ]);
+                        $dup = $recent;
+                    }
+                }
                 if (!$dup) {
                     $groupReplyTo = $this->resolveInboundReplyTo((int) $conversation['id'], (string) ($extra['quoted_id'] ?? ''));
                     $groupMsgData = [
