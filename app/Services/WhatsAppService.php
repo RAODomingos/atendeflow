@@ -126,7 +126,17 @@ class WhatsAppService
             $update['instance_id'] = $state['instance_id'];
         }
         if ($state['status'] === 'connected') {
-            $update['phone_number'] = $state['phone_number'];
+            // Nunca apaga número salvo com null: provedor pode omitir o owner.
+            if (!empty($state['phone_number'])) {
+                $newNorm = preg_replace('/\D/', '', (string) $state['phone_number']);
+                $curNorm = preg_replace('/\D/', '', (string) ($connection['phone_number'] ?? ''));
+                if ($newNorm !== '' && $newNorm !== $curNorm) {
+                    error_log("WhatsApp phone_number atualizado ({$curNorm} -> {$newNorm}) no status poll.");
+                }
+                if ($newNorm !== '') {
+                    $update['phone_number'] = $newNorm;
+                }
+            }
             $update['last_connected_at'] = date('Y-m-d H:i:s');
             $update['qr_code'] = null;
             $update['error_message'] = null;
@@ -1355,13 +1365,17 @@ class WhatsAppService
             $update['instance_token'] = $token;
         }
 
-        // Salva o phone_number do owner (disponível no webhook da Uazapi em instance.owner)
+        // Salva o phone_number do owner (disponível no webhook da Uazapi em instance.owner).
+        // Atualiza SEMPRE que mudar: se a instância for pareada com outro número,
+        // manter o antigo quebra a detecção de menção e o filtro de self-message.
         $instanceRawOwner = is_array($payload['instance'] ?? null) ? ($payload['instance']['owner'] ?? null) : null;
         $owner = $instanceRawOwner ?? $payload['owner'] ?? ($payload['me']['id'] ?? ($payload['data']['owner'] ?? ($payload['chat']['owner'] ?? null)));
-        if ($owner && empty($connection['phone_number'])) {
+        if ($owner) {
             $ownerNorm = preg_replace('/\D/', '', (string) $owner);
-            if ($ownerNorm !== '') {
+            $currentNorm = preg_replace('/\D/', '', (string) ($connection['phone_number'] ?? ''));
+            if ($ownerNorm !== '' && $ownerNorm !== $currentNorm) {
                 $update['phone_number'] = $ownerNorm;
+                $this->logWebhook('PHONE_CHANGED', ['old' => $currentNorm, 'new' => $ownerNorm]);
             }
         }
 
