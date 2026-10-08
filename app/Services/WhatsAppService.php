@@ -1017,7 +1017,17 @@ class WhatsAppService
                 return 0;
             }
             $n = 0;
-            foreach ($provider->fetchGroupParticipants($connection, $groupJid) as [$lid, $phone]) {
+            foreach ($provider->fetchGroupParticipants($connection, $groupJid) as $row) {
+                // Shape novo: ['phone','lid','name','is_admin']; legado: [lid, phone].
+                if (is_array($row) && array_key_exists('lid', $row)) {
+                    $lid = (string) ($row['lid'] ?? '');
+                    $phone = (string) ($row['phone'] ?? '');
+                } else {
+                    [$lid, $phone] = [(string) ($row[0] ?? ''), (string) ($row[1] ?? '')];
+                }
+                if ($lid === '' || $phone === '') {
+                    continue;
+                }
                 $before = \App\Models\WhatsAppLidMap::resolve($lid);
                 \App\Models\WhatsAppLidMap::learn($lid, $phone);
                 if ($before !== $phone) {
