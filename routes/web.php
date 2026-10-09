@@ -136,12 +136,6 @@ $router->group('', function (Router $router) {
     $router->get('/profile', [UserController::class, 'profile']);
     $router->post('/profile', [UserController::class, 'updateProfile']);
 
-    // Notifications (web JSON API)
-    $router->get('/notifications', [\App\Controllers\Api\NotificationsController::class, 'index']);
-    $router->post('/notifications/{id}/read', [\App\Controllers\Api\NotificationsController::class, 'markRead']);
-    $router->post('/notifications/read-all', [\App\Controllers\Api\NotificationsController::class, 'markAllRead']);
-    $router->get('/notifications/unread-count', [\App\Controllers\Api\NotificationsController::class, 'unreadCount']);
-
     // Channels & Settings (admin)
     $router->get('/channels', [SettingsController::class, 'channels'], ['admin']);
     $router->post('/channels/create', [SettingsController::class, 'createChannel'], ['admin']);
