@@ -480,5 +480,17 @@ $notifSvc = file_get_contents(__DIR__ . '/../app/Services/NotificationService.ph
 check('sla: existe notifySystem no servico de notificacoes', str_contains($notifSvc, 'function notifySystem'));
 check('sla: o worker chama o escalonamento', str_contains($workerSrc, 'SlaEscalation'));
 
+// ─────────────────────────────────────────────────────────────
+// SLA mensurável: chip na conversa e KPI no dashboard
+// ─────────────────────────────────────────────────────────────
+$panelSrc = file_get_contents(__DIR__ . '/../app/Views/inbox/panel.php');
+check('sla: o header da conversa tem o chip de sla', str_contains($panelSrc, 'header-chip-sla'));
+$dashSrc = file_get_contents(__DIR__ . '/../app/Views/dashboard/index.php');
+check('sla: o dashboard tem o card de sla', str_contains($dashSrc, 'slaCriticalNow'));
+$statsSrc = file_get_contents(__DIR__ . '/../app/Controllers/Api/DashboardStatsController.php');
+check('sla: a api do dashboard devolve o sla critico', str_contains($statsSrc, 'slaCriticalNow'));
+$inboxCtlSrc = file_get_contents(__DIR__ . '/../app/Controllers/InboxController.php');
+check('sla: a api da conversa expoe o sla', str_contains($inboxCtlSrc, 'sla_response_seconds'));
+
 echo "\n$passes passed, $failures failed\n";
 exit($failures > 0 ? 1 : 0);

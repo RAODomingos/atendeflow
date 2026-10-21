@@ -59,6 +59,11 @@ class DashboardStatsController
         $csatAvg = $csatRow && $csatRow['avg_rating'] !== null ? (float) $csatRow['avg_rating'] : null;
         $csatCount = (int) ($csatRow['total'] ?? 0);
 
+        // SLA: conversas ativas que já furaram o SLA de 1ª resposta e
+        // compliance dos últimos 30 dias.
+        $slaCriticalNow = \App\Models\ConversationSla::criticalNow();
+        $slaCompliance = \App\Models\ConversationSla::compliance(30);
+
         $globalOpen = 0;
         $myOpen = 0;
         foreach (['new', 'open', 'waiting_customer', 'waiting_internal'] as $s) {
@@ -136,6 +141,8 @@ class DashboardStatsController
             'prevDayResolved' => $prevDayResolved,
             'csatAvg' => $csatAvg,
             'csatCount' => $csatCount,
+            'slaCriticalNow' => $slaCriticalNow,
+            'slaCompliance30' => $slaCompliance['response']['percent'] ?? null,
             'counts' => $globalCounts,
             'myCounts' => $myCounts,
         ];

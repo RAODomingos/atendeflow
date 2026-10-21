@@ -318,6 +318,8 @@ class DashboardController
             'prevDayResolved' => $prevDayResolved,
             'csatAvg' => $csatAvg,
             'csatCount' => $csatCount,
+            'slaCriticalNow' => \App\Models\ConversationSla::criticalNow(),
+            'slaCompliance30' => \App\Models\ConversationSla::compliance(30)['response']['percent'] ?? null,
             'avgResponseTime' => $avgResponseTime,
             'trendLabels' => $trendLabels,
             'trendValues' => $trendValues,

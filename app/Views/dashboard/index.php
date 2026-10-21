@@ -177,6 +177,21 @@ $newWaiting = (int) ($globalCounts['new'] ?? 0);
         </div>
 
         <div class="stat-card">
+            <div class="stat-icon stat-icon-danger"><i class="fas fa-stopwatch"></i></div>
+            <div class="stat-info">
+                <span class="stat-value" id="slaCriticalNow" data-count="<?= (int) ($slaCriticalNow ?? 0) ?>"><?= (int) ($slaCriticalNow ?? 0) ?></span>
+                <span class="stat-label">SLA crítico agora</span>
+                <span class="stat-sub" id="slaComplianceSub">
+                    <?php if (($slaCompliance30 ?? null) !== null): ?>
+                        <?= e(rtrim(rtrim(number_format((float) $slaCompliance30, 1, ',', '.'), '0'), ',')) ?>% dentro do SLA (30d)
+                    <?php else: ?>
+                        <i class="fas fa-circle" style="color:var(--text-muted);font-size:7px"></i> sem medições ainda
+                    <?php endif; ?>
+                </span>
+            </div>
+        </div>
+
+        <div class="stat-card">
             <div class="stat-icon stat-icon-success"><i class="fas fa-check-double"></i></div>
             <div class="stat-info">
                 <span class="stat-value" id="statTodayResolved" data-count="<?= $todayResolved ?>"><?= $todayResolved ?></span>
@@ -827,11 +842,21 @@ $newWaiting = (int) ($globalCounts['new'] ?? 0);
                     statTodayConvs: d.todayConversations || 0,
                     statTodayMsgs: d.todayMessages || 0,
                     statTodayResolved: d.todayResolved || 0,
-                    statTodayNew: ((d.counts && (d.counts.new || 0)) - (d.groupNew || 0)) || 0
+                    statTodayNew: ((d.counts && (d.counts.new || 0)) - (d.groupNew || 0)) || 0,
+                    slaCriticalNow: d.slaCriticalNow || 0
                 };
                 for (var key in map) {
                     el = document.getElementById(key);
                     if (el) { el.textContent = map[key]; pulse(el); }
+                }
+
+                el = document.getElementById('slaComplianceSub');
+                if (el) {
+                    if (d.slaCompliance30 !== null && typeof d.slaCompliance30 !== 'undefined') {
+                        el.textContent = String(d.slaCompliance30).replace('.', ',') + '% dentro do SLA (30d)';
+                    } else {
+                        el.innerHTML = '<i class="fas fa-circle" style="color:var(--text-muted);font-size:7px"></i> sem medições ainda';
+                    }
                 }
 
                 // Subs normal x grupos (hoje)

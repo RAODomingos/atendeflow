@@ -81,7 +81,23 @@ if (is_array($json) && $json) {
     check('a api expoe sla_sync_at', array_key_exists('sla_sync_at', $row));
     check('a api expoe sla_frozen', array_key_exists('sla_frozen', $row));
     check('a api expoe sla_boundary_at', array_key_exists('sla_boundary_at', $row));
+    check('a api expoe os campos de sla da conversa', array_key_exists('sla_response_seconds', $row) && array_key_exists('sla_resolution_seconds', $row));
+    $convId = (int) ($row['id'] ?? 0);
+
+    if ($convId) {
+        $r = req($base . '/api/conversations/' . $convId, null, $jar);
+        $one = json_decode($r['body'], true);
+        check('a api de uma conversa expoe o sla', is_array($one) && array_key_exists('sla_response_seconds', $one), substr($r['body'], 0, 120));
+
+        $r = req($base . '/inbox/' . $convId . '/panel', null, $jar);
+        check('o painel da conversa tem o chip de sla', str_contains((string) $r['body'], 'header-chip-sla'), 'http ' . $r['code']);
+    }
 }
+
+$r = req($base . '/api/dashboard-stats', null, $jar);
+$stats = json_decode($r['body'], true);
+check('a api do dashboard expoe o sla critico', is_array($stats) && array_key_exists('slaCriticalNow', $stats), substr($r['body'], 0, 120));
+check('a api do dashboard expoe o compliance de 30d', is_array($stats) && array_key_exists('slaCompliance30', $stats));
 
 $r = req($base . '/api/sla/config', null, $jar);
 $cfg = json_decode($r['body'], true);

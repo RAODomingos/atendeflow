@@ -171,4 +171,108 @@ class ConversationSla
         );
         return array_map(fn($r) => (int) $r['conversation_id'], $rows);
     }
+
+    // ── consultas de leitura (chip, dashboard, relatório) ─────────
+
+    /**
+     * Linha de SLA de uma conversa (null se ainda não foi medida).
+     */
+    public static function summaryForConversation(int $conversationId): ?array
+    {
+        return self::find($conversationId);
+    }
+
+    /**
+     * Linhas de SLA de várias conversas, em UMA query.
+     *
+     * @param array<int> $conversationIds
+     * @return array<int, array> indexado por conversation_id
+     */
+    public static function forConversations(array $conversationIds): array
+    {
+        $ids = array_values(array_unique(array_filter(array_map('intval', $conversationIds))));
+        if (!$ids) {
+            return [];
+        }
+        $ph = implode(',', array_fill(0, count($ids), '?'));
+        $rows = Database::getInstance()->fetchAll(
+            "SELECT * FROM conversation_slas WHERE conversation_id IN ({$ph})",
+            $ids
+        );
+        $map = [];
+        foreach ($rows as $r) {
+            $map[(int) $r['conversation_id']] = $r;
+        }
+        return $map;
+    }
+
+    /**
+     * Conversas ativas que já furaram o SLA de 1ª resposta.
+     */
+    public static function criticalNow(): int
+    {
+        $row = Database::getInstance()->fetch(
+            "SELECT COUNT(*) c FROM conversation_slas s
+             JOIN conversations c ON c.id = s.conversation_id
+             WHERE s.response_breached = 1
+               AND c.status IN ('new','open','waiting_customer','waiting_internal')"
+        );
+        return (int) ($row['c'] ?? 0);
+    }
+
+    /**
+     * Compliance dos dois SLAs no período.
+     *
+     * A 1ª resposta é medida em todas as conversas com linha de SLA
+     * (inclusive as que ainda estão abertas e esperando). A resolução só
+     * conta as conversas encerradas — uma conversa aberta ainda não tem
+     * tempo de resolução.
+     *
+     * @return array{
+     *   response: array{measured: int, breached: int, percent: ?float},
+     *   resolution: array{measured: int, breached: int, percent: ?float}
+     * }
+     */
+    public static function compliance(int $days, ?int $departmentId = null, ?int $inboxId = null): array
+    {
+        $params = [max(1, $days)];
+        $where = "c.created_at >= DATE_SUB(NOW(), INTERVAL ? DAY)";
+        if ($departmentId) {
+            $where .= " AND c.department_id = ?";
+            $params[] = $departmentId;
+        }
+        if ($inboxId) {
+            $where .= " AND c.inbox_id = ?";
+            $params[] = $inboxId;
+        }
+
+        $row = Database::getInstance()->fetch(
+            "SELECT COUNT(s.id) as measured,
+                    SUM(CASE WHEN s.response_breached = 1 THEN 1 ELSE 0 END) as breached,
+                    SUM(CASE WHEN c.closed_at IS NOT NULL THEN 1 ELSE 0 END) as measured_res,
+                    SUM(CASE WHEN c.closed_at IS NOT NULL AND s.resolution_breached = 1 THEN 1 ELSE 0 END) as breached_res
+             FROM conversation_slas s
+             JOIN conversations c ON c.id = s.conversation_id
+             WHERE {$where}",
+            $params
+        ) ?: [];
+
+        $measured = (int) ($row['measured'] ?? 0);
+        $breached = (int) ($row['breached'] ?? 0);
+        $measuredRes = (int) ($row['measured_res'] ?? 0);
+        $breachedRes = (int) ($row['breached_res'] ?? 0);
+
+        return [
+            'response' => [
+                'measured' => $measured,
+                'breached' => $breached,
+                'percent' => $measured > 0 ? round((1 - $breached / $measured) * 100, 1) : null,
+            ],
+            'resolution' => [
+                'measured' => $measuredRes,
+                'breached' => $breachedRes,
+                'percent' => $measuredRes > 0 ? round((1 - $breachedRes / $measuredRes) * 100, 1) : null,
+            ],
+        ];
+    }
 }
