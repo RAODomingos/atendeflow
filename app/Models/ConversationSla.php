@@ -108,4 +108,67 @@ class ConversationSla
         $payload['updated_at'] = date('Y-m-d H:i:s');
         $db->insert('conversation_slas', $payload);
     }
+
+    // ── consultas de lote (worker) ────────────────────────────────
+
+    /**
+     * Conversas ativas sem linha de SLA: precisam ser medidas.
+     *
+     * @return array<int> ids de conversa
+     */
+    public static function activeWithoutRow(int $limit = 200): array
+    {
+        $rows = Database::getInstance()->fetchAll(
+            "SELECT c.id FROM conversations c
+             LEFT JOIN conversation_slas s ON s.conversation_id = c.id
+             WHERE s.id IS NULL
+               AND c.status IN ('new','open','waiting_customer','waiting_internal')
+               AND c.group_id IS NULL
+             ORDER BY c.created_at ASC
+             LIMIT " . (int) $limit
+        );
+        return array_map(fn($r) => (int) $r['id'], $rows);
+    }
+
+    /**
+     * Conversas encerradas sem linha de SLA: precisam ser finalizadas
+     * (o valor final é gravado uma vez e não muda mais).
+     *
+     * @return array<int> ids de conversa
+     */
+    public static function closedWithoutRow(int $limit = 200): array
+    {
+        $rows = Database::getInstance()->fetchAll(
+            "SELECT c.id FROM conversations c
+             LEFT JOIN conversation_slas s ON s.conversation_id = c.id
+             WHERE s.id IS NULL
+               AND c.closed_at IS NOT NULL
+               AND c.group_id IS NULL
+             ORDER BY c.closed_at ASC
+             LIMIT " . (int) $limit
+        );
+        return array_map(fn($r) => (int) $r['id'], $rows);
+    }
+
+    /**
+     * Conversas ativas cujo período em aberto começou no passado: o
+     * relógio delas pode ter mudado desde a última medição.
+     *
+     * @return array<int> ids de conversa
+     */
+    public static function openPeriods(int $limit = 200): array
+    {
+        $rows = Database::getInstance()->fetchAll(
+            "SELECT s.conversation_id FROM conversation_slas s
+             JOIN conversations c ON c.id = s.conversation_id
+             WHERE s.period_started_at IS NOT NULL
+               AND s.period_started_at < ?
+               AND c.status IN ('new','open','waiting_customer','waiting_internal')
+               AND c.group_id IS NULL
+             ORDER BY s.period_started_at ASC
+             LIMIT " . (int) $limit,
+            [date('Y-m-d H:i:s')]
+        );
+        return array_map(fn($r) => (int) $r['conversation_id'], $rows);
+    }
 }

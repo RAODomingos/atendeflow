@@ -306,12 +306,34 @@ check('sla: a primeira resposta registra o instante', ($st['response_at'] ?? nul
 check('sla: o pareamento nao conta o mesmo tempo duas vezes', is_int($st['resolution_seconds'] ?? null) && $st['resolution_seconds'] === 1200, 'got ' . json_encode($st['resolution_seconds'] ?? null));
 check('sla: a espera nao e contada em duplicidade', is_int($st['resolution_seconds'] ?? null) && $st['resolution_seconds'] !== 1800 && $st['resolution_seconds'] !== 2400);
 
-// 3) conversa ativa sem resposta humana nao tem sla de resposta
+// 3) a espera continua correndo enquanto nao ha resposta humana
 $st = slaMeasure([$convSla, [
     $msgSla(1, 'inbound', 'text', null, '2026-10-19 09:00:00'),
-], [], $office, 'UTC', '2026-10-19 10:00:00', $optsSla]);
-check('sla: sem resposta humana a conversa nao tem sla de resposta', array_key_exists('response_seconds', $st) && $st['response_seconds'] === null, json_encode($st));
-check('sla: sem resposta humana a conversa ativa nao viola', array_key_exists('response_breached', $st) && $st['response_breached'] === false, json_encode($st));
+], [], $office, 'UTC', '2026-10-19 09:30:00', $optsSla]);
+check('sla: a espera continua correndo sem resposta', array_key_exists('response_seconds', $st) && $st['response_seconds'] === 1800, json_encode($st));
+check('sla: a espera em aberto ainda nao viola', array_key_exists('response_breached', $st) && $st['response_breached'] === false, json_encode($st));
+
+// 3b) a espera em aberto pode violar o limite (e o worker precisa ver isso)
+$st = slaMeasure([$convSla, [
+    $msgSla(1, 'inbound', 'text', null, '2026-10-19 09:00:00'),
+], [], $office, 'UTC', '2026-10-19 10:00:00', array_merge($optsSla, ['response_threshold' => 600])]);
+check('sla: a espera em aberto viola o limite', array_key_exists('response_breached', $st) && $st['response_breached'] === true, json_encode($st));
+check('sla: a violacao em aberto tem o tempo medido', ($st['response_seconds'] ?? null) === 3600, json_encode($st));
+
+// 3c) conversa que o cliente nunca escreveu nao tem objeto de sla
+$st = slaMeasure([$convSla, [], [], $office, 'UTC', '2026-10-19 10:00:00', $optsSla]);
+check('sla: conversa sem mensagem do cliente nao tem sla de resposta', array_key_exists('response_seconds', $st) && $st['response_seconds'] === null, json_encode($st));
+check('sla: conversa sem mensagem do cliente nao viola', array_key_exists('response_breached', $st) && $st['response_breached'] === false, json_encode($st));
+
+// 3d) a pausa por waiting_internal vale para a primeira resposta tambem
+$st = slaMeasure([$convSla, [
+    $msgSla(1, 'inbound', 'text', null, '2026-10-19 09:00:00'),
+    $msgSla(2, 'outbound', 'text', 7, '2026-10-19 11:00:00'),
+], [
+    ['at' => '2026-10-19 09:30:00', 'status' => 'waiting_internal'],
+    ['at' => '2026-10-19 10:30:00', 'status' => 'open'],
+], $office, 'UTC', '2026-10-19 11:00:00', $optsSla]);
+check('sla: a pausa tambem vale para a primeira resposta', ($st['response_seconds'] ?? null) === 3600, 'got ' . json_encode($st['response_seconds'] ?? null));
 
 // 4) conversa encerrada sem resposta humana e violacao
 $closedConv = $convSla;
@@ -431,6 +453,17 @@ $notifView = file_get_contents(__DIR__ . '/../app/Views/settings/notifications.p
 check('sla: o painel global expoe os limites de medicao', str_contains($notifView, 'sla_response_minutes') && str_contains($notifView, 'sla_resolution_minutes'));
 $inboxView = file_get_contents(__DIR__ . '/../app/Views/settings/inbox_form.php');
 check('sla: o formulario da caixa expoe os overrides', str_contains($inboxView, 'sla_response_minutes') && str_contains($inboxView, 'sla_escalate_autoassign'));
+
+// ─────────────────────────────────────────────────────────────
+// SLA mensurável: worker por cron
+// ─────────────────────────────────────────────────────────────
+$workerSrc = is_file(__DIR__ . '/../workers/sla_worker.php')
+    ? (string) file_get_contents(__DIR__ . '/../workers/sla_worker.php')
+    : '';
+check('sla: o worker existe', $workerSrc !== '');
+check('sla: o worker mede as conversas', str_contains($workerSrc, 'forConversation'));
+check('sla: o worker detecta a violacao', str_contains($workerSrc, 'response_breached'));
+check('sla: o worker grava a medicao', str_contains($workerSrc, 'saveMeasurement'));
 
 echo "\n$passes passed, $failures failed\n";
 exit($failures > 0 ? 1 : 0);
