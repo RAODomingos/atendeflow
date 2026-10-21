@@ -33,6 +33,17 @@ $contactId = null;
 $userId = null;
 $deptId = 2;
 
+// Settings tocados pelo teste: o backup permite restaurar exatamente
+// (inclusive apagando as chaves que nao existiam antes).
+$settingsTouched = ['sla_response_minutes', 'sla_resolution_minutes', 'sla_business_hours', 'csat_enabled'];
+$settingsBackup = $db->fetchAll(
+    "SELECT `key`, value FROM settings WHERE `key` IN ('" . implode("','", $settingsTouched) . "')"
+);
+$settingsBackupMap = [];
+foreach ($settingsBackup as $r) {
+    $settingsBackupMap[(string) $r['key']] = (string) $r['value'];
+}
+
 try {
     $userId = $db->insert('users', [
         'name' => 'TESTE SLA MEDIVEL',
@@ -135,7 +146,6 @@ try {
         }
 
         // Limite folgado, para a conversa de exemplo não violar.
-        $limitBackup = $db->fetch("SELECT value FROM settings WHERE `key` = 'sla_response_minutes'");
         \App\Models\Setting::set('sla_response_minutes', '60');
 
         $db->insert('messages', [
@@ -186,8 +196,7 @@ try {
 
         // ── reabertura reinicia o ciclo ───────────────────────────
         $csatBackup = $db->fetch("SELECT value FROM settings WHERE `key` = 'csat_enabled'");
-        \App\Models\Setting::set('csat_enabled', '0');
-        $svc->changeStatus($convId, 'closed');
+        \App\Models\Setting::set('csat_enabled', '0');        $svc->changeStatus($convId, 'closed');
         $svc->changeStatus($convId, 'open');
         $row = \App\Models\ConversationSla::find($convId);
         check('sla: a reabertura zera a primeira resposta', $row !== null && $row['response_seconds'] === null);
@@ -201,33 +210,11 @@ try {
         $row = \App\Models\ConversationSla::find($convId);
         check('sla: a linha ja gravada guarda o limite antigo', (int) ($row['response_threshold'] ?? -1) === 3600, 'threshold=' . ($row['response_threshold'] ?? 'null'));
 
-        // restaura tudo
-        if ($csatBackup) {
-            \App\Models\Setting::set('csat_enabled', $csatBackup['value']);
-        } else {
-            $db->execute("DELETE FROM settings WHERE `key` = 'csat_enabled'");
-        }
-        if ($limitBackup) {
-            \App\Models\Setting::set('sla_response_minutes', $limitBackup['value']);
-        } else {
-            $db->execute("DELETE FROM settings WHERE `key` = 'sla_response_minutes'");
-        }
-        $db->delete('business_hours', 'department_id = ?', [$deptId]);
-        foreach ($bhBackup as $r) {
-            $db->insert('business_hours', [
-                'department_id' => $r['department_id'],
-                'day_of_week' => $r['day_of_week'],
-                'open_time' => $r['open_time'],
-                'close_time' => $r['close_time'],
-                'is_open' => $r['is_open'],
-            ]);
-        }
-        $db->execute("UPDATE departments SET business_hours_enabled = ? WHERE id = ?", [$deptBackup['business_hours_enabled'], $deptId]);
+        // (horario do departamento e settings sao restaurados no finally)
     }
 
     // ── config: global e override por caixa ───────────────────────
     $slaSvc = 'App\Services\SlaService';
-    $cfgBackup = $db->fetchAll("SELECT `key`, value FROM settings WHERE `key` IN ('sla_response_minutes','sla_resolution_minutes','sla_business_hours')");
     $inboxCfgBackup = $db->fetch(
         "SELECT sla_response_minutes, sla_resolution_minutes, sla_business_hours FROM inboxes WHERE id = ?",
         [$inboxId]
@@ -253,7 +240,7 @@ try {
     $box = $slaSvc::configFor($inboxId)['config'] ?? [];
     check('sla: caixa sem override herda o global', (int) ($box['response_minutes'] ?? 0) === 30 && (int) ($box['resolution_minutes'] ?? 0) === 120, json_encode($box));
 
-    // restaura
+    // restaura os overrides da caixa (as settings vao no finally)
     $db->execute(
         "UPDATE inboxes SET sla_response_minutes = ?, sla_resolution_minutes = ?, sla_business_hours = ? WHERE id = ?",
         [
@@ -263,15 +250,40 @@ try {
             $inboxId,
         ]
     );
-    foreach ($cfgBackup as $r) {
-        \App\Models\Setting::set((string) $r['key'], (string) $r['value']);
-    }
     $slaSvc::forgetConfig();
 } catch (Throwable $e) {
     $fail++;
     echo 'ERRO: ' . $e->getMessage() . PHP_EOL;
     echo $e->getTraceAsString() . PHP_EOL;
 } finally {
+    // restaura o horario do departamento
+    if (isset($bhBackup)) {
+        $db->delete('business_hours', 'department_id = ?', [$deptId]);
+        foreach ($bhBackup as $r) {
+            $db->insert('business_hours', [
+                'department_id' => $r['department_id'],
+                'day_of_week' => $r['day_of_week'],
+                'open_time' => $r['open_time'],
+                'close_time' => $r['close_time'],
+                'is_open' => $r['is_open'],
+            ]);
+        }
+        $db->execute(
+            "UPDATE departments SET business_hours_enabled = ? WHERE id = ?",
+            [$deptBackup['business_hours_enabled'], $deptId]
+        );
+    }
+
+    // restaura as settings tocadas (e apaga as que nao existiam)
+    foreach ($settingsTouched as $k) {
+        if (array_key_exists($k, $settingsBackupMap)) {
+            \App\Models\Setting::set($k, $settingsBackupMap[$k]);
+        } else {
+            $db->execute("DELETE FROM settings WHERE `key` = ?", [$k]);
+        }
+    }
+    \App\Services\SlaService::forgetConfig();
+
     if ($convId) {
         $db->execute("DELETE FROM conversation_slas WHERE conversation_id = ?", [$convId]);
         $db->execute("DELETE FROM conversation_events WHERE conversation_id = ?", [$convId]);

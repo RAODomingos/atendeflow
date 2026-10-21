@@ -36,12 +36,14 @@ class SlaService
     public const SOUND_PROFILES = ['default', 'soft', 'sharp', 'silent'];
 
     /**
-     * Cache de requisição da config por caixa.
+     * Cache de requisição dos overrides por caixa.
      *
      * A listagem de conversas chama levelFor() uma vez por item; sem o
      * cache, cada chamada fazia um Inbox::find() (N+1 na tela da inbox).
+     * Só a parte da caixa é cacheada: o global vem do cache do Setting,
+     * que se invalida sozinho quando a config muda.
      */
-    private static array $configCache = [];
+    private static array $inboxCache = [];
 
     public const DEFAULT_CONFIG = [
         'enabled' => '1',
@@ -100,35 +102,38 @@ class SlaService
      *  - Com $inboxId: mescla overrides da caixa (campos não-nulos)
      *    sobre a config global.
      *
+     * Só os overrides da caixa são cacheados (é a parte cara: um
+     * Inbox::find por chamada). O global vem do cache do próprio Setting,
+     * que se invalida sozinho quando alguém grava — assim, mexer numa
+     * config de SLA nunca devolve valor velho.
+     *
      * @return array{config: array, overrides: array, is_custom: bool}
      */
     public static function configFor(?int $inboxId = null): array
     {
-        $key = $inboxId === null ? 'global' : (string) $inboxId;
-        if (isset(self::$configCache[$key])) {
-            return self::$configCache[$key];
-        }
-
         $global = self::globalConfig();
         if ($inboxId === null) {
-            return self::$configCache[$key] = ['config' => $global, 'overrides' => [], 'is_custom' => false];
+            return ['config' => $global, 'overrides' => [], 'is_custom' => false];
         }
 
-        $row = Inbox::find($inboxId);
-        $overrides = [];
-        if ($row) {
-            foreach (self::INBOX_SLA_FIELDS as $col) {
-                $short = substr($col, 4); // remove prefixo sla_
-                if (!array_key_exists($short, $global)) continue;
-                if (array_key_exists($col, $row) && $row[$col] !== null && $row[$col] !== '') {
-                    $overrides[$short] = (string) $row[$col];
+        if (!isset(self::$inboxCache[$inboxId])) {
+            $row = Inbox::find($inboxId);
+            $overrides = [];
+            if ($row) {
+                foreach (self::INBOX_SLA_FIELDS as $col) {
+                    $short = substr($col, 4); // remove prefixo sla_
+                    if (!array_key_exists($short, $global)) continue;
+                    if (array_key_exists($col, $row) && $row[$col] !== null && $row[$col] !== '') {
+                        $overrides[$short] = (string) $row[$col];
+                    }
                 }
             }
+            self::$inboxCache[$inboxId] = $overrides;
         }
 
-        $merged = array_merge($global, $overrides);
-        return self::$configCache[$key] = [
-            'config' => $merged,
+        $overrides = self::$inboxCache[$inboxId];
+        return [
+            'config' => array_merge($global, $overrides),
             'overrides' => $overrides,
             'is_custom' => !empty($overrides),
         ];
@@ -149,7 +154,7 @@ class SlaService
             return;
         }
         Setting::set('sla_' . $key, $value);
-        self::$configCache = [];
+        self::$inboxCache = [];
     }
 
     public static function setAll(array $values): void
@@ -169,7 +174,7 @@ class SlaService
      */
     public static function forgetConfig(): void
     {
-        self::$configCache = [];
+        self::$inboxCache = [];
     }
 
     public static function thresholds(?int $inboxId = null): array
