@@ -22,6 +22,7 @@ require_once __DIR__ . '/../app/Core/Helper.php';
 use App\Core\Database;
 use App\Models\Conversation;
 use App\Models\ConversationSla;
+use App\Services\SlaEscalation;
 use App\Services\SlaMeasurement;
 
 $appConfig = require __DIR__ . '/../config/app.php';
@@ -69,6 +70,12 @@ try {
                 ]
             );
             $violations++;
+
+            // Escalonamento (tag, gerentes, autoatribuição, WhatsApp).
+            $conv = Conversation::find($conversationId);
+            if ($conv) {
+                SlaEscalation::escalate($conversationId, $measurement, $conv);
+            }
         }
     };
 

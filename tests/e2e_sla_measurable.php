@@ -35,7 +35,11 @@ $deptId = 2;
 
 // Settings tocados pelo teste: o backup permite restaurar exatamente
 // (inclusive apagando as chaves que nao existiam antes).
-$settingsTouched = ['sla_response_minutes', 'sla_resolution_minutes', 'sla_business_hours', 'csat_enabled'];
+$settingsTouched = [
+    'sla_response_minutes', 'sla_resolution_minutes', 'sla_business_hours',
+    'csat_enabled',
+    'sla_escalate_managers', 'sla_escalate_tag', 'sla_escalate_autoassign', 'sla_escalate_whatsapp',
+];
 $settingsBackup = $db->fetchAll(
     "SELECT `key`, value FROM settings WHERE `key` IN ('" . implode("','", $settingsTouched) . "')"
 );
@@ -65,7 +69,15 @@ try {
         'updated_at' => date('Y-m-d H:i:s'),
     ]);
     $channelId = (int) $db->fetch("SELECT id FROM channels WHERE type = 'webchat' ORDER BY id LIMIT 1")['id'];
-    $inboxId = (int) $db->fetch("SELECT id FROM inboxes WHERE type = 'department' ORDER BY id LIMIT 1")['id'];
+    // A caixa precisa estar vinculada ao departamento 2 (e a ela os
+    // atendentes do departamento sao candidatos a autoatribuicao).
+    $inboxId = (int) $db->fetch(
+        "SELECT i.id FROM inboxes i
+         JOIN inbox_departments idp ON idp.inbox_id = i.id
+         WHERE idp.department_id = ? AND i.type = 'department'
+         ORDER BY i.id LIMIT 1",
+        [$deptId]
+    )['id'];
     $convId = $db->insert('conversations', [
         'public_id' => bin2hex(random_bytes(16)),
         'contact_id' => $contactId,
@@ -219,6 +231,26 @@ try {
         // (horario do departamento e settings sao restaurados no finally)
     }
 
+    // O bloco do worker mede em tempo de relogio: restaura aqui o
+    // horario original do departamento (a janela comercial fecharia as
+    // 18:00 e cortaria a espera em poucos segundos).
+    if (isset($bhBackup)) {
+        $db->delete('business_hours', 'department_id = ?', [$deptId]);
+        foreach ($bhBackup as $r) {
+            $db->insert('business_hours', [
+                'department_id' => $r['department_id'],
+                'day_of_week' => $r['day_of_week'],
+                'open_time' => $r['open_time'],
+                'close_time' => $r['close_time'],
+                'is_open' => $r['is_open'],
+            ]);
+        }
+        $db->execute(
+            "UPDATE departments SET business_hours_enabled = ? WHERE id = ?",
+            [$deptBackup['business_hours_enabled'], $deptId]
+        );
+    }
+
     // ── config: global e override por caixa ───────────────────────
     $slaSvc = 'App\Services\SlaService';
     $inboxCfgBackup = $db->fetch(
@@ -319,6 +351,137 @@ try {
         ]
     );
     $slaSvc::forgetConfig();
+    // ── escalonamento ────────────────────────────────────────────
+    $hasEscalation = class_exists('App\Services\SlaEscalation')
+        && method_exists('App\Services\SlaEscalation', 'escalate');
+    check('sla: o escalonamento existe', $hasEscalation);
+
+    if ($hasEscalation) {
+        // O usuario de teste vira gerente do departamento 2.
+        $db->insert('department_users', [
+            'department_id' => $deptId,
+            'user_id' => $userId,
+            'is_manager' => 1,
+        ]);
+        // Um segundo agente, sem carga: deve ser o escolhido na
+        // autoatribuicao (menos carregado).
+        $otherUserId = $db->insert('users', [
+            'name' => 'TESTE SLA AGENTE',
+            'email' => 'teste-sla-agente@atendeflow.local',
+            'password' => password_hash('Teste@12345', PASSWORD_BCRYPT),
+            'role' => 'agent',
+            'is_active' => 1,
+            'created_at' => date('Y-m-d H:i:s'),
+        ]);
+        $db->insert('department_users', [
+            'department_id' => $deptId,
+            'user_id' => $otherUserId,
+            'is_manager' => 0,
+        ]);
+
+        // Uma conversa aberta atribuida ao gerente, para ele ter carga 1.
+        $busyConvId = $db->insert('conversations', [
+            'public_id' => bin2hex(random_bytes(16)),
+            'contact_id' => $contactId,
+            'channel_id' => $channelId,
+            'inbox_id' => $inboxId,
+            'department_id' => $deptId,
+            'assigned_user_id' => $userId,
+            'status' => 'open',
+            'source' => 'webchat',
+            'created_at' => date('Y-m-d H:i:s'),
+            'updated_at' => date('Y-m-d H:i:s'),
+        ]);
+
+        // Conversa sem responsavel: candidata a autoatribuicao.
+        $escConvId = $db->insert('conversations', [
+            'public_id' => bin2hex(random_bytes(16)),
+            'contact_id' => $contactId,
+            'channel_id' => $channelId,
+            'inbox_id' => $inboxId,
+            'department_id' => $deptId,
+            'assigned_user_id' => null,
+            'status' => 'open',
+            'source' => 'webchat',
+            'created_at' => date('Y-m-d H:i:s'),
+            'updated_at' => date('Y-m-d H:i:s'),
+        ]);
+
+        \App\Models\Setting::set('sla_escalate_autoassign', '1');
+
+        $measurement = [
+            'response_seconds' => 3600,
+            'response_at' => null,
+            'response_breached' => true,
+            'response_threshold' => 900,
+            'resolution_seconds' => 3600,
+            'resolution_breached' => false,
+            'resolution_threshold' => 86400,
+            'period_started_at' => date('Y-m-d H:i:s', strtotime('-1 hour')),
+        ];
+        $conv = \App\Models\Conversation::find($escConvId);
+        $result = \App\Services\SlaEscalation::escalate($escConvId, $measurement, $conv);
+
+        check('sla: o escalonamento aplicou a tag', ($result['tag'] ?? false) === true, json_encode($result));
+        check('sla: o escalonamento notificou o gerente', (int) ($result['managers'] ?? 0) >= 1, json_encode($result));
+        check('sla: o escalonamento autoatribuiu', !empty($result['autoassign']), json_encode($result));
+        check('sla: a autoatribuicao escolheu o menos carregado', (int) ($result['autoassign'] ?? 0) === (int) $otherUserId, 'escolhido=' . ($result['autoassign'] ?? 'null') . ' esperado=' . $otherUserId);
+
+        $tag = \App\Models\Tag::findByName('SLA violado');
+        check('sla: a tag de sistema foi criada', $tag !== null);
+        $tagged = $db->fetch(
+            "SELECT COUNT(*) c FROM conversation_tags WHERE conversation_id = ? AND tag_id = ?",
+            [$escConvId, (int) ($tag['id'] ?? 0)]
+        );
+        check('sla: a tag foi aplicada na conversa', (int) $tagged['c'] === 1, 'linhas=' . $tagged['c']);
+
+        $notifs = $db->fetch(
+            "SELECT COUNT(*) c FROM notifications WHERE user_id = ? AND notification_type = 'system' AND conversation_id = ?",
+            [$userId, $escConvId]
+        );
+        check('sla: o gerente recebeu a notificacao', (int) $notifs['c'] === 1, 'linhas=' . $notifs['c']);
+
+        $events = $db->fetch(
+            "SELECT COUNT(*) c FROM conversation_events WHERE conversation_id = ? AND event_type = 'sla_escalated'",
+            [$escConvId]
+        );
+        check('sla: o escalonamento registrou o evento', (int) $events['c'] === 1, 'eventos=' . $events['c']);
+
+        // Conservatism: conversa COM responsavel ativo nao e reatribuida.
+        $convBusy = \App\Models\Conversation::find($busyConvId);
+        $resultBusy = \App\Services\SlaEscalation::escalate($busyConvId, $measurement, $convBusy);
+        check('sla: o escalonamento nao rouba a conversa de quem atende', ($resultBusy['autoassign'] ?? null) === null, json_encode($resultBusy));
+
+        // Toggles desligados: nenhuma acao acontece.
+        \App\Models\Setting::set('sla_escalate_autoassign', '0');
+        \App\Models\Setting::set('sla_escalate_tag', '0');
+        \App\Models\Setting::set('sla_escalate_managers', '0');
+        $quietConvId = $db->insert('conversations', [
+            'public_id' => bin2hex(random_bytes(16)),
+            'contact_id' => $contactId,
+            'channel_id' => $channelId,
+            'inbox_id' => $inboxId,
+            'department_id' => $deptId,
+            'status' => 'open',
+            'source' => 'webchat',
+            'created_at' => date('Y-m-d H:i:s'),
+            'updated_at' => date('Y-m-d H:i:s'),
+        ]);
+        $resultQuiet = \App\Services\SlaEscalation::escalate($quietConvId, $measurement, \App\Models\Conversation::find($quietConvId));
+        check('sla: com os toggles desligados nada acontece', ($resultQuiet['tag'] ?? true) === false && (int) ($resultQuiet['managers'] ?? -1) === 0 && ($resultQuiet['autoassign'] ?? null) === null, json_encode($resultQuiet));
+
+        // limpeza
+        foreach ([$escConvId, $busyConvId, $quietConvId] as $cid) {
+            $db->execute("DELETE FROM notifications WHERE conversation_id = ?", [$cid]);
+            $db->execute("DELETE FROM conversation_events WHERE conversation_id = ?", [$cid]);
+            $db->execute("DELETE FROM conversation_tags WHERE conversation_id = ?", [$cid]);
+            $db->execute("DELETE FROM conversations WHERE id = ?", [$cid]);
+        }
+        $db->execute("DELETE FROM conversation_tags WHERE tag_id = ?", [(int) ($tag['id'] ?? 0)]);
+        $db->execute("DELETE FROM tags WHERE name = 'SLA violado'");
+        $db->execute("DELETE FROM department_users WHERE user_id IN (?, ?)", [$userId, $otherUserId]);
+        $db->execute("DELETE FROM users WHERE id = ?", [$otherUserId]);
+    }
 } catch (Throwable $e) {
     $fail++;
     echo 'ERRO: ' . $e->getMessage() . PHP_EOL;
@@ -371,6 +534,17 @@ try {
         $db->execute("DELETE FROM conversations WHERE id = ?", [$convId]);
     }
     if ($contactId) {
+        // Todas as conversas do contato de teste (inclusive as criadas
+        // pelo bloco de escalonamento, que pode falhar no meio).
+        $extra = $db->fetchAll("SELECT id FROM conversations WHERE contact_id = ?", [$contactId]);
+        foreach ($extra as $r) {
+            $db->execute("DELETE FROM notifications WHERE conversation_id = ?", [$r['id']]);
+            $db->execute("DELETE FROM conversation_events WHERE conversation_id = ?", [$r['id']]);
+            $db->execute("DELETE FROM conversation_tags WHERE conversation_id = ?", [$r['id']]);
+            $db->execute("DELETE FROM conversation_slas WHERE conversation_id = ?", [$r['id']]);
+            $db->execute("DELETE FROM messages WHERE conversation_id = ?", [$r['id']]);
+            $db->execute("DELETE FROM conversations WHERE id = ?", [$r['id']]);
+        }
         $db->execute("DELETE FROM contacts WHERE id = ?", [$contactId]);
     }
     if ($userId) {

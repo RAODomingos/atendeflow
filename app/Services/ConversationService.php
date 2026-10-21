@@ -293,7 +293,7 @@ class ConversationService
         // Notifica o novo responsável (antes transferência era silenciosa).
         if ($userId && $userId !== Auth::id()) {
             try {
-                Notification::assigned($userId, $conversationId, (int) Auth::id());
+                Notification::assigned($userId, $conversationId, Auth::id());
             } catch (\Throwable $e) {
                 error_log('transfer notify error: ' . $e->getMessage());
             }
