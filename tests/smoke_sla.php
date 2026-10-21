@@ -107,5 +107,14 @@ $r = req($base . '/settings/notifications', null, $jar);
 check('painel de notificacoes responde 200', $r['code'] === 200, 'http ' . $r['code']);
 check('painel expoe o toggle sla_business_hours', str_contains($r['body'], 'name="sla_business_hours"'));
 
+$r = req($base . '/reports/sla', null, $jar);
+check('relatorio de sla responde 200', $r['code'] === 200, 'http ' . $r['code']);
+check('relatorio de sla mostra o compliance', str_contains((string) $r['body'], '1ª resposta no prazo'), substr((string) $r['body'], 0, 200));
+check('relatorio de sla nao tem erro de php', !preg_match('/(Fatal error|Parse error|Uncaught|Warning:)/i', (string) $r['body']));
+
+$r = req($base . '/reports/sla/csv?period=30', null, $jar);
+check('export csv de sla responde 200', $r['code'] === 200, 'http ' . $r['code']);
+check('export csv de sla tem o cabecalho', str_contains((string) $r['body'], 'Violou 1'), substr((string) $r['body'], 0, 120));
+
 @unlink($jar);
 exit($fail > 0 ? 1 : 0);

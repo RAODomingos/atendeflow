@@ -275,4 +275,96 @@ class ConversationSla
             ],
         ];
     }
+
+    /**
+     * Quebra do compliance de 1ª resposta por uma dimensão.
+     *
+     * @param string $dimension agent|department|inbox
+     * @return array<int, array{label: string, total: int, breached: int, percent: ?float}>
+     */
+    private static function breakdown(string $dimension, int $days): array
+    {
+        $map = [
+            'agent' => ['LEFT JOIN users u ON u.id = c.assigned_user_id', "COALESCE(u.name, 'Sem responsável')"],
+            'department' => ['LEFT JOIN departments d ON d.id = c.department_id', "COALESCE(d.name, 'Sem departamento')"],
+            'inbox' => ['LEFT JOIN inboxes i ON i.id = c.inbox_id', "COALESCE(i.name, 'Sem caixa')"],
+        ];
+        if (!isset($map[$dimension])) {
+            return [];
+        }
+        [$join, $label] = $map[$dimension];
+
+        $rows = Database::getInstance()->fetchAll(
+            "SELECT {$label} as label,
+                    COUNT(s.id) as total,
+                    SUM(CASE WHEN s.response_breached = 1 THEN 1 ELSE 0 END) as breached
+             FROM conversation_slas s
+             JOIN conversations c ON c.id = s.conversation_id
+             {$join}
+             WHERE c.created_at >= DATE_SUB(NOW(), INTERVAL ? DAY)
+             GROUP BY label
+             ORDER BY total DESC",
+            [max(1, $days)]
+        );
+
+        $out = [];
+        foreach ($rows as $r) {
+            $total = (int) $r['total'];
+            $breached = (int) $r['breached'];
+            $out[] = [
+                'label' => (string) $r['label'],
+                'total' => $total,
+                'breached' => $breached,
+                'percent' => $total > 0 ? round((1 - $breached / $total) * 100, 1) : null,
+            ];
+        }
+        return $out;
+    }
+
+    /** @return array<int, array> quebra por atendente */
+    public static function agentBreakdown(int $days): array
+    {
+        return self::breakdown('agent', $days);
+    }
+
+    /** @return array<int, array> quebra por departamento */
+    public static function departmentBreakdown(int $days): array
+    {
+        return self::breakdown('department', $days);
+    }
+
+    /** @return array<int, array> quebra por caixa de entrada */
+    public static function inboxBreakdown(int $days): array
+    {
+        return self::breakdown('inbox', $days);
+    }
+
+    /**
+     * Conversas que furaram algum dos SLAs no período.
+     *
+     * @return array<int, array>
+     */
+    public static function violatedConversations(int $days, int $limit = 200): array
+    {
+        return Database::getInstance()->fetchAll(
+            "SELECT c.id, c.protocol, c.status, c.created_at,
+                    ct.name as contact_name,
+                    COALESCE(u.name, '') as assigned_user_name,
+                    COALESCE(d.name, '') as department_name,
+                    COALESCE(i.name, '') as inbox_name,
+                    s.response_seconds, s.response_threshold, s.response_breached,
+                    s.resolution_seconds, s.resolution_threshold, s.resolution_breached
+             FROM conversation_slas s
+             JOIN conversations c ON c.id = s.conversation_id
+             LEFT JOIN contacts ct ON ct.id = c.contact_id
+             LEFT JOIN users u ON u.id = c.assigned_user_id
+             LEFT JOIN departments d ON d.id = c.department_id
+             LEFT JOIN inboxes i ON i.id = c.inbox_id
+             WHERE c.created_at >= DATE_SUB(NOW(), INTERVAL ? DAY)
+               AND (s.response_breached = 1 OR s.resolution_breached = 1)
+             ORDER BY c.created_at DESC
+             LIMIT " . (int) $limit,
+            [max(1, $days)]
+        );
+    }
 }

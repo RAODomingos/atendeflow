@@ -345,6 +345,17 @@ try {
     $summary = \App\Models\ConversationSla::summaryForConversation($violConvId);
     check('sla: o resumo de uma conversa funciona', $summary !== null && (int) $summary['response_breached'] === 1);
 
+    // ── relatório: quebras e lista de violações ──────────────────
+    $byAgent = \App\Models\ConversationSla::agentBreakdown(30);
+    check('sla: a quebra por atendente devolve linhas', is_array($byAgent) && count($byAgent) > 0, json_encode(array_slice($byAgent, 0, 2)));
+    $byDept = \App\Models\ConversationSla::departmentBreakdown(30);
+    check('sla: a quebra por departamento devolve linhas', is_array($byDept) && count($byDept) > 0);
+    $byInbox = \App\Models\ConversationSla::inboxBreakdown(30);
+    check('sla: a quebra por caixa devolve linhas', is_array($byInbox) && count($byInbox) > 0);
+    $violatedList = \App\Models\ConversationSla::violatedConversations(30);
+    $ids = array_map(fn($r) => (int) $r['id'], $violatedList);
+    check('sla: a lista de violacoes inclui a conversa de teste', in_array($violConvId, $ids, true), 'ids=' . json_encode(array_slice($ids, 0, 5)));
+
     $db->execute("DELETE FROM conversation_slas WHERE conversation_id = ?", [$violConvId]);
     $db->execute("DELETE FROM conversation_events WHERE conversation_id = ? AND event_type IN ('sla_breached','sla_escalated')", [$violConvId]);
     $db->execute("DELETE FROM messages WHERE conversation_id = ?", [$violConvId]);
