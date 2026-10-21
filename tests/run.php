@@ -465,5 +465,20 @@ check('sla: o worker mede as conversas', str_contains($workerSrc, 'forConversati
 check('sla: o worker detecta a violacao', str_contains($workerSrc, 'response_breached'));
 check('sla: o worker grava a medicao', str_contains($workerSrc, 'saveMeasurement'));
 
+// ─────────────────────────────────────────────────────────────
+// SLA mensurável: escalonamento
+// ─────────────────────────────────────────────────────────────
+$escSrc = is_file(__DIR__ . '/../app/Services/SlaEscalation.php')
+    ? (string) file_get_contents(__DIR__ . '/../app/Services/SlaEscalation.php')
+    : '';
+check('sla: o escalonamento notifica os gerentes', str_contains($escSrc, 'notifySystem'));
+check('sla: o escalonamento aplica a tag', str_contains($escSrc, 'ensureByName'));
+check('sla: o escalonamento autoatribui o menos carregado', str_contains($escSrc, 'assign'));
+check('sla: o escalonamento avisa por whatsapp', str_contains($escSrc, 'sendToPhone'));
+check('sla: o escalonamento nunca rouba a conversa de quem atende', str_contains($escSrc, 'assigned_user_id'));
+$notifSvc = file_get_contents(__DIR__ . '/../app/Services/NotificationService.php');
+check('sla: existe notifySystem no servico de notificacoes', str_contains($notifSvc, 'function notifySystem'));
+check('sla: o worker chama o escalonamento', str_contains($workerSrc, 'SlaEscalation'));
+
 echo "\n$passes passed, $failures failed\n";
 exit($failures > 0 ? 1 : 0);

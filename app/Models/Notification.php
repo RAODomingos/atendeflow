@@ -77,9 +77,12 @@ class Notification
 
     /**
      * Mantido por compatibilidade: delega ao NotificationService.
-     * Cria notificação de atribuição de conversa
+     * Cria uma notificação de atribuição de conversa.
+     *
+     * `$assignedByUserId` pode ser null (atribuição fora de sessão,
+     * como a autoatribuição do worker de SLA).
      */
-    public static function assigned(int $toUserId, int $conversationId, int $assignedByUserId): int
+    public static function assigned(int $toUserId, int $conversationId, ?int $assignedByUserId): int
     {
         $id = \App\Services\NotificationService::notifyAssigned($toUserId, $conversationId, $assignedByUserId);
         return $id ?? 0;

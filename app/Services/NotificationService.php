@@ -208,9 +208,16 @@ class NotificationService
         return (bool) $row;
     }
 
-    public static function notifyAssigned(int $toUserId, int $conversationId, int $assignedByUserId): ?int
+    /**
+     * Notifica o novo responsável pela conversa.
+     *
+     * `$assignedByUserId` pode ser null: a atribuição também acontece
+     * fora de uma sessão (worker do SLA autoatribuindo), e aí não há
+     * quem "atribuiu".
+     */
+    public static function notifyAssigned(int $toUserId, int $conversationId, ?int $assignedByUserId): ?int
     {
-        if ($toUserId === $assignedByUserId) {
+        if ($assignedByUserId !== null && $toUserId === $assignedByUserId) {
             return null;
         }
         // Evita spam de re-atribuição: dedup 30s por user+conversa+tipo
@@ -224,9 +231,8 @@ class NotificationService
         if ($recent) {
             return null;
         }
-        $conv = Conversation::find($conversationId);
-        $by = User::find($assignedByUserId);
-        $body = ($by['name'] ?? 'Sistema') . ' lhe atribuiu uma conversa';
+        $by = $assignedByUserId !== null ? (User::find($assignedByUserId)['name'] ?? 'Sistema') : 'Sistema';
+        $body = $by . ' lhe atribuiu uma conversa';
         return Notification::create([
             'user_id' => $toUserId,
             'notification_type' => self::TYPE_ASSIGNMENT,
@@ -263,6 +269,32 @@ class NotificationService
             'conversation_id' => $conversationId,
             'metadata' => json_encode(['from_user_id' => $fromUserId]),
         ]);
+    }
+
+    /**
+     * Notificação do tipo `system` (uso interno: escalonamento de SLA,
+     * avisos administrativos). Não gera barulho no sino do cliente: o
+     * tipo já existe no enum e ainda não era emitido.
+     *
+     * @return array<int> ids das notificações criadas
+     */
+    public static function notifySystem(array $userIds, string $title, string $body, ?int $conversationId = null): array
+    {
+        $created = [];
+        foreach (array_unique(array_filter(array_map('intval', $userIds))) as $uid) {
+            $id = Notification::create([
+                'user_id' => $uid,
+                'notification_type' => self::TYPE_SYSTEM,
+                'title' => $title,
+                'body' => $body,
+                'conversation_id' => $conversationId,
+                'metadata' => json_encode(['source' => 'sla_escalation'], JSON_UNESCAPED_UNICODE),
+            ]);
+            if ($id) {
+                $created[] = $id;
+            }
+        }
+        return $created;
     }
 
     public static function markConversationNotificationsRead(int $conversationId, int $userId): int
