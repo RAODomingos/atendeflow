@@ -90,6 +90,9 @@ if (file_exists(__DIR__ . '/../app/Services/SlaClock.php')) {
 if (file_exists(__DIR__ . '/../app/Services/SlaService.php')) {
     require_once __DIR__ . '/../app/Services/SlaService.php';
 }
+if (file_exists(__DIR__ . '/../app/Services/SlaMeasurement.php')) {
+    require_once __DIR__ . '/../app/Services/SlaMeasurement.php';
+}
 
 // Chamadas tolerantes: enquanto a feature não existe a suíte falha com
 // "FALHOU" em vez de matar o runner com fatal error.
@@ -256,6 +259,154 @@ check('sla: a migration cria o telefone de escalonamento', str_contains($migSrc,
 check('sla: a migration adiciona sla_breached no enum de eventos', str_contains($migSrc, 'sla_breached'));
 $schemaSrc = (string) file_get_contents(__DIR__ . '/../database/schema.sql');
 check('sla: o schema.sql traz a tabela conversation_slas', str_contains($schemaSrc, 'CREATE TABLE IF NOT EXISTS conversation_slas'));
+
+// ─────────────────────────────────────────────────────────────
+// SLA mensurável: motor de medição puro
+// ─────────────────────────────────────────────────────────────
+function slaMeasure(array $args): array
+{
+    if (!class_exists('App\Services\SlaMeasurement') || !method_exists('App\Services\SlaMeasurement', 'measure')) {
+        return [];
+    }
+    $r = \App\Services\SlaMeasurement::measure(...$args);
+    return is_array($r) ? $r : [];
+}
+
+check('sla: a classe de medicao existe', class_exists('App\Services\SlaMeasurement'));
+
+// Grade seg-sex 08:00-18:00; sabado e domingo fechados.
+$office = [];
+foreach ([1, 2, 3, 4, 5] as $dow) {
+    $office[$dow] = ['is_open' => 1, 'open' => '08:00:00', 'close' => '18:00:00'];
+}
+$office[0] = ['is_open' => 0, 'open' => '08:00:00', 'close' => '18:00:00'];
+$office[6] = ['is_open' => 0, 'open' => '08:00:00', 'close' => '18:00:00'];
+
+$convSla = [
+    'id' => 1, 'status' => 'open', 'department_id' => 2, 'group_id' => null,
+    'created_at' => '2026-10-19 09:00:00', 'closed_at' => null,
+];
+$msgSla = fn(int $id, string $dir, string $type, ?int $uid, string $at) =>
+    ['id' => $id, 'direction' => $dir, 'type' => $type, 'user_id' => $uid, 'created_at' => $at];
+
+// Limites folgados por padrao, para que so o caso 14 teste a violacao.
+// app_tz fixado em UTC para o teste nao depender do php.ini da maquina.
+$optsSla = ['response_threshold' => 3600, 'resolution_threshold' => 86400, 'app_tz' => 'UTC'];
+
+// 1) primeira resposta mede da 1a mensagem do cliente
+$st = slaMeasure([$convSla, [
+    $msgSla(1, 'inbound', 'text', null, '2026-10-19 09:00:00'),
+    $msgSla(2, 'inbound', 'text', null, '2026-10-19 09:10:00'),
+    $msgSla(3, 'outbound', 'text', 7, '2026-10-19 09:20:00'),
+], [], $office, 'UTC', '2026-10-19 09:20:00', $optsSla]);
+check('sla: a primeira resposta mede da 1a mensagem do cliente', ($st['response_seconds'] ?? null) === 1200, json_encode($st));
+check('sla: a primeira resposta registra o instante', ($st['response_at'] ?? null) === '2026-10-19 09:20:00');
+
+// 2) o pareamento nao conta o mesmo tempo duas vezes
+check('sla: o pareamento nao conta o mesmo tempo duas vezes', is_int($st['resolution_seconds'] ?? null) && $st['resolution_seconds'] === 1200, 'got ' . json_encode($st['resolution_seconds'] ?? null));
+check('sla: a espera nao e contada em duplicidade', is_int($st['resolution_seconds'] ?? null) && $st['resolution_seconds'] !== 1800 && $st['resolution_seconds'] !== 2400);
+
+// 3) conversa ativa sem resposta humana nao tem sla de resposta
+$st = slaMeasure([$convSla, [
+    $msgSla(1, 'inbound', 'text', null, '2026-10-19 09:00:00'),
+], [], $office, 'UTC', '2026-10-19 10:00:00', $optsSla]);
+check('sla: sem resposta humana a conversa nao tem sla de resposta', array_key_exists('response_seconds', $st) && $st['response_seconds'] === null, json_encode($st));
+check('sla: sem resposta humana a conversa ativa nao viola', array_key_exists('response_breached', $st) && $st['response_breached'] === false, json_encode($st));
+
+// 4) conversa encerrada sem resposta humana e violacao
+$closedConv = $convSla;
+$closedConv['status'] = 'closed';
+$closedConv['closed_at'] = '2026-10-19 10:00:00';
+$st = slaMeasure([$closedConv, [
+    $msgSla(1, 'inbound', 'text', null, '2026-10-19 09:00:00'),
+], [], $office, 'UTC', '2026-10-19 10:00:00', $optsSla]);
+check('sla: conversa encerrada sem resposta tem sla de resposta nulo', array_key_exists('response_seconds', $st) && $st['response_seconds'] === null, json_encode($st));
+check('sla: conversa encerrada sem resposta conta como violacao', array_key_exists('response_breached', $st) && $st['response_breached'] === true, json_encode($st));
+
+// 5) o periodo aberto conta ate agora
+$st = slaMeasure([$convSla, [
+    $msgSla(1, 'inbound', 'text', null, '2026-10-19 09:00:00'),
+], [], $office, 'UTC', '2026-10-19 10:00:00', $optsSla]);
+check('sla: o periodo aberto conta ate agora', ($st['resolution_seconds'] ?? null) === 3600, 'got ' . json_encode($st['resolution_seconds'] ?? null));
+check('sla: o periodo aberto expoe o inicio', ($st['period_started_at'] ?? null) === '2026-10-19 09:00:00');
+
+// 6) conversa encerrada fecha o periodo no closed_at
+$st = slaMeasure([$closedConv, [
+    $msgSla(1, 'inbound', 'text', null, '2026-10-19 09:00:00'),
+], [], $office, 'UTC', '2026-10-19 23:00:00', $optsSla]);
+check('sla: conversa encerrada fecha o periodo no closed_at', ($st['resolution_seconds'] ?? null) === 3600, 'got ' . json_encode($st['resolution_seconds'] ?? null));
+
+// 7) a pausa por waiting_internal e descontada
+$st = slaMeasure([$convSla, [
+    $msgSla(1, 'inbound', 'text', null, '2026-10-19 09:00:00'),
+], [
+    ['at' => '2026-10-19 09:30:00', 'status' => 'waiting_internal'],
+    ['at' => '2026-10-19 10:30:00', 'status' => 'open'],
+], $office, 'UTC', '2026-10-19 11:00:00', $optsSla]);
+check('sla: a pausa por waiting_internal e descontada', ($st['resolution_seconds'] ?? null) === 3600, 'got ' . json_encode($st['resolution_seconds'] ?? null));
+
+// 8) sem grade conta tempo de relogio
+$st = slaMeasure([$convSla, [
+    $msgSla(1, 'inbound', 'text', null, '2026-10-19 09:00:00'),
+], [], null, 'UTC', '2026-10-19 10:00:00', $optsSla]);
+check('sla: sem grade conta tempo de relogio', ($st['resolution_seconds'] ?? null) === 3600, 'got ' . json_encode($st['resolution_seconds'] ?? null));
+
+// 9) a noite nao conta
+$st = slaMeasure([$convSla, [
+    $msgSla(1, 'inbound', 'text', null, '2026-10-19 23:00:00'),
+], [], $office, 'UTC', '2026-10-20 01:00:00', $optsSla]);
+check('sla: a noite nao conta', ($st['resolution_seconds'] ?? null) === 0, 'got ' . json_encode($st['resolution_seconds'] ?? null));
+
+// 10) conversa de grupo nao tem sla
+$groupConv = $convSla;
+$groupConv['group_id'] = 7;
+$groupSt = slaMeasure([$groupConv, [
+    $msgSla(1, 'inbound', 'text', null, '2026-10-19 09:00:00'),
+], [], $office, 'UTC', '2026-10-19 10:00:00', $optsSla]);
+$normalSt = slaMeasure([$convSla, [
+    $msgSla(1, 'inbound', 'text', null, '2026-10-19 09:00:00'),
+], [], $office, 'UTC', '2026-10-19 10:00:00', $optsSla]);
+check('sla: conversa de grupo nao tem sla', $groupSt === [] && $normalSt !== [], 'grupo=' . json_encode($groupSt) . ' normal=' . json_encode($normalSt));
+
+// 11) mensagem apagada entra na medicao
+$st = slaMeasure([$convSla, [
+    ['id' => 1, 'direction' => 'inbound', 'type' => 'text', 'user_id' => null, 'created_at' => '2026-10-19 09:00:00', 'deleted_at' => '2026-10-19 09:05:00'],
+    $msgSla(2, 'inbound', 'text', null, '2026-10-19 09:10:00'),
+    $msgSla(3, 'outbound', 'text', 7, '2026-10-19 09:20:00'),
+], [], $office, 'UTC', '2026-10-19 09:20:00', $optsSla]);
+check('sla: mensagem apagada entra na medicao', ($st['response_seconds'] ?? null) === 1200, 'got ' . json_encode($st['response_seconds'] ?? null));
+
+// 12) conversa sem departamento conta tempo de relogio
+$noDeptConv = $convSla;
+$noDeptConv['department_id'] = null;
+$st = slaMeasure([$noDeptConv, [
+    $msgSla(1, 'inbound', 'text', null, '2026-10-19 09:00:00'),
+], [], null, 'UTC', '2026-10-19 10:00:00', $optsSla]);
+check('sla: conversa sem departamento conta tempo de relogio', ($st['resolution_seconds'] ?? null) === 3600, 'got ' . json_encode($st['resolution_seconds'] ?? null));
+
+// 13) a reabertura zera o ciclo
+$st = slaMeasure([$convSla, [
+    $msgSla(1, 'inbound', 'text', null, '2026-10-19 09:00:00'),
+    $msgSla(2, 'inbound', 'text', null, '2026-10-19 09:45:00'),
+    $msgSla(3, 'outbound', 'text', 7, '2026-10-19 09:50:00'),
+], [], $office, 'UTC', '2026-10-19 09:50:00', $optsSla + ['cycle_started_at' => '2026-10-19 09:30:00']]);
+check('sla: a reabertura zera o ciclo', ($st['response_seconds'] ?? null) === 300, 'got ' . json_encode($st['response_seconds'] ?? null));
+
+// 14) o limite gravado e o do momento
+$st = slaMeasure([$convSla, [
+    $msgSla(1, 'inbound', 'text', null, '2026-10-19 09:00:00'),
+    $msgSla(2, 'inbound', 'text', null, '2026-10-19 09:10:00'),
+    $msgSla(3, 'outbound', 'text', 7, '2026-10-19 09:20:00'),
+], [], $office, 'UTC', '2026-10-19 09:20:00', array_merge($optsSla, ['response_threshold' => 600])]);
+check('sla: o limite gravado e o do momento', ($st['response_breached'] ?? null) === true, json_encode($st));
+
+// 15) no limiar exato a conversa ja conta como violacao
+$st = slaMeasure([$convSla, [
+    $msgSla(1, 'inbound', 'text', null, '2026-10-19 09:00:00'),
+    $msgSla(2, 'inbound', 'text', null, '2026-10-19 09:10:00'),
+    $msgSla(3, 'outbound', 'text', 7, '2026-10-19 09:20:00'),
+], [], $office, 'UTC', '2026-10-19 09:20:00', array_merge($optsSla, ['response_threshold' => 1200])]);
+check('sla: no limiar exato a conversa ja conta como violacao', ($st['response_breached'] ?? null) === true, json_encode($st));
 
 echo "\n$passes passed, $failures failed\n";
 exit($failures > 0 ? 1 : 0);
