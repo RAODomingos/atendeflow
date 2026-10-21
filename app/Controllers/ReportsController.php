@@ -82,6 +82,29 @@ class ReportsController
     }
 
     /**
+     * GET /reports/sla - Compliance dos SLAs (primeira resposta e resolução)
+     */
+    public function sla(Request $request): void
+    {
+        $period = (string) $request->get('period', '30');
+        $days = in_array($period, ['7', '30', '90', 'all'], true)
+            ? ($period === 'all' ? 3650 : (int) $period)
+            : 30;
+
+        View::renderWithLayout('reports/sla', 'main', [
+            'title' => 'SLA',
+            'activePage' => 'reports_sla',
+            'period' => $period,
+            'days' => $days,
+            'compliance' => \App\Models\ConversationSla::compliance($days),
+            'agentBreakdown' => \App\Models\ConversationSla::agentBreakdown($days),
+            'departmentBreakdown' => \App\Models\ConversationSla::departmentBreakdown($days),
+            'inboxBreakdown' => \App\Models\ConversationSla::inboxBreakdown($days),
+            'violated' => \App\Models\ConversationSla::violatedConversations($days),
+        ]);
+    }
+
+    /**
      * GET /reports/conversations - Relatório detalhado de conversas
      */
     public function conversations(Request $request): void
@@ -496,6 +519,74 @@ class ReportsController
 
         header('Content-Type: text/csv; charset=UTF-8');
         header('Content-Disposition: attachment; filename="conversas-' . date('Y-m-d') . '.csv"');
+        header('Cache-Control: max-age=0');
+        echo $out;
+        exit;
+    }
+
+    /**
+     * GET /reports/sla/csv - Exporta as conversas com violação de SLA
+     */
+    public function slaCsv(Request $request): void
+    {
+        $period = (string) $request->get('period', '30');
+        $days = in_array($period, ['7', '30', '90', 'all'], true)
+            ? ($period === 'all' ? 3650 : (int) $period)
+            : 30;
+
+        $rows = \App\Models\ConversationSla::violatedConversations($days, 5000);
+
+        $human = function ($sec): string {
+            if ($sec === null) return '';
+            $sec = (int) $sec;
+            if ($sec < 60) return $sec . 's';
+            if ($sec < 3600) return (int) round($sec / 60) . ' min';
+            $h = intdiv($sec, 3600);
+            $m = intdiv($sec % 3600, 60);
+            return $m > 0 ? $h . 'h' . $m : $h . 'h';
+        };
+
+        $delim = function ($v) { return "\"" . str_replace(["\r", "\n", '"'], [' ', ' ', '""'], (string) $v) . "\""; };
+        $col = function ($v) use ($delim) {
+            // Fórmulas potencialmente perigosas (p. ex. =SUM(...)) são prefixadas.
+            $s = (string) $v;
+            if ($s !== '' && in_array($s[0], ['=', '+', '-', '@'], true)) {
+                return $delim("'\t" . $s);
+            }
+            return $delim($s);
+        };
+
+        // BOM UTF-8 para compatibilidade com Excel
+        $out = "\xEF\xBB\xBF";
+        $out .= implode(',', array_map($col, [
+            'Protocolo', 'Contato', 'Responsável', 'Departamento', 'Caixa', 'Status',
+            '1ª resposta (s)', 'Limite 1ª resposta (s)', 'Violou 1ª resposta',
+            'Resolução (s)', 'Limite resolução (s)', 'Violou resolução',
+            'Aberta em',
+        ])) . "\r\n";
+
+        foreach ($rows as $r) {
+            $out .= implode(',', array_map($col, [
+                (string) ($r['protocol'] ?? ''),
+                (string) ($r['contact_name'] ?? ''),
+                (string) ($r['assigned_user_name'] ?? ''),
+                (string) ($r['department_name'] ?? ''),
+                (string) ($r['inbox_name'] ?? ''),
+                (string) ($r['status'] ?? ''),
+                (string) ($r['response_seconds'] ?? ''),
+                (string) ($r['response_threshold'] ?? ''),
+                !empty($r['response_breached']) ? 'SIM' : 'NAO',
+                (string) ($r['resolution_seconds'] ?? ''),
+                (string) ($r['resolution_threshold'] ?? ''),
+                !empty($r['resolution_breached']) ? 'SIM' : 'NAO',
+                (string) ($r['created_at'] ?? ''),
+            ])) . "\r\n";
+        }
+
+        while (ob_get_level()) { ob_end_clean(); }
+
+        header('Content-Type: text/csv; charset=UTF-8');
+        header('Content-Disposition: attachment; filename="sla-violacoes-' . date('Y-m-d') . '.csv"');
         header('Cache-Control: max-age=0');
         echo $out;
         exit;

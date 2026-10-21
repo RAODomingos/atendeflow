@@ -492,5 +492,14 @@ check('sla: a api do dashboard devolve o sla critico', str_contains($statsSrc, '
 $inboxCtlSrc = file_get_contents(__DIR__ . '/../app/Controllers/InboxController.php');
 check('sla: a api da conversa expoe o sla', str_contains($inboxCtlSrc, 'sla_response_seconds'));
 
+// ─────────────────────────────────────────────────────────────
+// SLA mensurável: relatório
+// ─────────────────────────────────────────────────────────────
+$routesSrc = file_get_contents(__DIR__ . '/../routes/web.php');
+check('sla: a rota do relatorio existe', str_contains($routesSrc, "'/reports/sla'"));
+$repSrc = file_get_contents(__DIR__ . '/../app/Controllers/ReportsController.php');
+check('sla: o controller tem o metodo sla', str_contains($repSrc, 'function sla'));
+check('sla: a view do relatorio existe', is_file(__DIR__ . '/../app/Views/reports/sla.php'));
+
 echo "\n$passes passed, $failures failed\n";
 exit($failures > 0 ? 1 : 0);

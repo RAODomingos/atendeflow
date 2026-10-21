@@ -104,15 +104,16 @@ $router->group('', function (Router $router) {
     $router->post('/contacts/{id}/update', [ContactController::class, 'update']);
     $router->post('/contacts/{id}/delete', [ContactController::class, 'destroy'], ['manager']);
 
-    // Departments (gestão é gerente+; ver é qualquer autenticado)
-    $router->get('/departments', [DepartmentController::class, 'index']);
-    $router->post('/departments/create', [DepartmentController::class, 'store'], ['manager']);
-    $router->get('/departments/{id}', [DepartmentController::class, 'show']);
-    $router->post('/departments/{id}/update', [DepartmentController::class, 'update'], ['manager']);
-    $router->post('/departments/{id}/business-hours', [DepartmentController::class, 'saveBusinessHours'], ['manager']);
-    $router->post('/departments/{id}/users', [DepartmentController::class, 'addUser'], ['manager']);
-    $router->post('/departments/{id}/users/{userId}/remove', [DepartmentController::class, 'removeUser'], ['manager']);
-    $router->post('/departments/{id}/delete', [DepartmentController::class, 'destroy'], ['manager']);
+    // Departments (configuração: admin — tela em Configurações > Departamentos)
+    $router->get('/settings/departments', [DepartmentController::class, 'index'], ['admin']);
+    $router->get('/departments', [DepartmentController::class, 'redirectIndex'], ['admin']);
+    $router->post('/departments/create', [DepartmentController::class, 'store'], ['admin']);
+    $router->get('/departments/{id}', [DepartmentController::class, 'show'], ['admin']);
+    $router->post('/departments/{id}/update', [DepartmentController::class, 'update'], ['admin']);
+    $router->post('/departments/{id}/business-hours', [DepartmentController::class, 'saveBusinessHours'], ['admin']);
+    $router->post('/departments/{id}/users', [DepartmentController::class, 'addUser'], ['admin']);
+    $router->post('/departments/{id}/users/{userId}/remove', [DepartmentController::class, 'removeUser'], ['admin']);
+    $router->post('/departments/{id}/delete', [DepartmentController::class, 'destroy'], ['admin']);
 
     // Flows (edição é gerente+)
     $router->get('/flows', [FlowController::class, 'index']);
@@ -226,6 +227,8 @@ $router->group('', function (Router $router) {
 
     // Reports (gerente+)
     $router->get('/reports', [ReportsController::class, 'index'], ['manager']);
+    $router->get('/reports/sla', [ReportsController::class, 'sla'], ['manager']);
+    $router->get('/reports/sla/csv', [ReportsController::class, 'slaCsv'], ['manager']);
     $router->get('/reports/conversations', [ReportsController::class, 'conversations'], ['manager']);
     $router->get('/reports/agents', [ReportsController::class, 'agents'], ['manager']);
     $router->get('/reports/csat', [ReportsController::class, 'csat'], ['manager']);

@@ -153,7 +153,7 @@ try {
             <?php endforeach; ?>
         </div>
 
-        <?php $gestaoActive = in_array($activePage, ['contacts', 'departments', 'flows', 'library', 'macros', 'wiki']); ?>
+        <?php $gestaoActive = in_array($activePage, ['contacts', 'flows', 'library', 'macros', 'wiki']); ?>
         <div class="nav-section <?= $gestaoActive ? 'expanded' : '' ?>">
             <div class="nav-section-title" onclick="this.parentElement.classList.toggle('expanded')">
                 <span>Gestão</span>
@@ -163,10 +163,6 @@ try {
                 <a href="<?= route('contacts') ?>" class="nav-item <?= $activePage === 'contacts' ? 'active' : '' ?>">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75"/></svg>
                     Contatos
-                </a>
-                <a href="<?= route('departments') ?>" class="nav-item <?= $activePage === 'departments' ? 'active' : '' ?>">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="2" width="8" height="8" rx="2"/><rect x="14" y="2" width="8" height="8" rx="2"/><rect x="2" y="14" width="8" height="8" rx="2"/><rect x="14" y="14" width="8" height="8" rx="2"/></svg>
-                    Departamentos
                 </a>
                 <a href="<?= route('flows') ?>" class="nav-item <?= $activePage === 'flows' ? 'active' : '' ?>">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 01-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
@@ -191,7 +187,7 @@ try {
             </div>
         </div>
 
-        <?php $relatoriosActive = in_array($activePage, ['reports', 'reports_timeline', 'reports_conversations', 'reports_agents', 'reports_csat']); ?>
+        <?php $relatoriosActive = in_array($activePage, ['reports', 'reports_timeline', 'reports_conversations', 'reports_agents', 'reports_csat', 'reports_sla']); ?>
         <?php if (\App\Core\Auth::isManager()): ?>
         <div class="nav-section <?= $relatoriosActive ? 'expanded' : '' ?>">
             <div class="nav-section-title" onclick="this.parentElement.classList.toggle('expanded')">
@@ -215,6 +211,10 @@ try {
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/></svg>
                     Atendentes
                 </a>
+                <a href="<?= url('reports/sla') ?>" class="nav-item <?= $activePage === 'reports_sla' ? 'active' : '' ?>">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
+                    SLA
+                </a>
                 <a href="<?= url('reports/csat') ?>" class="nav-item <?= $activePage === 'reports_csat' ? 'active' : '' ?>">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
                     Satisfação (CSAT)
@@ -224,7 +224,7 @@ try {
         <?php endif; ?>
 
         <?php if (\App\Core\Auth::isAdmin()): ?>
-        <?php $adminActive = in_array($activePage, ['users', 'settings', 'settings_notifications']); ?>
+        <?php $adminActive = in_array($activePage, ['users', 'settings', 'settings_notifications', 'settings_departments']); ?>
         <div class="nav-section <?= $adminActive ? 'expanded' : '' ?>">
             <div class="nav-section-title" onclick="this.parentElement.classList.toggle('expanded')">
                 <span>Administração</span>
