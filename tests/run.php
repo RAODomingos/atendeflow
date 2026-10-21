@@ -245,5 +245,17 @@ $migrationSrc = file_get_contents(__DIR__ . '/../database/migrations/2026_10_20_
 check('notificacao: a migration cria a coluna message_id', str_contains($migrationSrc, 'ADD COLUMN message_id'));
 check('notificacao: a migration cria o indice do dedup', str_contains($migrationSrc, 'idx_notif_msg'));
 
+// ─────────────────────────────────────────────────────────────
+// SLA mensurável: migration e schema
+// ─────────────────────────────────────────────────────────────
+$migPath = __DIR__ . '/../database/migrations/2026_10_20_sla_measurable.sql';
+$migSrc = is_file($migPath) ? (string) file_get_contents($migPath) : '';
+check('sla: a migration cria a tabela conversation_slas', str_contains($migSrc, 'CREATE TABLE IF NOT EXISTS conversation_slas'));
+check('sla: a migration cria as colunas de override da caixa', str_contains($migSrc, 'sla_response_minutes') && str_contains($migSrc, 'sla_resolution_minutes') && str_contains($migSrc, 'sla_business_hours'));
+check('sla: a migration cria o telefone de escalonamento', str_contains($migSrc, 'sla_escalation_phone'));
+check('sla: a migration adiciona sla_breached no enum de eventos', str_contains($migSrc, 'sla_breached'));
+$schemaSrc = (string) file_get_contents(__DIR__ . '/../database/schema.sql');
+check('sla: o schema.sql traz a tabela conversation_slas', str_contains($schemaSrc, 'CREATE TABLE IF NOT EXISTS conversation_slas'));
+
 echo "\n$passes passed, $failures failed\n";
 exit($failures > 0 ? 1 : 0);

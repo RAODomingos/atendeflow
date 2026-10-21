@@ -40,6 +40,7 @@ CREATE TABLE departments (
     description TEXT NULL,
     color VARCHAR(7) NULL DEFAULT '#4A90D9',
     is_active TINYINT(1) NOT NULL DEFAULT 1,
+    sla_escalation_phone VARCHAR(20) NULL DEFAULT NULL,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 );
@@ -184,6 +185,13 @@ CREATE TABLE inboxes (
     name VARCHAR(150) NOT NULL,
     type ENUM('general', 'department', 'personal') NOT NULL DEFAULT 'department',
     is_active TINYINT(1) NOT NULL DEFAULT 1,
+    sla_response_minutes INT NULL DEFAULT NULL,
+    sla_resolution_minutes INT NULL DEFAULT NULL,
+    sla_business_hours TINYINT(1) NULL DEFAULT NULL,
+    sla_escalate_managers TINYINT(1) NULL DEFAULT NULL,
+    sla_escalate_tag TINYINT(1) NULL DEFAULT NULL,
+    sla_escalate_autoassign TINYINT(1) NULL DEFAULT NULL,
+    sla_escalate_whatsapp TINYINT(1) NULL DEFAULT NULL,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 );
@@ -317,7 +325,10 @@ CREATE TABLE conversation_events (
         'created', 'assigned', 'transferred', 'status_changed',
         'priority_changed', 'note_added', 'flow_started',
         'flow_completed', 'tag_added', 'tag_removed',
-        'department_changed', 'reopened'
+        'department_changed', 'reopened',
+        'flow_stopped', 'flow_timeout', 'flow_notification',
+        'snoozed', 'csat', 'merged',
+        'sla_breached', 'sla_escalated'
     ) NOT NULL,
     description TEXT NULL,
     user_id BIGINT UNSIGNED NULL,
@@ -328,6 +339,27 @@ CREATE TABLE conversation_events (
     FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE,
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL
 );
+
+-- SLA measurement (one row per conversation)
+CREATE TABLE IF NOT EXISTS conversation_slas (
+    id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    conversation_id BIGINT UNSIGNED NOT NULL,
+    response_seconds INT NULL,
+    response_at DATETIME NULL,
+    response_breached TINYINT(1) NOT NULL DEFAULT 0,
+    response_threshold INT NULL,
+    resolution_seconds INT NOT NULL DEFAULT 0,
+    resolution_breached TINYINT(1) NOT NULL DEFAULT 0,
+    resolution_threshold INT NULL,
+    period_started_at DATETIME NULL,
+    metadata JSON NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    UNIQUE KEY uq_slas_conversation (conversation_id),
+    INDEX idx_slas_breached (response_breached, resolution_breached),
+    INDEX idx_slas_updated (updated_at),
+    FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE
+) ENGINE=InnoDB;
 
 -- Internal notes
 CREATE TABLE internal_notes (
