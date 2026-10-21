@@ -34,6 +34,7 @@ class SlaController
             'inbox_id' => $inboxId,
             'is_custom' => $payload['is_custom'],
             'enabled' => $cfg['enabled'] === '1',
+            'business_hours' => ($cfg['business_hours'] ?? '1') === '1',
             'attention_minutes' => (int) $cfg['attention_minutes'],
             'alert_minutes' => (int) $cfg['alert_minutes'],
             'attention_seconds' => $thresholds['attention_seconds'],

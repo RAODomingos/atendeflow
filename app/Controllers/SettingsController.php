@@ -97,6 +97,7 @@ class SettingsController
         $slaAttention = max(1, (int) $request->post('sla_attention_minutes'));
         \App\Services\SlaService::setAll([
             'enabled' => $request->post('sla_enabled') ? '1' : '0',
+            'business_hours' => $request->post('sla_business_hours') ? '1' : '0',
             'attention_minutes' => $slaAttention,
             'alert_minutes' => max($slaAttention + 1, (int) $request->post('sla_alert_minutes')),
             'color_normal' => trim((string) $request->post('sla_color_normal')) ?: '#dcfce7',
@@ -389,6 +390,7 @@ class SettingsController
         ];
         $data = array_merge($data, $this->collectInboxSla($request));
         $inboxId = Inbox::create($data);
+        \App\Services\SlaService::forgetConfig();
 
         $this->syncInboxLinks($inboxId, $request);
 
@@ -424,6 +426,7 @@ class SettingsController
             $this->collectInboxSla($request)
         );
         Inbox::update($id, $data);
+        \App\Services\SlaService::forgetConfig();
         $this->syncInboxLinks($id, $request);
 
         Session::setFlash('success', 'Caixa atualizada com sucesso.');

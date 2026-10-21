@@ -4,6 +4,7 @@ namespace App\Models;
 
 use App\Core\Auth;
 use App\Core\Database;
+use App\Services\SlaService;
 
 class Conversation
 {
@@ -143,7 +144,7 @@ class Conversation
 
         $sql .= " ORDER BY COALESCE(c.last_message_at, c.created_at) DESC";
         $rows = Database::getInstance()->fetchAll($sql, $params);
-        return self::attachTagsJson($rows);
+        return SlaService::applyClock(self::attachTagsJson($rows));
     }
 
     /**
@@ -171,6 +172,16 @@ class Conversation
                             SELECT 1 FROM conversation_flow_states fs
                             WHERE fs.conversation_id = c.id AND fs.is_active = 1
                         ) THEN 1 ELSE 0 END as has_active_flow,
+                        -- Âncoras do relógio do SLA: última mensagem do cliente
+                        -- e última mensagem pública nossa. SlaService::applyClock()
+                        -- reescreve `waiting_seconds` em segundos úteis.
+                        last_in.last_inbound_at as sla_last_inbound_at,
+                        last_in.last_inbound_id as sla_last_inbound_id,
+                        last_in.last_public_id as sla_last_public_id,
+                        -- Fallback em tempo de relógio: as listagens que alimentam a
+                        -- tela de conversas sobrescrevem este valor com
+                        -- SlaService::applyClock(), que conta apenas segundos úteis
+                        -- (dentro do horário de atendimento do departamento).
                         CASE
                             WHEN c.status IN ('new','open','waiting_customer','waiting_internal')
                             THEN CASE
@@ -410,7 +421,7 @@ class Conversation
                 $map[$c['id']] = $c;
             }
         }
-        return self::attachTagsJson(array_values($map));
+        return SlaService::applyClock(self::attachTagsJson(array_values($map)));
     }
 
 
@@ -445,12 +456,23 @@ class Conversation
     {
         $sql = "SELECT c.*, ch.type as channel_type, ct.name as contact_name, ct.phone as contact_phone,
                        ct.avatar as contact_avatar, d.name as department_name, d.color as department_color,
-                       u.name as assigned_user_name
+                       u.name as assigned_user_name,
+                       last_in.last_inbound_at as sla_last_inbound_at,
+                       last_in.last_inbound_id as sla_last_inbound_id,
+                       last_in.last_public_id as sla_last_public_id
                 FROM conversations c
                 JOIN contacts ct ON ct.id = c.contact_id
                 LEFT JOIN channels ch ON ch.id = c.channel_id
                 LEFT JOIN departments d ON d.id = c.department_id
                 LEFT JOIN users u ON u.id = c.assigned_user_id
+                LEFT JOIN (
+                    SELECT conversation_id,
+                           MAX(CASE WHEN direction = 'inbound' THEN created_at END) as last_inbound_at,
+                           MAX(CASE WHEN direction = 'inbound' THEN id END) as last_inbound_id,
+                           MAX(CASE WHEN type <> 'internal_note' THEN id END) as last_public_id
+                    FROM messages
+                    GROUP BY conversation_id
+                ) last_in ON last_in.conversation_id = c.id
                 WHERE c.assigned_user_id IS NULL AND c.status IN ('new', 'open')
                   AND (c.snoozed_until IS NULL OR c.snoozed_until <= NOW())";
         $params = [];
@@ -462,7 +484,7 @@ class Conversation
 
         $sql .= " ORDER BY c.created_at ASC";
 
-        return Database::getInstance()->fetchAll($sql, $params);
+        return SlaService::applyClock(Database::getInstance()->fetchAll($sql, $params));
     }
 
     public static function create(array $data): int

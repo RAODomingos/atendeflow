@@ -135,4 +135,45 @@ class BusinessHoursService
         $msg = trim((string) ($cfg['absence_message'] ?? ''));
         return $msg ?: self::DEFAULT_MESSAGE;
     }
+
+    /**
+     * Config do departamento para o relógio do SLA, em uma única consulta
+     * de `departments` (evita chamar deptConfig() duas vezes).
+     *
+     * Devolve null quando o departamento não tem horário configurado —
+     * o relógio do SLA então conta tempo de relógio puro.
+     */
+    public static function slaConfig(int $departmentId): ?array
+    {
+        $cfg = self::deptConfig($departmentId);
+        if (!$cfg || (int) ($cfg['business_hours_enabled'] ?? 0) !== 1) {
+            return null;
+        }
+        $tz = trim((string) ($cfg['business_hours_timezone'] ?? ''));
+        return [
+            'schedule' => self::slaSchedule($departmentId),
+            'timezone' => $tz ?: 'America/Sao_Paulo',
+        ];
+    }
+
+    /**
+     * Grade do departamento no formato consumido por SlaClock
+     * ([0..6 => ['is_open' => 0|1, 'open' => 'HH:MM:SS', 'close' => 'HH:MM:SS']]).
+     *
+     * Departamento sem horário configurado devolve grade vazia: o relógio
+     * do SLA conta tempo de relógio puro, na mesma premissa de isOpen()
+     * (sem regra = sempre aberto).
+     */
+    public static function slaSchedule(int $departmentId): array
+    {
+        $schedule = [];
+        foreach (self::scheduleFor($departmentId) as $dow => $rule) {
+            $schedule[(int) $dow] = [
+                'is_open' => (int) ($rule['is_open'] ?? 0),
+                'open' => (string) ($rule['open_time'] ?? '00:00:00'),
+                'close' => (string) ($rule['close_time'] ?? '23:59:59'),
+            ];
+        }
+        return $schedule;
+    }
 }
