@@ -62,6 +62,20 @@ php -S localhost:8080 -t public
 php database/migrate.php
 ```
 
+## Testes
+
+```bash
+php tests/run.php        # suíte principal (sem banco de dados)
+php tests/e2e_sla.php    # end-to-end do relógio do SLA (usa o MySQL, limpa os dados ao final)
+php tests/smoke_sla.php  # smoke HTTP (com o servidor rodando em :8099)
+```
+
+O relógio do SLA conta **segundos úteis**: só o tempo dentro do horário de
+atendimento configurado no departamento da conversa consome SLA. Fora do
+expediente, fins de semana e a espera da resposta do cliente não queimam o
+relógio. O interruptor fica em `/settings/notifications`
+("Considerar horário de atendimento") e vale para todas as caixas de entrada.
+
 ## Configuração Rápida via Painel
 
 1. Login como admin

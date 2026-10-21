@@ -46,6 +46,9 @@
            data-sla-dir="<?= e($conv['last_message_direction'] ?? '') ?>"
            data-sla-waiting="<?= (int)($conv['waiting_seconds'] ?? 0) ?>"
            data-sla-inbox="<?= $convInboxId ?: '' ?>"
+           data-sla-sync-at="<?= (int)($conv['sla_sync_at'] ?? 0) ?>"
+           data-sla-frozen="<?= !empty($conv['sla_frozen']) ? '1' : '0' ?>"
+           data-sla-boundary="<?= (int)($conv['sla_boundary_at'] ?? 0) ?>"
            data-group-id="<?= !empty($conv['group_id']) ? (int)$conv['group_id'] : '' ?>">
             <div class="avatar-wrap">
                 <?php if ($conv['contact_avatar']): ?>

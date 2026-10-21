@@ -149,6 +149,22 @@
                     </label>
                 </div>
 
+                <div class="form-check" style="display:flex;align-items:center;gap:10px;margin-bottom:8px;padding:12px 16px;background:var(--bg-content);border-radius:8px;">
+                    <input type="checkbox" name="sla_business_hours" value="1" id="slaBusinessHours" <?= (!isset($sla['business_hours']) || $sla['business_hours'] === '1') ? 'checked' : '' ?> style="width:18px;height:18px;accent-color:var(--primary)">
+                    <label for="slaBusinessHours" style="font-weight:500;cursor:pointer;margin:0">
+                        Considerar horário de atendimento
+                    </label>
+                </div>
+                <p style="margin:0 0 16px;padding:0 16px;font-size:12px;color:var(--text-muted)">
+                    <i class="fas fa-info-circle"></i>
+                    Com esta opção, o relógio do SLA só conta o tempo dentro do horário de atendimento
+                    configurado no <strong>departamento</strong> da conversa (veja
+                    <a href="<?= url('departments') ?>">Departamentos</a>): o tempo fora do expediente, fins
+                    de semana e feriados não consomem SLA. O relógio também congela quando o atendente já
+                    respondeu (a bola está com o cliente) ou quando a conversa está
+                    <em>aguardando outro setor</em>.
+                </p>
+
                 <div class="form-row">
                     <div class="form-group col-6">
                         <label><i class="fas fa-exclamation-triangle" style="color:#f59e0b"></i> Atenção (amarelo) após</label>

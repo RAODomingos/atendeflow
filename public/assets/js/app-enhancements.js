@@ -269,10 +269,6 @@
     _cfgTtlMs: 5 * 60 * 1000,
     _tickTimer: null,
     _tickIntervalMs: 15 * 1000,
-    // Instante de carga da página: o `data-sla-waiting` renderizado pelo
-    // servidor é estático, então somamos o tempo decorrido para que as
-    // cores escalem ao vivo entre um refresh e outro da lista.
-    _pageLoadedAt: Date.now(),
     // último nível conhecido por conv, para disparar som só na transição
     _lastLevel: {},
     // inflight por inbox_id, evita múltiplos fetches em rajada
@@ -490,7 +486,7 @@
       var items = list.querySelectorAll('.conv-item');
       var self = this;
       var seen = {};
-      var elapsed = Math.max(0, Math.floor((Date.now() - this._pageLoadedAt) / 1000));
+      var now = Date.now();
       items.forEach(function (el) {
         var id = parseInt(el.dataset.convId, 10);
         if (!id) return;
@@ -498,7 +494,7 @@
         var conv = {
           id: id,
           status: el.dataset.slaStatus || '',
-          waiting_seconds: base + elapsed,
+          waiting_seconds: base + self._elapsedSinceSync(el, now),
           waiting_base: base,
           last_message_direction: el.dataset.slaDir || '',
           inbox_id: el.dataset.slaInbox || null,
@@ -513,6 +509,31 @@
     },
 
     /**
+     * Segundos que o relógio do SLA correu desde o último sync do servidor.
+     *
+     * O servidor já entregou `waiting_seconds` em segundos ÚTEIS (dentro
+     * do horário de atendimento do departamento). Entre dois syncs só
+     * acrescentamos o tempo decorrido — e apenas enquanto o relógio
+     * estiver correndo:
+     *   - congelado (fora do horário, ou a bola está com o cliente) => 0;
+     *   - aberto => até a próxima virada do horário.
+     */
+    _elapsedSinceSync(el, nowMs) {
+      if (el.dataset.slaFrozen === '1') return 0;
+      var syncAt = parseInt(el.dataset.slaSyncAt || '0', 10);
+      if (!syncAt) return 0;
+      var elapsed = Math.floor((nowMs - syncAt * 1000) / 1000);
+      if (elapsed < 0) return 0;
+      var boundary = parseInt(el.dataset.slaBoundary || '0', 10);
+      if (boundary && nowMs > boundary * 1000) {
+        // A janela de atendimento fechou no meio do intervalo: o
+        // relógio congela no fechamento, não no fim do sync.
+        elapsed = Math.max(0, Math.floor((boundary * 1000 - syncAt * 1000) / 1000));
+      }
+      return elapsed;
+    },
+
+    /**
      * Versão "notificada": chamada quando o poll ou SSE traz dados
      * novos e queremos tocar o som se o nível mudou.
      */
@@ -521,7 +542,24 @@
       if (!id) return;
       var el = document.querySelector('.conv-item[data-conv-id="' + id + '"]');
       if (!el) return;
+      this._applyServerClock(el, conv);
       this.applyToItem(el, conv, true);
+    },
+
+    /**
+     * Copia para o item o estado do relógio servido pelo servidor
+     * (instante do sync, congelamento e próxima virada do horário).
+     */
+    _applyServerClock(el, conv) {
+      if (conv.sla_sync_at != null) {
+        el.dataset.slaSyncAt = String(parseInt(conv.sla_sync_at, 10) || 0);
+      }
+      if (conv.sla_frozen != null) {
+        el.dataset.slaFrozen = conv.sla_frozen ? '1' : '0';
+      }
+      if (conv.sla_boundary_at != null) {
+        el.dataset.slaBoundary = String(parseInt(conv.sla_boundary_at, 10) || 0);
+      }
     },
 
     computeLevel(conv, cfg) {
@@ -1259,6 +1297,9 @@
       el.dataset.slaDir = String(c.last_message_direction || '');
       el.dataset.slaWaiting = String(parseInt(c.waiting_seconds, 10) || 0);
       el.dataset.slaInbox = c.inbox_id != null ? String(c.inbox_id) : '';
+      el.dataset.slaSyncAt = String(parseInt(c.sla_sync_at, 10) || 0);
+      el.dataset.slaFrozen = c.sla_frozen ? '1' : '0';
+      el.dataset.slaBoundary = String(parseInt(c.sla_boundary_at, 10) || 0);
       el.dataset.groupId = c.group_id ? String(c.group_id) : '';
 
       el.innerHTML =
