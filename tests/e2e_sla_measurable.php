@@ -224,6 +224,49 @@ try {
         }
         $db->execute("UPDATE departments SET business_hours_enabled = ? WHERE id = ?", [$deptBackup['business_hours_enabled'], $deptId]);
     }
+
+    // ── config: global e override por caixa ───────────────────────
+    $slaSvc = 'App\Services\SlaService';
+    $cfgBackup = $db->fetchAll("SELECT `key`, value FROM settings WHERE `key` IN ('sla_response_minutes','sla_resolution_minutes','sla_business_hours')");
+    $inboxCfgBackup = $db->fetch(
+        "SELECT sla_response_minutes, sla_resolution_minutes, sla_business_hours FROM inboxes WHERE id = ?",
+        [$inboxId]
+    );
+
+    \App\Models\Setting::set('sla_response_minutes', '30');
+    \App\Models\Setting::set('sla_resolution_minutes', '120');
+    $slaSvc::forgetConfig();
+
+    $global = $slaSvc::configFor(null)['config'] ?? [];
+    check('sla: a config global tem o limite de primeira resposta', (int) ($global['response_minutes'] ?? 0) === 30, json_encode($global));
+    check('sla: a config global tem o limite de resolucao', (int) ($global['resolution_minutes'] ?? 0) === 120);
+    check('sla: a config global tem os toggles de escalonamento', array_key_exists('escalate_managers', $global) && array_key_exists('escalate_autoassign', $global) && array_key_exists('escalate_whatsapp', $global), json_encode(array_keys($global)));
+
+    $db->execute("UPDATE inboxes SET sla_response_minutes = 60, sla_resolution_minutes = 240 WHERE id = ?", [$inboxId]);
+    $slaSvc::forgetConfig();
+    $box = $slaSvc::configFor($inboxId)['config'] ?? [];
+    check('sla: a caixa sobrescreve o limite global', (int) ($box['response_minutes'] ?? 0) === 60, json_encode($box));
+    check('sla: a caixa sobrescreve o limite de resolucao', (int) ($box['resolution_minutes'] ?? 0) === 240);
+
+    $db->execute("UPDATE inboxes SET sla_response_minutes = NULL, sla_resolution_minutes = NULL WHERE id = ?", [$inboxId]);
+    $slaSvc::forgetConfig();
+    $box = $slaSvc::configFor($inboxId)['config'] ?? [];
+    check('sla: caixa sem override herda o global', (int) ($box['response_minutes'] ?? 0) === 30 && (int) ($box['resolution_minutes'] ?? 0) === 120, json_encode($box));
+
+    // restaura
+    $db->execute(
+        "UPDATE inboxes SET sla_response_minutes = ?, sla_resolution_minutes = ?, sla_business_hours = ? WHERE id = ?",
+        [
+            $inboxCfgBackup['sla_response_minutes'],
+            $inboxCfgBackup['sla_resolution_minutes'],
+            $inboxCfgBackup['sla_business_hours'],
+            $inboxId,
+        ]
+    );
+    foreach ($cfgBackup as $r) {
+        \App\Models\Setting::set((string) $r['key'], (string) $r['value']);
+    }
+    $slaSvc::forgetConfig();
 } catch (Throwable $e) {
     $fail++;
     echo 'ERRO: ' . $e->getMessage() . PHP_EOL;

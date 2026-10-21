@@ -419,5 +419,18 @@ check('sla: a medicao carrega a conversa do banco', str_contains($measSrc, 'func
 check('sla: a medicao le a linha do tempo de status', str_contains($measSrc, 'function loadTimeline'));
 check('sla: a medicao grava o resultado', str_contains($measSrc, 'function saveMeasurement'));
 
+// ─────────────────────────────────────────────────────────────
+// SLA mensurável: config dos limites e dos toggles
+// ─────────────────────────────────────────────────────────────
+$slaSrc = file_get_contents(__DIR__ . '/../app/Services/SlaService.php');
+check('sla: a config tem o limite de primeira resposta', str_contains($slaSrc, "'response_minutes'"));
+check('sla: a config tem o limite de resolucao', str_contains($slaSrc, "'resolution_minutes'"));
+check('sla: a config tem os toggles de escalonamento', str_contains($slaSrc, "'escalate_managers'") && str_contains($slaSrc, "'escalate_autoassign'") && str_contains($slaSrc, "'escalate_whatsapp'"));
+check('sla: a caixa pode sobrescrever o horario comercial', str_contains($slaSrc, 'sla_business_hours'));
+$notifView = file_get_contents(__DIR__ . '/../app/Views/settings/notifications.php');
+check('sla: o painel global expoe os limites de medicao', str_contains($notifView, 'sla_response_minutes') && str_contains($notifView, 'sla_resolution_minutes'));
+$inboxView = file_get_contents(__DIR__ . '/../app/Views/settings/inbox_form.php');
+check('sla: o formulario da caixa expoe os overrides', str_contains($inboxView, 'sla_response_minutes') && str_contains($inboxView, 'sla_escalate_autoassign'));
+
 echo "\n$passes passed, $failures failed\n";
 exit($failures > 0 ? 1 : 0);

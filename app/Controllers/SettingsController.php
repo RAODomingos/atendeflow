@@ -98,6 +98,14 @@ class SettingsController
         \App\Services\SlaService::setAll([
             'enabled' => $request->post('sla_enabled') ? '1' : '0',
             'business_hours' => $request->post('sla_business_hours') ? '1' : '0',
+            'response_minutes' => max(1, (int) $request->post('sla_response_minutes')),
+            'resolution_minutes' => max(1, (int) $request->post('sla_resolution_minutes')),
+            'escalate_managers' => $request->post('sla_escalate_managers') ? '1' : '0',
+            'escalate_tag' => $request->post('sla_escalate_tag') ? '1' : '0',
+            'escalate_autoassign' => $request->post('sla_escalate_autoassign') ? '1' : '0',
+            'escalate_whatsapp' => $request->post('sla_escalate_whatsapp') ? '1' : '0',
+            'escalation_message' => trim((string) $request->post('sla_escalation_message'))
+                ?: \App\Services\SlaService::DEFAULT_CONFIG['escalation_message'],
             'attention_minutes' => $slaAttention,
             'alert_minutes' => max($slaAttention + 1, (int) $request->post('sla_alert_minutes')),
             'color_normal' => trim((string) $request->post('sla_color_normal')) ?: '#dcfce7',
@@ -479,6 +487,9 @@ class SettingsController
             'sla_color_normal', 'sla_color_attention', 'sla_color_alert',
             'sla_color_normal_text', 'sla_color_attention_text', 'sla_color_alert_text',
             'sla_sound_attention', 'sla_sound_alert',
+            'sla_response_minutes', 'sla_resolution_minutes', 'sla_business_hours',
+            'sla_escalate_managers', 'sla_escalate_tag',
+            'sla_escalate_autoassign', 'sla_escalate_whatsapp',
         ];
 
         if ($request->post('sla_use_global')) {
@@ -491,6 +502,19 @@ class SettingsController
         $data['sla_attention_minutes'] = max(1, (int) $request->post('sla_attention_minutes'));
         $alertMin = max((int) $data['sla_attention_minutes'] + 1, (int) $request->post('sla_alert_minutes'));
         $data['sla_alert_minutes'] = $alertMin;
+
+        // Medição de compliance e escalonamento.
+        $data['sla_response_minutes'] = $request->post('sla_response_minutes') !== ''
+            ? max(1, (int) $request->post('sla_response_minutes'))
+            : null;
+        $data['sla_resolution_minutes'] = $request->post('sla_resolution_minutes') !== ''
+            ? max(1, (int) $request->post('sla_resolution_minutes'))
+            : null;
+        foreach (['sla_business_hours', 'sla_escalate_managers', 'sla_escalate_tag',
+                  'sla_escalate_autoassign', 'sla_escalate_whatsapp'] as $flag) {
+            // Checkbox desmarcado não é enviado: vira 0 (desligado nesta caixa).
+            $data[$flag] = $request->post($flag) ? 1 : 0;
+        }
 
         $colorMap = [
             'sla_color_normal' => 'sla_color_normal',
@@ -538,6 +562,13 @@ class SettingsController
             'color_alert_text' => $hasOverride ? ($inbox['sla_color_alert_text'] ?? $cfg['color_alert_text']) : $cfg['color_alert_text'],
             'sound_attention' => $hasOverride ? ($inbox['sla_sound_attention'] ?? $cfg['sound_attention']) : $cfg['sound_attention'],
             'sound_alert' => $hasOverride ? ($inbox['sla_sound_alert'] ?? $cfg['sound_alert']) : $cfg['sound_alert'],
+            'response_minutes' => $hasOverride ? (int) ($inbox['sla_response_minutes'] ?? $cfg['response_minutes']) : (int) $cfg['response_minutes'],
+            'resolution_minutes' => $hasOverride ? (int) ($inbox['sla_resolution_minutes'] ?? $cfg['resolution_minutes']) : (int) $cfg['resolution_minutes'],
+            'business_hours' => $hasOverride ? (int) ($inbox['sla_business_hours'] ?? ($cfg['business_hours'] === '1' ? 1 : 0)) : ($cfg['business_hours'] === '1' ? 1 : 0),
+            'escalate_managers' => $hasOverride ? (int) ($inbox['sla_escalate_managers'] ?? ($cfg['escalate_managers'] === '1' ? 1 : 0)) : ($cfg['escalate_managers'] === '1' ? 1 : 0),
+            'escalate_tag' => $hasOverride ? (int) ($inbox['sla_escalate_tag'] ?? ($cfg['escalate_tag'] === '1' ? 1 : 0)) : ($cfg['escalate_tag'] === '1' ? 1 : 0),
+            'escalate_autoassign' => $hasOverride ? (int) ($inbox['sla_escalate_autoassign'] ?? ($cfg['escalate_autoassign'] === '1' ? 1 : 0)) : ($cfg['escalate_autoassign'] === '1' ? 1 : 0),
+            'escalate_whatsapp' => $hasOverride ? (int) ($inbox['sla_escalate_whatsapp'] ?? ($cfg['escalate_whatsapp'] === '1' ? 1 : 0)) : ($cfg['escalate_whatsapp'] === '1' ? 1 : 0),
         ];
 
         return [
