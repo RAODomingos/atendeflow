@@ -363,9 +363,15 @@ class ConversationService
         $finals = ['resolved', 'closed', 'spam'];
         if (in_array($old, $finals, true) && !in_array($status, $finals, true)) {
             Conversation::update($conversationId, ['after_hours_notified' => 0, 'csat_requested' => 0]);
+            // Reabertura reinicia o ciclo do SLA: zera os acumulados e marca
+            // o início do novo ciclo (a medição ignora as mensagens anteriores).
+            \App\Models\ConversationSla::reset($conversationId, date('Y-m-d H:i:s'));
         }
 
-        Conversation::addEvent($conversationId, 'status_changed', "Status alterado para: {$status}", Auth::id());
+        Conversation::addEvent($conversationId, 'status_changed', "Status alterado para: {$status}", Auth::id(), [
+            'from' => $old,
+            'to' => $status,
+        ]);
 
         // Parar fluxo ativo quando atendente mudar status manualmente.
         // applyAbertoTag=false: a tag "Fluxo" some e NÃO vira "Aberto".

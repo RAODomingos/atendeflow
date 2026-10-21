@@ -245,6 +245,158 @@ class SlaMeasurement
     }
 
     /**
+     * Mede os dois SLAs de uma conversa a partir do banco.
+     *
+     * Não grava nada: quem decide o que fazer com o resultado é o worker
+     * (que chama saveMeasurement).
+     *
+     * @return array|null null quando a conversa não tem objeto de SLA
+     *         (grupo de WhatsApp) ou não existe.
+     */
+    public static function forConversation(int $conversationId, ?string $now = null): ?array
+    {
+        $conv = \App\Models\Conversation::find($conversationId);
+        if (!$conv || !empty($conv['group_id'])) {
+            return null;
+        }
+
+        $db = \App\Core\Database::getInstance();
+
+        $messages = $db->fetchAll(
+            "SELECT id, direction, type, user_id, created_at
+             FROM messages WHERE conversation_id = ? ORDER BY id",
+            [$conversationId]
+        );
+        $timeline = self::loadTimeline($conversationId);
+
+        // Grade do departamento (null = sem horário configurado).
+        $deptId = !empty($conv['department_id']) ? (int) $conv['department_id'] : null;
+        $deptCfg = $deptId ? BusinessHoursService::slaConfig($deptId) : null;
+        $schedule = $deptCfg['schedule'] ?? null;
+        $scheduleTz = $deptCfg['timezone'] ?? date_default_timezone_get();
+
+        // Limites: config da caixa (herda o global) ou o global direto.
+        $inboxId = !empty($conv['inbox_id']) ? (int) $conv['inbox_id'] : null;
+        $cfg = SlaService::configFor($inboxId)['config'] ?? [];
+        $responseMinutes = (int) ($cfg['response_minutes']
+            ?? \App\Models\Setting::get('sla_response_minutes', '15'));
+        $resolutionMinutes = (int) ($cfg['resolution_minutes']
+            ?? \App\Models\Setting::get('sla_resolution_minutes', '1440'));
+
+        // Ciclo reiniciado por reabertura: as mensagens anteriores ficam de fora.
+        $cycleStartedAt = null;
+        $row = \App\Models\ConversationSla::find($conversationId);
+        if ($row && !empty($row['metadata'])) {
+            $meta = json_decode((string) $row['metadata'], true);
+            if (is_array($meta) && !empty($meta['cycle_started_at'])) {
+                $cycleStartedAt = (string) $meta['cycle_started_at'];
+            }
+        }
+
+        $result = self::measure(
+            $conv,
+            $messages,
+            $timeline,
+            $schedule,
+            $scheduleTz,
+            $now ?: date('Y-m-d H:i:s'),
+            [
+                'response_threshold' => $responseMinutes * 60,
+                'resolution_threshold' => $resolutionMinutes * 60,
+                'cycle_started_at' => $cycleStartedAt,
+                'app_tz' => date_default_timezone_get(),
+            ]
+        );
+
+        return $result === [] ? null : $result;
+    }
+
+    /**
+     * Linha do tempo de status da conversa.
+     *
+     * Lista de ['at' => 'Y-m-d H:i:s', 'status' => string] em ordem
+     * cronológica. O destino do status vem do `metadata.to` do evento; em
+     * eventos antigos (sem metadata) cai no parse da descrição.
+     *
+     * Quando a primeira mudança conhece o status anterior (`metadata.from`),
+     * ele entra como estado inicial — sem isso, o período anterior à
+     * primeira mudança seria classificado pelo status ATUAL da conversa e a
+     * pausa de `waiting_internal` cairia no lugar errado.
+     */
+    public static function loadTimeline(int $conversationId): array
+    {
+        $rows = \App\Core\Database::getInstance()->fetchAll(
+            "SELECT created_at, description, metadata
+             FROM conversation_events
+             WHERE conversation_id = ? AND event_type = 'status_changed'
+             ORDER BY created_at ASC, id ASC",
+            [$conversationId]
+        );
+
+        $timeline = [];
+        $initialStatus = null;
+
+        foreach ($rows as $row) {
+            $meta = !empty($row['metadata']) ? json_decode((string) $row['metadata'], true) : null;
+            $meta = is_array($meta) ? $meta : [];
+
+            $status = !empty($meta['to']) ? (string) $meta['to'] : null;
+            if ($status === null && !empty($row['description'])) {
+                if (preg_match('/Status alterado para: (\w+)/', (string) $row['description'], $m)) {
+                    $status = $m[1];
+                }
+            }
+            if ($status === null) {
+                continue;
+            }
+
+            if ($initialStatus === null && !empty($meta['from'])) {
+                $initialStatus = (string) $meta['from'];
+            }
+            $timeline[] = ['at' => (string) $row['created_at'], 'status' => $status];
+        }
+
+        if ($initialStatus !== null) {
+            array_unshift($timeline, ['at' => '1970-01-01 00:00:00', 'status' => $initialStatus]);
+        }
+
+        return $timeline;
+    }
+
+    /**
+     * Grava o resultado da medição.
+     *
+     * O `metadata` preserva o `cycle_started_at` já existente (a
+     * reabertura o define) — só é substituído quando informado.
+     */
+    public static function saveMeasurement(int $conversationId, array $measurement, ?string $cycleStartedAt = null): void
+    {
+        $meta = [];
+        $existing = \App\Models\ConversationSla::find($conversationId);
+        if ($existing && !empty($existing['metadata'])) {
+            $decoded = json_decode((string) $existing['metadata'], true);
+            if (is_array($decoded)) {
+                $meta = $decoded;
+            }
+        }
+        if ($cycleStartedAt !== null) {
+            $meta['cycle_started_at'] = $cycleStartedAt;
+        }
+
+        \App\Models\ConversationSla::save($conversationId, [
+            'response_seconds' => $measurement['response_seconds'] ?? null,
+            'response_at' => $measurement['response_at'] ?? null,
+            'response_breached' => !empty($measurement['response_breached']) ? 1 : 0,
+            'response_threshold' => $measurement['response_threshold'] ?? null,
+            'resolution_seconds' => (int) ($measurement['resolution_seconds'] ?? 0),
+            'resolution_breached' => !empty($measurement['resolution_breached']) ? 1 : 0,
+            'resolution_threshold' => $measurement['resolution_threshold'] ?? null,
+            'period_started_at' => $measurement['period_started_at'] ?? null,
+            'metadata' => $meta,
+        ]);
+    }
+
+    /**
      * Segundos entre dois instantes: dentro da grade do departamento, ou
      * tempo de relógio puro quando não há grade.
      */
