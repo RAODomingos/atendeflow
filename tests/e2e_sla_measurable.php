@@ -44,6 +44,12 @@ foreach ($settingsBackup as $r) {
     $settingsBackupMap[(string) $r['key']] = (string) $r['value'];
 }
 
+// O worker mede todas as conversas ativas do banco: para o teste nao
+// deixar rastro, a tabela conversation_slas e os eventos de SLA sao
+// restaurados no finally.
+$slasBackup = $db->fetchAll("SELECT * FROM conversation_slas");
+$slaEventsBackup = $db->fetchAll("SELECT * FROM conversation_events WHERE event_type IN ('sla_breached','sla_escalated')");
+
 try {
     $userId = $db->insert('users', [
         'name' => 'TESTE SLA MEDIVEL',
@@ -240,6 +246,68 @@ try {
     $box = $slaSvc::configFor($inboxId)['config'] ?? [];
     check('sla: caixa sem override herda o global', (int) ($box['response_minutes'] ?? 0) === 30 && (int) ($box['resolution_minutes'] ?? 0) === 120, json_encode($box));
 
+    // ── worker: mede, detecta a violação e é idempotente ─────────
+    $root = dirname(__DIR__);
+    $workerOut = [];
+    $workerCode = 0;
+    exec(escapeshellarg(PHP_BINARY) . ' ' . escapeshellarg($root . '/workers/sla_worker.php') . ' 2>&1', $workerOut, $workerCode);
+    check('sla: o worker roda sem erro', $workerCode === 0, implode(' | ', array_slice($workerOut, -3)));
+
+    $db->execute("DELETE FROM conversation_slas WHERE conversation_id = ?", [$convId]);
+    $db->execute("DELETE FROM conversation_events WHERE conversation_id = ? AND event_type IN ('sla_breached','sla_escalated')", [$convId]);
+
+    // Conversa ativa com cliente esperando ha mais que o limite: viola.
+    $violConvId = $db->insert('conversations', [
+        'public_id' => bin2hex(random_bytes(16)),
+        'contact_id' => $contactId,
+        'channel_id' => $channelId,
+        'inbox_id' => $inboxId,
+        'department_id' => $deptId,
+        'assigned_user_id' => $userId,
+        'status' => 'open',
+        'source' => 'webchat',
+        'created_at' => date('Y-m-d H:i:s', strtotime('-3 hours')),
+        'updated_at' => date('Y-m-d H:i:s'),
+    ]);
+    $db->insert('messages', [
+        'conversation_id' => $violConvId,
+        'type' => 'text',
+        'content' => 'alguem me atende?',
+        'direction' => 'inbound',
+        'is_read' => 0,
+        'created_at' => date('Y-m-d H:i:s', strtotime('-3 hours')),
+        'updated_at' => date('Y-m-d H:i:s', strtotime('-3 hours')),
+    ]);
+
+    exec(escapeshellarg(PHP_BINARY) . ' ' . escapeshellarg($root . '/workers/sla_worker.php') . ' 2>&1', $workerOut, $workerCode);
+    check('sla: o worker roda sem erro na 2a vez', $workerCode === 0, implode(' | ', array_slice($workerOut, -3)));
+
+    $row = \App\Models\ConversationSla::find($violConvId);
+    check('sla: o worker mediu a conversa ativa', $row !== null);
+    check('sla: o worker mediu a espera em aberto', (int) ($row['response_seconds'] ?? -1) >= 10800, 'response_seconds=' . ($row['response_seconds'] ?? 'null'));
+    check('sla: o worker detectou a violacao', (int) ($row['response_breached'] ?? 0) === 1);
+
+    $events = $db->fetchAll(
+        "SELECT id FROM conversation_events WHERE conversation_id = ? AND event_type = 'sla_breached'",
+        [$violConvId]
+    );
+    check('sla: o worker registrou o evento de violacao', count($events) === 1, 'eventos=' . count($events));
+
+    // Idempotencia: rodar de novo nao duplica o evento nem a linha.
+    exec(escapeshellarg(PHP_BINARY) . ' ' . escapeshellarg($root . '/workers/sla_worker.php') . ' 2>&1', $workerOut, $workerCode);
+    $events = $db->fetchAll(
+        "SELECT id FROM conversation_events WHERE conversation_id = ? AND event_type = 'sla_breached'",
+        [$violConvId]
+    );
+    check('sla: o worker e idempotente (nao duplica o evento)', count($events) === 1, 'eventos=' . count($events));
+    $rowsCount = $db->fetch("SELECT COUNT(*) c FROM conversation_slas WHERE conversation_id = ?", [$violConvId]);
+    check('sla: o worker e idempotente (nao duplica a linha)', (int) $rowsCount['c'] === 1, 'linhas=' . $rowsCount['c']);
+
+    $db->execute("DELETE FROM conversation_slas WHERE conversation_id = ?", [$violConvId]);
+    $db->execute("DELETE FROM conversation_events WHERE conversation_id = ? AND event_type IN ('sla_breached','sla_escalated')", [$violConvId]);
+    $db->execute("DELETE FROM messages WHERE conversation_id = ?", [$violConvId]);
+    $db->execute("DELETE FROM conversations WHERE id = ?", [$violConvId]);
+
     // restaura os overrides da caixa (as settings vao no finally)
     $db->execute(
         "UPDATE inboxes SET sla_response_minutes = ?, sla_resolution_minutes = ?, sla_business_hours = ? WHERE id = ?",
@@ -283,6 +351,18 @@ try {
         }
     }
     \App\Services\SlaService::forgetConfig();
+
+    // restaura a tabela conversation_slas e os eventos de SLA
+    $db->execute("DELETE FROM conversation_slas");
+    foreach ($slasBackup as $r) {
+        unset($r['id']);
+        $db->insert('conversation_slas', $r);
+    }
+    $db->execute("DELETE FROM conversation_events WHERE event_type IN ('sla_breached','sla_escalated')");
+    foreach ($slaEventsBackup as $r) {
+        unset($r['id']);
+        $db->insert('conversation_events', $r);
+    }
 
     if ($convId) {
         $db->execute("DELETE FROM conversation_slas WHERE conversation_id = ?", [$convId]);

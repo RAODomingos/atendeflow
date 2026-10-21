@@ -140,23 +140,54 @@ class SlaMeasurement
             $periodStartedAt = $waitStart->format('Y-m-d H:i:s');
         }
 
+        // Status vigente antes da primeira mudança registrada: o da conversa.
+        $fallbackStatus = (string) ($conv['status'] ?? '');
+
         // ── SLA de primeira resposta ───────────────────────────────
         $responseSeconds = null;
         $responseAt = null;
         $responseBreached = false;
 
-        if ($firstReply !== null && $firstInbound !== null) {
-            $responseSeconds = self::elapsed($schedule, $scheduleTz, $firstInbound, $firstReply);
+        if ($firstInbound === null) {
+            // O cliente nunca falou (conversa criada manualmente):
+            // não há objeto de SLA, e não há o que violar.
+            $responseSeconds = null;
+            $responseBreached = false;
+        } elseif ($firstReply !== null) {
+            // Resposta humana já saiu: o tempo é o da 1ª resposta.
+            $responseSeconds = self::countWithPause(
+                $schedule,
+                $scheduleTz,
+                $appTz,
+                $firstInbound,
+                $firstReply,
+                $timeline,
+                $fallbackStatus
+            );
             $responseAt = $firstReply->format('Y-m-d H:i:s');
             $responseBreached = $responseSeconds >= $responseThreshold;
-        } elseif ($isFinal) {
+        } elseif (!$isFinal) {
+            // Ainda esperando a 1ª resposta: a espera CONTINUA correndo
+            // (é o que permite detectar a violação em tempo real).
+            $responseSeconds = self::countWithPause(
+                $schedule,
+                $scheduleTz,
+                $appTz,
+                $firstInbound,
+                $nowAt,
+                $timeline,
+                $fallbackStatus
+            );
+            $responseAt = null;
+            $responseBreached = $responseSeconds >= $responseThreshold;
+        } else {
             // Encerrada sem resposta humana: violação consumada.
+            $responseSeconds = null;
             $responseBreached = true;
         }
 
         // ── SLA de resolução ──────────────────────────────────────
         $resolutionSeconds = 0;
-        $fallbackStatus = (string) ($conv['status'] ?? '');
         foreach ($periods as [$ini, $fim]) {
             $resolutionSeconds += self::countWithPause(
                 $schedule,
