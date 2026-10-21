@@ -229,5 +229,21 @@ check('sla: o horario comercial expoe a grade no formato do relogio', str_contai
 $setSrc = file_get_contents(__DIR__ . '/../app/Views/settings/notifications.php');
 check('sla: o painel expoe o toggle de horario comercial', str_contains($setSrc, 'sla_business_hours'));
 
+// ─────────────────────────────────────────────────────────────
+// Notificações: dedup indexável e schema.sql completo
+// ─────────────────────────────────────────────────────────────
+$notifSrc = file_get_contents(__DIR__ . '/../app/Services/NotificationService.php');
+check('notificacao: o dedup usa a coluna message_id', str_contains($notifSrc, 'AND message_id = ?'));
+check('notificacao: o dedup nao extrai message_id do JSON', !str_contains($notifSrc, "JSON_EXTRACT(metadata, '$.message_id')"));
+
+$schemaSrc = file_get_contents(__DIR__ . '/../database/schema.sql');
+check('notificacao: a tabela notifications esta no schema.sql', str_contains($schemaSrc, 'CREATE TABLE IF NOT EXISTS notifications'));
+check('notificacao: o schema.sql traz a coluna message_id', str_contains($schemaSrc, 'message_id BIGINT UNSIGNED NULL'));
+check('notificacao: o schema.sql traz o indice do dedup', str_contains($schemaSrc, 'idx_notif_msg (user_id, conversation_id, message_id)'));
+
+$migrationSrc = file_get_contents(__DIR__ . '/../database/migrations/2026_10_20_notifications_message_id.sql');
+check('notificacao: a migration cria a coluna message_id', str_contains($migrationSrc, 'ADD COLUMN message_id'));
+check('notificacao: a migration cria o indice do dedup', str_contains($migrationSrc, 'idx_notif_msg'));
+
 echo "\n$passes passed, $failures failed\n";
 exit($failures > 0 ? 1 : 0);
