@@ -19,7 +19,7 @@ Central omnichannel self-hosted que unifica **WebChat (widget embeddável) + Wha
 5. Serviço mensurável — SLA, CSAT e reports decidem workflow.
 
 **Usuários:**
-- **Primários:** agentes (triagem/resposta em inboxes compartilhadas/pessoais), gestores (configuram departamentos, horário, flows, macros/tags, SLA, motivos de encerramento), admins (usuários, canais, inboxes, conexões WhatsApp, chaves wiki).
+- **Primários:** agentes (triagem/resposta em inboxes compartilhadas/pessoais), gestores (configuram flows, macros/tags, SLA, motivos de encerramento), admins (usuários, canais, inboxes, conexões WhatsApp, chaves wiki, departamentos + horário comercial).
 - **Secundários (público):** clientes finais via widget WebChat, WhatsApp, link CSAT público, portal wiki hospedado em qualquer lugar.
 
 ---
@@ -33,7 +33,7 @@ Central omnichannel self-hosted que unifica **WebChat (widget embeddável) + Wha
 | Servidor | Docroot `public/`. Apache (`.htaccess` reescreve p/ `public/`, bloqueia `env/storage/vendor/database/config/scripts/workers/lib/.git/*.sql/*.log`) ou Nginx (`deploy/nginx/atendeflow.test.conf` como canônico: catch-all, `client_max_body_size 32M`, nega `*.php` em `uploads/`, `X-Frame-Options SAMEORIGIN`, gzip). `APP_URL` vazio = auto-detect (ngrok/host qualquer) |
 | Storage | `storage/uploads` (mídias flows/macros/wiki/sons/avatars, `UPLOAD_MAX_SIZE 10MB`), `storage/logs/webhook.log`, `public/uploads` servido direto (nunca executar PHP), `public/wiki-frontend/` estático cache 1h |
 | Composer scripts | `serve: php -S localhost:8080 -t public`, `migrate: php database/migrate.php`, `test: php tests/run.php` |
-| Cron / Daemon | `workers/flow_worker.php` via cron `* * * * *` + `workers/process_jobs.php` via systemd/supervisor (ver §13) |
+| Cron / Daemon | `workers/flow_worker.php` e `workers/sla_worker.php` via cron `* * * * *` + `workers/process_jobs.php` via systemd/supervisor (ver §13) |
 | Seed inicial | `admin@atendeflow.local / Admin@123` (bcrypt no schema — **trocar em prod**), deptos Comercial/Suporte/Financeiro, inboxes Geral+3, channels ChatWeb x3, tags Lead/Cliente/Prioridade/Inadimplente/VIP |
 
 ---
@@ -62,9 +62,9 @@ php -S localhost:8080 -t public  # dev; prod = vhost Nginx/Apache apontando p/ p
 | Papel | Verificação | Acesso |
 |---|---|---|
 | Público | sem `auth` | `GET/POST /login`, `GET/POST /csat/{token}`, `GET /widget/demo/{key}`, `GET /widget/chat.js|css`, `POST /api/webchat/*`, `POST /webhooks/whatsapp`, `GET /api/wiki/*` (com `X-API-Key`) |
-| `agent` (base) | `['auth','csrf']` | `/`, `/inbox*`, `/contacts` (ver/criar), `/departments` (ver), `/flows` (só lista), `/profile`, `/macros` (listar), `/library` (ver), `/wiki` (ler), `/whatsapp/groups` (ler), `/api/*` internos |
-| `manager` | `['manager']` (= manager+admin) | + CRUD departamentos/flows, edit/delete contatos, store macros/library, `alert|inbox|send` grupos, `/reports*`, upload flows/macros/wiki |
-| `admin` | `['admin']` | + `/settings*`, `/users*`, `/channels*`, `/inboxes*`, `connect|disconnect` WhatsApp, `/settings/subjects|close-reasons`, `/wiki/settings*`, `/api/close-reasons*` |
+| `agent` (base) | `['auth','csrf']` | `/`, `/inbox*`, `/contacts` (ver/criar), `/flows` (só lista), `/profile`, `/macros` (listar), `/library` (ver), `/wiki` (ler), `/whatsapp/groups` (ler), `/api/*` internos |
+| `manager` | `['manager']` (= manager+admin) | + CRUD flows, edit/delete contatos, store macros/library, `alert|inbox|send` grupos, `/reports*`, upload flows/macros/wiki |
+| `admin` | `['admin']` | + `/settings*` (inclui a aba Departamentos), `/departments*` (CRUD + horário + membros), `/users*`, `/channels*`, `/inboxes*`, `connect|disconnect` WhatsApp, `/settings/subjects|close-reasons`, `/wiki/settings*`, `/api/close-reasons*` |
 | Wiki externo | header `X-API-Key` | `GET /api/wiki/categories|articles|articles/{slug}|config|chat-config` |
 
 `POST /logout` exige `auth+csrf`. APIs internas via `fetch FormData` ou `X-CSRF-TOKEN`.
@@ -116,7 +116,25 @@ Controller `InboxController.php` (~1550 linhas). Views `inbox/{index,show,panel,
   - Sem grade (departamento sem `business_hours_enabled` ou sem regras) => tempo de relógio puro. Toggle global `sla_business_hours` (default ligado) desliga o uso da grade.
   - Tick do navegador: `data-sla-sync-at` + `data-sla-frozen` + `data-sla-boundary` em `app/Views/inbox/_conv_list.php`; `SlaManager._elapsedSinceSync()` só soma tempo enquanto o relógio corre e limita na próxima virada da grade.
 
-### 6.6 Realtime, sons, notificações, unread
+### 6.6 SLA — medição e compliance
+
+Além das cores e sons (6.5), o sistema **mede** os dois SLAs de cada conversa e guarda o resultado.
+
+- **Dois SLAs:** *primeira resposta* (1ª mensagem do cliente → 1ª resposta **humana**; bot com `user_id` nulo não conta) e *resolução* (segundos úteis com a bola com a gente, até o encerramento).
+- **`app/Services/SlaClock.php`** — matemática pura, sem banco: `elapsedInSchedule($grade, $tz, $from, $to)` (segundos dentro das janelas abertas), `isOpenAt()`, `nextBoundary()`.
+- **`app/Services/SlaMeasurement.php`** — o motor. `measure()` é **puro** (o histórico é a única fonte da verdade: rodar duas vezes dá o mesmo número). `forConversation()` carrega conversa/mensagens/linha do tempo/grade do banco; `loadTimeline()` lê os eventos `status_changed`; `saveMeasurement()` grava.
+  - Âncoras: `last_inbound_at` (1ª mensagem do cliente) e a última inbound desde a última resposta humana (o período em aberto).
+  - Pausa: `waiting_internal` (bola com outro setor) desconta o segmento do relógio — vale para os dois SLAs.
+  - Limites **snapshotados** na linha: mudar a config não reescreve o histórico.
+  - Reabertura (`resolved|closed|spam` → ativo) zera o ciclo (`ConversationSla::reset()`, `metadata.cycle_started_at`).
+  - A espera em aberto **conta** e pode violar em tempo real (é o que o worker detecta).
+- **`app/Models/ConversationSla.php`** — tabela `conversation_slas` (uma linha por conversa): `response_seconds/at/breached/threshold`, `resolution_seconds/breached/threshold`, `period_started_at`, `metadata`. Consultas: `criticalNow()`, `compliance($dias)`, `agentBreakdown()/departmentBreakdown()/inboxBreakdown()`, `violatedConversations()`.
+- **Worker `workers/sla_worker.php`** (cron `* * * * *`, junto do `flow_worker`): mede as conversas ativas, detecta a transição `0→1` de `response_breached` (grava o evento `sla_breached`), finaliza as encerradas e faz o backfill em lote. **Idempotente.** Sem o worker, nada é medido.
+- **Escalonamento (`app/Services/SlaEscalation.php`)** — dispara uma vez por conversa, na violação da 1ª resposta: (1) tag "SLA violado", (2) notificação in-app aos gerentes do departamento (`NotificationService::notifySystem()`), (3) autoatribuição ao atendente **menos carregado** (só quando não há responsável — nunca rouba a conversa de quem atende), (4) aviso por WhatsApp ao plantão (`departments.sla_escalation_phone`). Cada ação tem toggle próprio (global + por caixa). O SLA de resolução **não** escala.
+- **Superfícies:** chip de SLA no header da conversa (`inbox/panel.php`, re-renderizado no poll de 10s), card "SLA crítico agora" no dashboard, relatório `/reports/sla` (+ `/reports/sla/csv`).
+- **Config:** `sla_response_minutes` (15), `sla_resolution_minutes` (1440), `sla_business_hours` (1), `sla_escalate_managers` (1), `sla_escalate_tag` (1), `sla_escalate_autoassign` (0), `sla_escalate_whatsapp` (0), `sla_escalation_message` — globais em `settings` e sobrescritíveis por caixa em `inboxes` (NULL = herda).
+
+### 6.7 Realtime, sons, notificações, unread
 - Prefs `GET/POST /api/user-preferences` (`sound_enabled, sound_new_message/conversation/mention, browser_notif_enabled`). Sons custom `GET /api/sounds`, `POST /api/sounds/upload` (`mp3/wav/ogg/m4a ≤1MB`, máx 10/usuário), `POST /api/sounds/{id}/delete` (só dono).
 - `Notification`: `mention/assigned/unread`; `NotificationService::notifyNewMessage()` escolhe `new_message x new_conversation` (grupos: menção vira `notification`, nunca `conversation_new`).
 - **SSE** `GET /realtime/events` (`text/event-stream`, 55s max, poll 5s): `connected, notification, conversation_new` (filtra grupo/fechada + vê-conversa), `message_incoming` (só inbound não-grupo), `conversation_updated` (flow/tag), `unread_count`, `inbox_counts`, `typing` (≤6s), `heartbeat`. Boot em `public/assets/js/app.js` (sino, badges `unread-summary|inbox-counts|unread-conversations`, digitando).
@@ -141,7 +159,7 @@ Controller `InboxController.php` (~1550 linhas). Views `inbox/{index,show,panel,
 
 `DepartmentController.php`, `Models/Department.php`, `Services/BusinessHoursService.php`.
 
-- `GET /departments` (stats `total/users/open/closed`), `GET /departments/{id}` (exige gerente ou membro; mostra membros/não-membros/conversas + `bh{Enabled,Timezone,Absence,Schedule,IsOpen}`), CRUD gerente+ (`store/update` exige `name`, `color default #4A90D9`), `addUser{user_id,is_manager}/removeUser/destroy`, `GET /api/departments/{id}/users` (dropdown transferência).
+- Listagem em **Configurações → Departamentos** (`GET /settings/departments`, admin) com stats `total/users/open/closed`; `GET /departments` redireciona para ela. `GET /departments/{id}` (admin) mostra membros/não-membros/conversas + `bh{Enabled,Timezone,Absence,Schedule,IsOpen}`. CRUD admin (`store/update` exige `name`, `color default #4A90D9`), `addUser{user_id,is_manager}/removeUser/destroy`. `GET /api/departments/{id}/users` continua liberado (dropdown transferência no inbox).
 - `POST /{id}/business-hours {enabled,timezone(default America/Sao_Paulo),absence_message,bh[0..6]{is_open,open_time,close_time}}` (substitui 7 linhas, default `08-18h`).
 - Regra `isOpen(dept)`: sem depto/desativado/sem regra → `true`; senão `is_open + H:i entre open/close` no fuso do depto. Aviso ausência: só com depto, 1x (`after_hours_notified`), pula se aberto ou fluxo ativo; envia `absenceMessage` (custom ou default); reset em troca depto/reabertura. `Flow::getBestFlowForChannel()` respeita `business_hours_only`.
 
@@ -259,7 +277,7 @@ Controller `InboxController.php` (~1550 linhas). Views `inbox/{index,show,panel,
 
 ## 17. Modelo de Dados (resumo por domínio)
 
-Fonte `database/schema.sql` (~30 tabelas) + 42 migrations. Runner `php database/migrate.php` (`schema_migrations`, tolera `1050/1060/1061/1062/1091/1826`).
+Fonte `database/schema.sql` (~31 tabelas) + 44 migrations. Runner `php database/migrate.php` (`schema_migrations`, tolera `1050/1060/1061/1062/1091/1826`).
 
 - **Identidade:** `users(id,name,email UNIQUE,password bcrypt,role,is_active)`, `user_preferences(user_id,key,value UNIQUE)`, `departments(id,name,color,is_active,business_hours_*)`, `department_users(dept,user,is_manager UNIQUE)`, `sessions(id,data,last_accessed)`, `settings(key,value: wiki_api_key,openai_api_key,SLA,CSAT)`, `audit_logs(user,action,entity,old/new JSON,ip)`, `jobs(queue,payload{handler,method,params},attempts,priority,available/reserved_at)`.
 - **Contatos:** `contacts(name,email,phone,company,document,last_contact/activity_at)`, `contact_phones/emails(contact FK,label,is_primary)`, `contact_stores(contact,customer_id Guild,network_name UNIQUE)`, `tags(name UNIQUE)`, `contact_tags`, `conversation_tags`, `whatsapp_lid_map(lid<->phone)`, `whatsapp_contact_names(phone->pushName)`.
@@ -291,6 +309,7 @@ Tipos `messages.type`: `text/image/audio/video/file/system/internal_note/csat_re
 ## 19. Workers, Cron, Scripts, Deploy
 
 - `workers/flow_worker.php` — **cron cada minuto:** `* * * * * cd /var/www/atendeflow && php workers/flow_worker.php >> storage/logs/flow_worker.log 2>&1`. Faz `processPendingDelays()` + `processPendingRetries()` + `cleanupOldStates()` (só segunda). Sai `1` em erro, log com timestamp.
+- `workers/sla_worker.php` — **cron cada minuto:** `* * * * * cd /var/www/atendeflow && php workers/sla_worker.php >> storage/logs/sla_worker.log 2>&1`. Mede as conversas ativas, detecta a violação do SLA de 1ª resposta (grava o evento `sla_breached` e dispara o escalonamento), finaliza as conversas encerradas e faz o backfill em lote. Idempotente. **Sem este worker nada é medido** (nada aparece no relatório nem no KPI).
 - `workers/process_jobs.php` — **daemon** (systemd/supervisor `Restart=always`, 1 réplica): loop `SELECT ... WHERE reserved_at IS NULL AND available_at<=NOW() AND attempts<max ... ORDER BY priority DESC LIMIT 1; reserva; handler->method(params); DELETE; sleep 2`. Fila genérica `jobs`.
 - `scripts/bootstrap.php`: bootstrap CLI p/ scripts/migrations/tests.
 - `deploy/nginx/atendeflow.test.conf`: vhost versionado; Laragon `sites-enabled/atendeflow.test.conf` só `include` ele; `nginx -t && nginx -s reload`. Prod: `root→/var/www/atendeflow/public`, `fastcgi_pass→unix:/run/php/php8.3-fpm.sock`, SSL Let's Encrypt, remover `localhost/ngrok`.
@@ -306,9 +325,9 @@ Tipos `messages.type`: `text/image/audio/video/file/system/internal_note/csat_re
 
 ---
 
-## 21. Telas (50 views)
+## 21. Telas (51 views)
 
-`auth/login`, `dashboard/index`, `inbox/{index,_conv_list,show,panel,panel/_drawer,panel/_modals,new,pdf}`, `contacts/{index,form,show,pdf,pdf_full}`, `departments/{index,show}`, `flows/{index,form}`, `users/{index,form,profile}`, `macros/index`, `library/index` (tags/canned/subjects), `settings/{_tabs,channels,general,notifications,inboxes,inbox_form,subjects,close_reasons,demo}`, `whatsapp/{groups,group_show}`, `wiki/{index,categories,category_form,articles,article_form,settings}`, `reports/{index,conversations,agents,csat,timeline,timeline_pdf}`, `csat/public`, `layouts/main` (sidebar inboxes+badges, topbar sino/SSE, alerta WhatsApp, sons, prefs), `errors/error`. Assets `public/assets/{css/app.css, js/app.js, js/app-enhancements.js, js/audio_recorder.js, img/*}`.
+`auth/login`, `dashboard/index`, `inbox/{index,_conv_list,show,panel,panel/_drawer,panel/_modals,new,pdf}`, `contacts/{index,form,show,pdf,pdf_full}`, `departments/{index,show}`, `flows/{index,form}`, `users/{index,form,profile}`, `macros/index`, `library/index` (tags/canned/subjects), `settings/{_tabs,channels,departments,general,notifications,inboxes,inbox_form,subjects,close_reasons,demo}`, `whatsapp/{groups,group_show}`, `wiki/{index,categories,category_form,articles,article_form,settings}`, `reports/{index,conversations,agents,csat,timeline,timeline_pdf}`, `csat/public`, `layouts/main` (sidebar inboxes+badges, topbar sino/SSE, alerta WhatsApp, sons, prefs), `errors/error`. Assets `public/assets/{css/app.css, js/app.js, js/app-enhancements.js, js/audio_recorder.js, img/*}`.
 
 Design: Fluent desk (azul `#0078d4`, Segoe UI, 240px sidebar + 380px lista + chat fluido, cantos 4-8px, flat-by-default) + portal wiki verde serifado (`#006400`, Jakarta + DM Serif, 12px radius, 1140px) — ver `DESIGN.md`. Não misturar os dois mundos.
 
@@ -327,8 +346,8 @@ Design: Fluent desk (azul `#0078d4`, Segoe UI, 240px sidebar + 380px lista + cha
 9. [ ] CSAT: disparo em `resolved/closed` + resposta estrita 1-5 + link público rate-limited + thanks + relatórios.
 10. [ ] Reports: overview/conversations/agents/csat/timeline(+pdf/csv com limites) + heatmap + comparação.
 11. [ ] Wiki API-key + portal estático copiável + `content_absolute` + chat-config + suggest.
-12. [ ] Workers: cron `flow_worker` + daemon `process_jobs` + logs + deploy Nginx + storage perms + webhook HTTPS.
-13. [ ] Testes: `php tests/run.php` + manuais (inbox realtime, fluxo ponta-a-ponta, webhook, CSAT, wiki portal com key regenerada). O SLA tem suíte própria: `php tests/run.php` (matemática do relógio, sem banco) e `php tests/e2e_sla.php` (end-to-end no MySQL, autolimpante).
+12. [ ] Workers: cron `flow_worker` + cron `sla_worker` (medicao de SLA) + daemon `process_jobs` + logs + deploy Nginx + storage perms + webhook HTTPS.
+13. [ ] Testes: `php tests/run.php` + manuais (inbox realtime, fluxo ponta-a-ponta, webhook, CSAT, wiki portal com key regenerada). O SLA tem suíte própria: `php tests/e2e_sla_measurable.php` (medição, worker, escalonamento — autolimpante) e `php tests/smoke_sla.php` (HTTP).. O SLA tem suíte própria: `php tests/run.php` (matemática do relógio, sem banco) e `php tests/e2e_sla.php` (end-to-end no MySQL, autolimpante).
 
 ---
 
