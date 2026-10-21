@@ -263,6 +263,40 @@ $renderReceipts = function (array $msg) {
                 <i class="fas fa-chevron-down" style="font-size:9px;opacity:.5;margin-left:auto"></i>
             </button>
             <?php
+            // Chip de SLA: 1ª resposta (a acionável) e resolução no title.
+            $slaRow = \App\Models\ConversationSla::summaryForConversation((int) $conv['id']);
+            $slaHuman = function ($sec): string {
+                if ($sec === null) return '—';
+                $sec = (int) $sec;
+                if ($sec < 60) return $sec . 's';
+                if ($sec < 3600) return (int) round($sec / 60) . ' min';
+                $h = intdiv($sec, 3600);
+                $m = intdiv($sec % 3600, 60);
+                return $m > 0 ? $h . 'h' . $m : $h . 'h';
+            };
+            $slaRespSec = $slaRow['response_seconds'] ?? null;
+            $slaRespLimit = (int) ($slaRow['response_threshold'] ?? 0);
+            $slaRespDone = !empty($slaRow['response_at']);
+            $slaRespBreach = !empty($slaRow['response_breached']);
+            $slaResSec = (int) ($slaRow['resolution_seconds'] ?? 0);
+            $slaResLimit = (int) ($slaRow['resolution_threshold'] ?? 0);
+            $slaResBreach = !empty($slaRow['resolution_breached']);
+            if ($slaRespBreach) {
+                $slaColor = '#dc2626';
+            } elseif ($slaRespSec !== null && $slaRespLimit > 0 && $slaRespSec >= $slaRespLimit * 0.6) {
+                $slaColor = '#f59e0b';
+            } else {
+                $slaColor = '#16a34a';
+            }
+            $slaTitle = 'SLA de 1ª resposta: '
+                . ($slaRespSec === null ? 'sem resposta ainda' : $slaHuman($slaRespSec) . ($slaRespLimit ? ' de ' . $slaHuman($slaRespLimit) : ''))
+                . ' · SLA de resolução: ' . $slaHuman($slaResSec) . ($slaResLimit ? ' de ' . $slaHuman($slaResLimit) : '');
+            ?>
+            <span class="header-chip header-chip-sla" title="<?= e($slaTitle) ?>">
+                <i class="fas fa-stopwatch" style="color:<?= $slaColor ?>"></i>
+                <span class="chip-text"><?= $slaRespDone ? 'SLA ok' : 'SLA ' . e($slaHuman($slaRespSec)) ?></span>
+            </span>
+            <?php
             $unitNets = [];
             foreach (($contact['stores'] ?? []) as $us) { $unitNets[$us['network_name']] = $us['customer_id']; }
             ksort($unitNets);
@@ -2482,6 +2516,8 @@ function pollMeta() {
         if (badge && c.status) badge.outerHTML = statusBadgeHtml(c.status);
         var pb = document.querySelector('.header-chip-priority');
         if (pb && c.priority) pb.outerHTML = priorityBadgeHtml(c.priority);
+        var sb = document.querySelector('.header-chip-sla');
+        if (sb) sb.outerHTML = slaChipHtml(c);
         if (c.assigned_user_name) {
             var a = document.getElementById('convAssigned');
             if (a) a.innerHTML = '<i class="fas fa-user" style="font-size:10px"></i> ' + c.assigned_user_name;
@@ -2511,6 +2547,31 @@ function priorityBadgeHtml(p) {
     var map = {low:'Baixa',normal:'Normal',high:'Alta',urgent:'Urgente'};
     var colors = {urgent:'#d32f2f',high:'#f57c00',low:'#1976d2',normal:'var(--text-secondary)'};
     return '<button type="button" class="header-chip header-chip-priority" onclick="openPriorityModal()" title="Clique para alterar prioridade"><i class="fas fa-flag" style="color:' + (colors[p] || colors.normal) + '"></i><span class="chip-text">' + (map[p] || p) + '</span><i class="fas fa-chevron-down" style="font-size:9px;opacity:.5;margin-left:auto"></i></button>';
+}
+function slaHuman(sec) {
+    if (sec === null || typeof sec === 'undefined') return '—';
+    sec = parseInt(sec, 10) || 0;
+    if (sec < 60) return sec + 's';
+    if (sec < 3600) return Math.round(sec / 60) + ' min';
+    var h = Math.floor(sec / 3600);
+    var m = Math.floor((sec % 3600) / 60);
+    return m > 0 ? h + 'h' + m : h + 'h';
+}
+function slaChipHtml(c) {
+    var respSec = (c.sla_response_seconds === null || typeof c.sla_response_seconds === 'undefined') ? null : parseInt(c.sla_response_seconds, 10);
+    var respLimit = parseInt(c.sla_response_threshold, 10) || 0;
+    var respDone = !!(c.sla_response_at);
+    var respBreach = parseInt(c.sla_response_breached, 10) === 1;
+    var resSec = parseInt(c.sla_resolution_seconds, 10) || 0;
+    var resLimit = parseInt(c.sla_resolution_threshold, 10) || 0;
+    var color = respBreach ? '#dc2626'
+        : (respSec !== null && respLimit > 0 && respSec >= respLimit * 0.6 ? '#f59e0b' : '#16a34a');
+    var title = 'SLA de 1ª resposta: ' + (respSec === null ? 'sem resposta ainda' : slaHuman(respSec) + (respLimit ? ' de ' + slaHuman(respLimit) : ''))
+        + ' · SLA de resolução: ' + slaHuman(resSec) + (resLimit ? ' de ' + slaHuman(resLimit) : '');
+    var text = respDone ? 'SLA ok' : 'SLA ' + slaHuman(respSec);
+    return '<span class="header-chip header-chip-sla" title="' + title.replace(/"/g, '&quot;') + '">'
+        + '<i class="fas fa-stopwatch" style="color:' + color + '"></i>'
+        + '<span class="chip-text">' + text + '</span></span>';
 }
 
 if (window.__convPollInterval) clearInterval(window.__convPollInterval);

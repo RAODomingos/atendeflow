@@ -532,7 +532,33 @@ class InboxController
         $custom = trim((string) ($user['signature'] ?? ''));
         $signature = $custom !== '' ? $custom : '*' . trim($user['name']) . '*';
 
+        // Normaliza: exatamente UMA quebra entre assinatura e mensagem
+        // (assinatura salva com linha em branco no fim ou texto começando
+        // com linha em branco gerava a linha vazia no WhatsApp).
+        $signature = rtrim(preg_replace("/\r\n?/", "\n", $signature), "\n");
+        $text = ltrim(preg_replace("/\r\n?/", "\n", $text), "\n");
+
         return $signature . "\n" . $text;
+    }
+
+    /**
+     * Na edição, mantém o mesmo padrão do envio: se o conteúdo começa com
+     * a assinatura do usuário, colapsa linhas em branco logo após ela para
+     * exatamente UMA quebra (assinatura na linha de cima, mensagem embaixo).
+     * Demais parágrafos do corpo são preservados.
+     */
+    private function normalizeSignatureBreak(string $content): string
+    {
+        $content = preg_replace("/\r\n?/", "\n", $content);
+        $user = Auth::user();
+        $custom = trim((string) ($user['signature'] ?? ''));
+        $signature = $custom !== '' ? $custom : '*' . trim((string) ($user['name'] ?? '')) . '*';
+        $signature = rtrim(preg_replace("/\r\n?/", "\n", $signature), "\n");
+        if ($signature !== '' && str_starts_with($content, $signature)) {
+            $rest = ltrim(substr($content, strlen($signature)), "\n");
+            return $signature . "\n" . $rest;
+        }
+        return $content;
     }
 
     public function updateSettings(Request $request, int $id): void
@@ -712,7 +738,7 @@ class InboxController
             $filters['status'] = $statusFilter;
         }
         $conversations = Conversation::getConversationsForInboxes($ids, Auth::id(), $filters);
-        View::json($conversations);
+        View::json(self::attachSlaFields($conversations));
     }
 
     /**
@@ -1014,8 +1040,33 @@ class InboxController
         $conv = Conversation::find($id);
         if ($conv) {
             $conv['csat'] = Conversation::getCsat($id);
+            $conv = self::attachSlaFields([$conv])[0];
         }
         View::json($conv ?: new \stdClass());
+    }
+
+    /**
+     * Acrescenta os campos de SLA (primeira resposta e resolução) às
+     * conversas, em UMA query para a lista inteira.
+     */
+    private static function attachSlaFields(array $conversations): array
+    {
+        if (empty($conversations)) {
+            return $conversations;
+        }
+        $ids = array_map(fn($c) => (int) ($c['id'] ?? 0), $conversations);
+        $map = \App\Models\ConversationSla::forConversations($ids);
+
+        foreach ($conversations as $i => $c) {
+            $sla = $map[(int) ($c['id'] ?? 0)] ?? null;
+            $conversations[$i]['sla_response_seconds'] = $sla['response_seconds'] ?? null;
+            $conversations[$i]['sla_response_breached'] = (int) ($sla['response_breached'] ?? 0);
+            $conversations[$i]['sla_response_threshold'] = $sla['response_threshold'] ?? null;
+            $conversations[$i]['sla_resolution_seconds'] = $sla['resolution_seconds'] ?? null;
+            $conversations[$i]['sla_resolution_breached'] = (int) ($sla['resolution_breached'] ?? 0);
+            $conversations[$i]['sla_resolution_threshold'] = $sla['resolution_threshold'] ?? null;
+        }
+        return $conversations;
     }
 
     public function apiCanned(Request $request): void
@@ -1114,6 +1165,7 @@ class InboxController
         $content = trim((string) $request->post('content'));
         $ok = false;
         if ($content !== '') {
+            $content = $this->normalizeSignatureBreak($content);
             $ok = Conversation::updateMessage($mid, Auth::id(), $content);
         }
         if ($ok) {

@@ -335,6 +335,16 @@ try {
     $rowsCount = $db->fetch("SELECT COUNT(*) c FROM conversation_slas WHERE conversation_id = ?", [$violConvId]);
     check('sla: o worker e idempotente (nao duplica a linha)', (int) $rowsCount['c'] === 1, 'linhas=' . $rowsCount['c']);
 
+    // ── leituras: chip, KPI e relatório ──────────────────────────
+    check('sla: o dashboard sabe quantas conversas estao em sla critico', \App\Models\ConversationSla::criticalNow() >= 1);
+    $compliance = \App\Models\ConversationSla::compliance(30);
+    check('sla: o compliance mede a primeira resposta', ($compliance['response']['measured'] ?? 0) >= 1, json_encode($compliance));
+    check('sla: o compliance da resolucao so conta conversas encerradas', array_key_exists('measured', $compliance['resolution'] ?? []));
+    $slaMap = \App\Models\ConversationSla::forConversations([$violConvId]);
+    check('sla: o lote de linhas de sla funciona', isset($slaMap[$violConvId]), json_encode(array_keys($slaMap)));
+    $summary = \App\Models\ConversationSla::summaryForConversation($violConvId);
+    check('sla: o resumo de uma conversa funciona', $summary !== null && (int) $summary['response_breached'] === 1);
+
     $db->execute("DELETE FROM conversation_slas WHERE conversation_id = ?", [$violConvId]);
     $db->execute("DELETE FROM conversation_events WHERE conversation_id = ? AND event_type IN ('sla_breached','sla_escalated')", [$violConvId]);
     $db->execute("DELETE FROM messages WHERE conversation_id = ?", [$violConvId]);
