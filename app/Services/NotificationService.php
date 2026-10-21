@@ -377,16 +377,18 @@ class NotificationService
         }
 
         if ($msgId > 0) {
+            // `message_id` é coluna real (idx_notif_msg): o dedup não
+            // precisa varrer o JSON do metadata a cada mensagem recebida.
             $existing = Database::getInstance()->fetch(
                 "SELECT id FROM notifications
-                 WHERE user_id = ? AND conversation_id = ?
-                   AND JSON_UNQUOTE(JSON_EXTRACT(metadata, '$.message_id')) = ?
+                 WHERE user_id = ? AND conversation_id = ? AND message_id = ?
                  LIMIT 1",
-                [$data['user_id'], $data['conversation_id'], (string) $msgId]
+                [$data['user_id'], $data['conversation_id'], $msgId]
             );
             if ($existing) {
                 return null;
             }
+            $data['message_id'] = $msgId;
         }
 
         if ($type === self::TYPE_NEW_CONVERSATION) {

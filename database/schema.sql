@@ -340,6 +340,30 @@ CREATE TABLE internal_notes (
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 );
 
+-- Notifications (mentions, assignments, new messages, group mentions)
+CREATE TABLE IF NOT EXISTS notifications (
+    id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    user_id BIGINT UNSIGNED NOT NULL,
+    notification_type ENUM(
+        'mention', 'assignment', 'transfer',
+        'new_message', 'new_conversation',
+        'status_change', 'system', 'group_mention'
+    ) NOT NULL,
+    title VARCHAR(255) NOT NULL,
+    body TEXT NULL,
+    conversation_id BIGINT UNSIGNED NULL,
+    message_id BIGINT UNSIGNED NULL,
+    metadata JSON NULL,
+    is_read TINYINT(1) NOT NULL DEFAULT 0,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_notif_user_type (user_id, notification_type, is_read),
+    INDEX idx_notif_conversation (conversation_id, is_read),
+    INDEX idx_notif_created (created_at),
+    INDEX idx_notif_msg (user_id, conversation_id, message_id),
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+    FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE SET NULL
+) ENGINE=InnoDB;
+
 -- Flows (triage/automation)
 CREATE TABLE flows (
     id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
