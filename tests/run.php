@@ -408,5 +408,16 @@ $st = slaMeasure([$convSla, [
 ], [], $office, 'UTC', '2026-10-19 09:20:00', array_merge($optsSla, ['response_threshold' => 1200])]);
 check('sla: no limiar exato a conversa ja conta como violacao', ($st['response_breached'] ?? null) === true, json_encode($st));
 
+// ─────────────────────────────────────────────────────────────
+// SLA mensurável: medição contra o banco e linha do tempo
+// ─────────────────────────────────────────────────────────────
+$convSvcSrc = file_get_contents(__DIR__ . '/../app/Services/ConversationService.php');
+check('sla: a mudanca de status grava o status anterior', str_contains($convSvcSrc, "'from' => \$old") && str_contains($convSvcSrc, "'to' => \$status"));
+check('sla: a reabertura reinicia o ciclo do sla', str_contains($convSvcSrc, 'ConversationSla::reset'));
+$measSrc = file_get_contents(__DIR__ . '/../app/Services/SlaMeasurement.php') ?: '';
+check('sla: a medicao carrega a conversa do banco', str_contains($measSrc, 'function forConversation'));
+check('sla: a medicao le a linha do tempo de status', str_contains($measSrc, 'function loadTimeline'));
+check('sla: a medicao grava o resultado', str_contains($measSrc, 'function saveMeasurement'));
+
 echo "\n$passes passed, $failures failed\n";
 exit($failures > 0 ? 1 : 0);

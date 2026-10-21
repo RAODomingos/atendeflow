@@ -30,8 +30,18 @@ function check(string $name, bool $cond, string $detail = ''): void
 
 $convId = null;
 $contactId = null;
+$userId = null;
+$deptId = 2;
 
 try {
+    $userId = $db->insert('users', [
+        'name' => 'TESTE SLA MEDIVEL',
+        'email' => 'teste-sla-medivel@atendeflow.local',
+        'password' => password_hash('Teste@12345', PASSWORD_BCRYPT),
+        'role' => 'agent',
+        'is_active' => 1,
+        'created_at' => date('Y-m-d H:i:s'),
+    ]);
     $contactId = $db->insert('contacts', [
         'name' => 'TESTE SLA MEDIVEL',
         'created_at' => date('Y-m-d H:i:s'),
@@ -44,6 +54,8 @@ try {
         'contact_id' => $contactId,
         'channel_id' => $channelId,
         'inbox_id' => $inboxId,
+        'department_id' => $deptId,
+        'assigned_user_id' => $userId,
         'status' => 'open',
         'source' => 'webchat',
         'created_at' => date('Y-m-d H:i:s'),
@@ -94,6 +106,124 @@ try {
         check('sla: o reset limpa o periodo em aberto', $row['period_started_at'] === null);
         check('sla: o reset marca o inicio do novo ciclo', str_contains((string) $row['metadata'], '2026-10-19 09:30:00'));
     }
+
+    // ── medição contra o banco ───────────────────────────────────
+    $hasMeasurement = class_exists('App\Services\SlaMeasurement')
+        && method_exists('App\Services\SlaMeasurement', 'forConversation');
+    check('sla: a medicao contra o banco existe', $hasMeasurement);
+
+    if ($hasMeasurement) {
+        $meas = 'App\Services\SlaMeasurement';
+
+        // O bloco do model deixou uma linha com cycle_started_at; a medição
+        // a usaria para descartar as mensagens — limpa antes de medir.
+        $db->execute("DELETE FROM conversation_slas WHERE conversation_id = ?", [$convId]);
+
+        // Departamento 2 com horário comercial seg-sex 08:00-18:00.
+        $bhBackup = $db->fetchAll("SELECT * FROM business_hours WHERE department_id = ?", [$deptId]);
+        $deptBackup = $db->fetch("SELECT business_hours_enabled FROM departments WHERE id = ?", [$deptId]);
+        $db->execute("UPDATE departments SET business_hours_enabled = 1 WHERE id = ?", [$deptId]);
+        $db->delete('business_hours', 'department_id = ?', [$deptId]);
+        foreach (range(0, 6) as $d) {
+            $db->insert('business_hours', [
+                'department_id' => $deptId,
+                'day_of_week' => $d,
+                'open_time' => '08:00:00',
+                'close_time' => '18:00:00',
+                'is_open' => ($d >= 1 && $d <= 5) ? 1 : 0,
+            ]);
+        }
+
+        // Limite folgado, para a conversa de exemplo não violar.
+        $limitBackup = $db->fetch("SELECT value FROM settings WHERE `key` = 'sla_response_minutes'");
+        \App\Models\Setting::set('sla_response_minutes', '60');
+
+        $db->insert('messages', [
+            'conversation_id' => $convId,
+            'type' => 'text',
+            'content' => 'ola, preciso de ajuda',
+            'direction' => 'inbound',
+            'is_read' => 0,
+            'created_at' => '2026-10-19 09:00:00',
+            'updated_at' => '2026-10-19 09:00:00',
+        ]);
+        $db->insert('messages', [
+            'conversation_id' => $convId,
+            'type' => 'text',
+            'content' => 'ola, ja te respondo',
+            'direction' => 'outbound',
+            'user_id' => $userId,
+            'is_read' => 1,
+            'created_at' => '2026-10-19 09:20:00',
+            'updated_at' => '2026-10-19 09:20:00',
+        ]);
+
+        $m = $meas::forConversation($convId, '2026-10-19 09:20:00');
+        check('sla: a medicao devolve o resultado', is_array($m) && $m !== [], json_encode($m));
+        check('sla: a primeira resposta mede 20 minutos', (int) ($m['response_seconds'] ?? -1) === 1200, json_encode($m));
+        check('sla: a conversa dentro do limite nao viola', ($m['response_breached'] ?? null) === false, json_encode($m));
+
+        $meas::saveMeasurement($convId, $m);
+        $row = \App\Models\ConversationSla::find($convId);
+        check('sla: a medicao foi gravada', $row !== null);
+        check('sla: a linha guarda a primeira resposta', (int) ($row['response_seconds'] ?? -1) === 1200);
+        check('sla: a linha guarda o limite em vigor', (int) ($row['response_threshold'] ?? -1) === 3600, 'threshold=' . ($row['response_threshold'] ?? 'null'));
+
+        // ── linha do tempo de status ──────────────────────────────
+        $svc = new \App\Services\ConversationService();
+        $svc->changeStatus($convId, 'waiting_internal');
+        $timeline = $meas::loadTimeline($convId);
+        $statuses = array_column($timeline, 'status');
+        check('sla: a linha do tempo le a mudanca de status', in_array('waiting_internal', $statuses, true) && end($statuses) === 'waiting_internal', json_encode($timeline));
+        check('sla: a linha do tempo conhece o status inicial', ($statuses[0] ?? null) === 'open', json_encode($timeline));
+
+        $ev = $db->fetch(
+            "SELECT metadata FROM conversation_events WHERE conversation_id = ? AND event_type = 'status_changed' ORDER BY id DESC LIMIT 1",
+            [$convId]
+        );
+        $meta = json_decode((string) ($ev['metadata'] ?? ''), true);
+        check('sla: a mudanca de status grava from e to', ($meta['from'] ?? null) === 'open' && ($meta['to'] ?? null) === 'waiting_internal', json_encode($meta));
+
+        // ── reabertura reinicia o ciclo ───────────────────────────
+        $csatBackup = $db->fetch("SELECT value FROM settings WHERE `key` = 'csat_enabled'");
+        \App\Models\Setting::set('csat_enabled', '0');
+        $svc->changeStatus($convId, 'closed');
+        $svc->changeStatus($convId, 'open');
+        $row = \App\Models\ConversationSla::find($convId);
+        check('sla: a reabertura zera a primeira resposta', $row !== null && $row['response_seconds'] === null);
+        check('sla: a reabertura zera a resolucao', $row !== null && (int) $row['resolution_seconds'] === 0);
+        check('sla: a reabertura marca o novo ciclo', $row !== null && str_contains((string) $row['metadata'], 'cycle_started_at'), (string) ($row['metadata'] ?? ''));
+
+        // ── snapshot do limite (Review Focus #4) ──────────────────
+        \App\Models\Setting::set('sla_response_minutes', '15');
+        $m2 = $meas::forConversation($convId, '2026-10-19 09:20:00');
+        check('sla: a mudanca de config muda o limite da medicao', (int) ($m2['response_threshold'] ?? -1) === 900, 'threshold=' . ($m2['response_threshold'] ?? 'null'));
+        $row = \App\Models\ConversationSla::find($convId);
+        check('sla: a linha ja gravada guarda o limite antigo', (int) ($row['response_threshold'] ?? -1) === 3600, 'threshold=' . ($row['response_threshold'] ?? 'null'));
+
+        // restaura tudo
+        if ($csatBackup) {
+            \App\Models\Setting::set('csat_enabled', $csatBackup['value']);
+        } else {
+            $db->execute("DELETE FROM settings WHERE `key` = 'csat_enabled'");
+        }
+        if ($limitBackup) {
+            \App\Models\Setting::set('sla_response_minutes', $limitBackup['value']);
+        } else {
+            $db->execute("DELETE FROM settings WHERE `key` = 'sla_response_minutes'");
+        }
+        $db->delete('business_hours', 'department_id = ?', [$deptId]);
+        foreach ($bhBackup as $r) {
+            $db->insert('business_hours', [
+                'department_id' => $r['department_id'],
+                'day_of_week' => $r['day_of_week'],
+                'open_time' => $r['open_time'],
+                'close_time' => $r['close_time'],
+                'is_open' => $r['is_open'],
+            ]);
+        }
+        $db->execute("UPDATE departments SET business_hours_enabled = ? WHERE id = ?", [$deptBackup['business_hours_enabled'], $deptId]);
+    }
 } catch (Throwable $e) {
     $fail++;
     echo 'ERRO: ' . $e->getMessage() . PHP_EOL;
@@ -101,10 +231,15 @@ try {
 } finally {
     if ($convId) {
         $db->execute("DELETE FROM conversation_slas WHERE conversation_id = ?", [$convId]);
+        $db->execute("DELETE FROM conversation_events WHERE conversation_id = ?", [$convId]);
+        $db->execute("DELETE FROM messages WHERE conversation_id = ?", [$convId]);
         $db->execute("DELETE FROM conversations WHERE id = ?", [$convId]);
     }
     if ($contactId) {
         $db->execute("DELETE FROM contacts WHERE id = ?", [$contactId]);
+    }
+    if ($userId) {
+        $db->execute("DELETE FROM users WHERE id = ?", [$userId]);
     }
     echo 'cleanup ok' . PHP_EOL;
 }
