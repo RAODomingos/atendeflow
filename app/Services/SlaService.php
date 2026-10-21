@@ -56,13 +56,29 @@ class SlaService
         'color_alert_text' => '#991b1b',
         'sound_attention' => 'default',
         'sound_alert' => 'default',
+        // Medição de compliance: limite da 1ª resposta e da resolução.
+        'response_minutes' => '15',
+        'resolution_minutes' => '1440',
+        // Escalonamento na violação do SLA de 1ª resposta.
+        'escalate_managers' => '1',
+        'escalate_tag' => '1',
+        'escalate_autoassign' => '0',
+        'escalate_whatsapp' => '0',
+        'escalation_message' => 'SLA de {{sla.type}} violado: {{contact.name}} (protocolo {{conversation.protocol}}) espera há {{sla.wait}} (limite {{sla.limit}}).',
     ];
 
+    /**
+     * Colunas de `inboxes` que sobrescrevem a config global.
+     * NULL = herda o global.
+     */
     public const INBOX_SLA_FIELDS = [
         'sla_enabled', 'sla_attention_minutes', 'sla_alert_minutes',
         'sla_color_normal', 'sla_color_attention', 'sla_color_alert',
         'sla_color_normal_text', 'sla_color_attention_text', 'sla_color_alert_text',
         'sla_sound_attention', 'sla_sound_alert',
+        'sla_response_minutes', 'sla_resolution_minutes', 'sla_business_hours',
+        'sla_escalate_managers', 'sla_escalate_tag',
+        'sla_escalate_autoassign', 'sla_escalate_whatsapp',
     ];
 
     /**
@@ -235,7 +251,16 @@ class SlaService
             $schedule = null;
             $scheduleTz = $appTz;
 
-            if ($useBusinessHours && $deptId) {
+            // A caixa pode desligar o horário comercial (NULL = global).
+            $inboxId = !empty($row['inbox_id']) ? (int) $row['inbox_id'] : null;
+            $boxUsesHours = $inboxId !== null
+                ? (self::configFor($inboxId)['config']['business_hours'] ?? '1')
+                : null;
+            $useHours = $boxUsesHours !== null
+                ? ((string) $boxUsesHours === '1')
+                : $useBusinessHours;
+
+            if ($useHours && $deptId) {
                 if (!array_key_exists($deptId, $departments)) {
                     $departments[$deptId] = BusinessHoursService::slaConfig($deptId);
                 }

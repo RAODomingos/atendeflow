@@ -159,7 +159,7 @@
                     <i class="fas fa-info-circle"></i>
                     Com esta opção, o relógio do SLA só conta o tempo dentro do horário de atendimento
                     configurado no <strong>departamento</strong> da conversa (veja
-                    <a href="<?= url('departments') ?>">Departamentos</a>): o tempo fora do expediente, fins
+                    <a href="<?= url('settings/departments') ?>">Departamentos</a>): o tempo fora do expediente, fins
                     de semana e feriados não consomem SLA. O relógio também congela quando o atendente já
                     respondeu (a bola está com o cliente) ou quando a conversa está
                     <em>aguardando outro setor</em>.
@@ -265,6 +265,76 @@
                     Os sons só tocam uma vez por conversa, na transição para um nível mais crítico.
                     Use o "som mestre" acima para ativar/silenciar todos os sons.
                 </small>
+
+                <h4 style="margin:22px 0 10px;font-size:14px;font-weight:700;display:flex;align-items:center;gap:6px">
+                    <i class="fas fa-chart-line" style="color:var(--primary)"></i> Medição de compliance
+                </h4>
+                <div class="form-row">
+                    <div class="form-group col-6">
+                        <label><i class="fas fa-bolt" style="color:#f59e0b"></i> SLA de 1ª resposta</label>
+                        <div style="display:flex;align-items:center;gap:8px">
+                            <input type="number" min="1" max="10080" name="sla_response_minutes" class="form-control"
+                                   value="<?= e($sla['response_minutes'] ?? '15') ?>" style="width:100px">
+                            <span style="color:var(--text-muted)">minutos</span>
+                        </div>
+                        <small class="text-muted" style="display:block;margin-top:4px;font-size:12px">
+                            Tempo máximo até a primeira resposta do <strong>atendente</strong>. Resposta de
+                            robô não conta. Passou disso, a conversa é contada como violação.
+                        </small>
+                    </div>
+                    <div class="form-group col-6">
+                        <label><i class="fas fa-flag-checkered" style="color:var(--primary)"></i> SLA de resolução</label>
+                        <div style="display:flex;align-items:center;gap:8px">
+                            <input type="number" min="1" max="43200" name="sla_resolution_minutes" class="form-control"
+                                   value="<?= e($sla['resolution_minutes'] ?? '1440') ?>" style="width:100px">
+                            <span style="color:var(--text-muted)">minutos</span>
+                        </div>
+                        <small class="text-muted" style="display:block;margin-top:4px;font-size:12px">
+                            Tempo máximo até o encerramento, contando só o período em que a bola
+                            esteve com a gente (fora do expediente e com o cliente não contam).
+                        </small>
+                    </div>
+                </div>
+
+                <h4 style="margin:18px 0 10px;font-size:14px;font-weight:700;display:flex;align-items:center;gap:6px">
+                    <i class="fas fa-bell" style="color:var(--primary)"></i> Escalonamento na violação
+                </h4>
+                <div style="display:flex;flex-direction:column;gap:10px;margin-bottom:16px">
+                    <div class="form-check" style="display:flex;align-items:center;gap:10px;padding:10px 14px;background:var(--bg-content);border-radius:8px">
+                        <input type="checkbox" name="sla_escalate_tag" value="1" id="slaEscalateTag" <?= (($sla['escalate_tag'] ?? '1') === '1') ? 'checked' : '' ?> style="width:16px;height:16px;accent-color:var(--primary)">
+                        <label for="slaEscalateTag" style="font-weight:500;cursor:pointer;margin:0;font-size:13px">
+                            Aplicar a tag <strong>"SLA violado"</strong> na conversa
+                        </label>
+                    </div>
+                    <div class="form-check" style="display:flex;align-items:center;gap:10px;padding:10px 14px;background:var(--bg-content);border-radius:8px">
+                        <input type="checkbox" name="sla_escalate_managers" value="1" id="slaEscalateManagers" <?= (($sla['escalate_managers'] ?? '1') === '1') ? 'checked' : '' ?> style="width:16px;height:16px;accent-color:var(--primary)">
+                        <label for="slaEscalateManagers" style="font-weight:500;cursor:pointer;margin:0;font-size:13px">
+                            Notificar os gerentes do departamento
+                        </label>
+                    </div>
+                    <div class="form-check" style="display:flex;align-items:center;gap:10px;padding:10px 14px;background:var(--bg-content);border-radius:8px">
+                        <input type="checkbox" name="sla_escalate_autoassign" value="1" id="slaEscalateAutoassign" <?= (($sla['escalate_autoassign'] ?? '0') === '1') ? 'checked' : '' ?> style="width:16px;height:16px;accent-color:var(--primary)">
+                        <label for="slaEscalateAutoassign" style="font-weight:500;cursor:pointer;margin:0;font-size:13px">
+                            Atribuir ao atendente menos carregado
+                            <span class="text-muted" style="font-weight:400">(quando a conversa ainda não tem responsável)</span>
+                        </label>
+                    </div>
+                    <div class="form-check" style="display:flex;align-items:center;gap:10px;padding:10px 14px;background:var(--bg-content);border-radius:8px">
+                        <input type="checkbox" name="sla_escalate_whatsapp" value="1" id="slaEscalateWhatsapp" <?= (($sla['escalate_whatsapp'] ?? '0') === '1') ? 'checked' : '' ?> style="width:16px;height:16px;accent-color:var(--primary)">
+                        <label for="slaEscalateWhatsapp" style="font-weight:500;cursor:pointer;margin:0;font-size:13px">
+                            Avisar o plantão por WhatsApp
+                            <span class="text-muted" style="font-weight:400">(telefone configurado no departamento)</span>
+                        </label>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label>Mensagem do aviso</label>
+                    <textarea name="sla_escalation_message" rows="2" class="form-control"><?= e($sla['escalation_message'] ?? '') ?></textarea>
+                    <small class="text-muted" style="display:block;margin-top:4px;font-size:12px">
+                        Variáveis: <code>{{contact.name}}</code>, <code>{{conversation.protocol}}</code>,
+                        <code>{{sla.wait}}</code>, <code>{{sla.limit}}</code>, <code>{{sla.type}}</code>
+                    </small>
+                </div>
             </div>
         </div>
 

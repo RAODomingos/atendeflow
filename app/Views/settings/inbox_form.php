@@ -176,6 +176,64 @@ $useGlobal = $sf['use_global'];
                                     </select>
                                 </div>
                             </div>
+
+                            <h4 style="margin:14px 0 10px;font-size:13px;font-weight:700;display:flex;align-items:center;gap:6px">
+                                <i class="fas fa-chart-line" style="color:var(--primary)"></i> Medição de compliance
+                            </h4>
+                            <div class="form-row">
+                                <div class="form-group col-6">
+                                    <label>SLA de 1ª resposta</label>
+                                    <div style="display:flex;align-items:center;gap:8px">
+                                        <input type="number" min="1" max="10080" name="sla_response_minutes" class="form-control"
+                                               value="<?= e($sv['response_minutes']) ?>" style="width:100px">
+                                        <span style="color:var(--text-muted)">minutos</span>
+                                    </div>
+                                </div>
+                                <div class="form-group col-6">
+                                    <label>SLA de resolução</label>
+                                    <div style="display:flex;align-items:center;gap:8px">
+                                        <input type="number" min="1" max="43200" name="sla_resolution_minutes" class="form-control"
+                                               value="<?= e($sv['resolution_minutes']) ?>" style="width:100px">
+                                        <span style="color:var(--text-muted)">minutos</span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <h4 style="margin:14px 0 10px;font-size:13px;font-weight:700;display:flex;align-items:center;gap:6px">
+                                <i class="fas fa-bell" style="color:var(--primary)"></i> Escalonamento na violação
+                            </h4>
+                            <div style="display:flex;flex-direction:column;gap:10px;margin-bottom:14px">
+                                <div class="form-check" style="display:flex;align-items:center;gap:10px">
+                                    <input type="checkbox" name="sla_business_hours" value="1" id="slaBoxBusinessHours" <?= !empty($sv['business_hours']) ? 'checked' : '' ?> style="width:16px;height:16px;accent-color:var(--primary)">
+                                    <label for="slaBoxBusinessHours" style="cursor:pointer;margin:0;font-size:13px">
+                                        Considerar horário de atendimento
+                                    </label>
+                                </div>
+                                <div class="form-check" style="display:flex;align-items:center;gap:10px">
+                                    <input type="checkbox" name="sla_escalate_tag" value="1" id="slaBoxEscalateTag" <?= !empty($sv['escalate_tag']) ? 'checked' : '' ?> style="width:16px;height:16px;accent-color:var(--primary)">
+                                    <label for="slaBoxEscalateTag" style="cursor:pointer;margin:0;font-size:13px">
+                                        Aplicar a tag "SLA violado"
+                                    </label>
+                                </div>
+                                <div class="form-check" style="display:flex;align-items:center;gap:10px">
+                                    <input type="checkbox" name="sla_escalate_managers" value="1" id="slaBoxEscalateManagers" <?= !empty($sv['escalate_managers']) ? 'checked' : '' ?> style="width:16px;height:16px;accent-color:var(--primary)">
+                                    <label for="slaBoxEscalateManagers" style="cursor:pointer;margin:0;font-size:13px">
+                                        Notificar os gerentes do departamento
+                                    </label>
+                                </div>
+                                <div class="form-check" style="display:flex;align-items:center;gap:10px">
+                                    <input type="checkbox" name="sla_escalate_autoassign" value="1" id="slaBoxEscalateAutoassign" <?= !empty($sv['escalate_autoassign']) ? 'checked' : '' ?> style="width:16px;height:16px;accent-color:var(--primary)">
+                                    <label for="slaBoxEscalateAutoassign" style="cursor:pointer;margin:0;font-size:13px">
+                                        Atribuir ao atendente menos carregado
+                                    </label>
+                                </div>
+                                <div class="form-check" style="display:flex;align-items:center;gap:10px">
+                                    <input type="checkbox" name="sla_escalate_whatsapp" value="1" id="slaBoxEscalateWhatsapp" <?= !empty($sv['escalate_whatsapp']) ? 'checked' : '' ?> style="width:16px;height:16px;accent-color:var(--primary)">
+                                    <label for="slaBoxEscalateWhatsapp" style="cursor:pointer;margin:0;font-size:13px">
+                                        Avisar o plantão por WhatsApp
+                                    </label>
+                                </div>
+                            </div>
                         </div>
                     </div>
                 </div>
