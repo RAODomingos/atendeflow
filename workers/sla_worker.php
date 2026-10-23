@@ -137,6 +137,13 @@ try {
         $process($conversationId, 'live');
     }
 
+    // 2b) conversas ativas com ciclo reiniciado (reabertura): a linha
+    //     existe, mas o ciclo novo ainda nao foi medido. Sem esta etapa
+    //     a conversa reaberta ficava sem SLA para sempre.
+    foreach (ConversationSla::activeWithPendingCycle($limit) as $conversationId) {
+        $process($conversationId, 'live');
+    }
+
     // 3) conversas encerradas que já estavam sendo medidas: congela o valor
     //    final (a resolução só fecha com o encerramento).
     foreach (ConversationSla::closedWithStaleRow($limit) as $conversationId) {

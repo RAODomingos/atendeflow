@@ -131,6 +131,30 @@ class ConversationSla
     }
 
     /**
+     * Conversas ativas cujo ciclo foi reiniciado (reabertura).
+     *
+     * A linha existe, mas o ciclo novo ainda nao foi medido
+     * (`period_started_at` vazio). Sem esta consulta a conversa
+     * reaberta nunca mais seria medida: `activeWithoutRow` exige linha
+     * inexistente e `openPeriods` exige `period_started_at` preenchido.
+     *
+     * @return array<int> ids de conversa
+     */
+    public static function activeWithPendingCycle(int $limit = 200): array
+    {
+        $rows = Database::getInstance()->fetchAll(
+            "SELECT s.conversation_id FROM conversation_slas s
+             JOIN conversations c ON c.id = s.conversation_id
+             WHERE s.period_started_at IS NULL
+               AND c.status IN ('new','open','waiting_customer','waiting_internal')
+               AND c.group_id IS NULL
+             ORDER BY c.updated_at ASC
+             LIMIT " . (int) $limit
+        );
+        return array_map(fn($r) => (int) $r['conversation_id'], $rows);
+    }
+
+    /**
      * Conversas encerradas sem linha de SLA: precisam ser finalizadas
      * (o valor final é gravado uma vez e não muda mais).
      *

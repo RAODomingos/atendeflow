@@ -363,6 +363,15 @@ class ConversationService
         $finals = ['resolved', 'closed', 'spam'];
         if (in_array($old, $finals, true) && !in_array($status, $finals, true)) {
             Conversation::update($conversationId, ['after_hours_notified' => 0, 'csat_requested' => 0]);
+            // Reabertura: limpa o fechamento anterior. Sem isso a conversa
+            // continua com `closed_at` preenchido e o SLA a trata como
+            // encerrada (primeira resposta nula e "violacao" consumada
+            // numa conversa que esta aberta).
+            Conversation::update($conversationId, [
+                'closed_at' => null,
+                'close_reason' => null,
+                'close_description' => null,
+            ]);
             // Reabertura reinicia o ciclo do SLA: zera os acumulados e marca
             // o início do novo ciclo (a medição ignora as mensagens anteriores).
             \App\Models\ConversationSla::reset($conversationId, date('Y-m-d H:i:s'));

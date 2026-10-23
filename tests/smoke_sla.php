@@ -3,7 +3,7 @@
  * Smoke test HTTP: loga no app, abre a inbox e confere que a página
  * carrega com o novo relógio do SLA (sem erro de PHP).
  */
-$base = 'http://127.0.0.1:8099';
+$base = getenv('SMOKE_BASE') ?: 'http://127.0.0.1:8099';
 $jar = tempnam(sys_get_temp_dir(), 'atendeflow_smoke');
 
 function req(string $url, ?array $post = null, string $jar = ''): array
