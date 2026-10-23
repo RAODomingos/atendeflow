@@ -91,7 +91,7 @@ $router->group('', function (Router $router) {
     $router->get('/settings/notifications', [SettingsController::class, 'notifications'], ['admin']);
     $router->post('/settings/notifications', [SettingsController::class, 'saveNotifications'], ['admin']);
 
-    // Contacts (exclusão é gerente+)
+    // Contacts (edição e mesclagem são gerente+)
     $router->get('/contacts', [ContactController::class, 'index']);
     $router->get('/contacts/create', [ContactController::class, 'create']);
     $router->post('/contacts/create', [ContactController::class, 'store']);
@@ -100,8 +100,8 @@ $router->group('', function (Router $router) {
     $router->post('/contacts/{id}/stores', [ContactController::class, 'bindStores']);
     $router->get('/contacts/{id}/pdf', [ContactController::class, 'downloadPdf']);
     $router->get('/contacts/{id}/edit', [ContactController::class, 'edit'], ['manager']);
-    $router->post('/contacts/{id}/merge', [ContactController::class, 'merge']);
-    $router->post('/contacts/{id}/update', [ContactController::class, 'update']);
+    $router->post('/contacts/{id}/merge', [ContactController::class, 'merge'], ['manager']);
+    $router->post('/contacts/{id}/update', [ContactController::class, 'update'], ['manager']);
     $router->post('/contacts/{id}/delete', [ContactController::class, 'destroy'], ['manager']);
 
     // Departments (configuração: admin — tela em Configurações > Departamentos)

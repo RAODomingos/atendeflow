@@ -162,6 +162,7 @@ class ContactController
             'availableDepartments' => $availableDepartments,
             'filters' => $filters,
             'tags' => $tags,
+            'isManager' => Auth::isManager(),
         ]);
     }
 
@@ -243,6 +244,8 @@ class ContactController
 
     public function update(Request $request, int $id): void
     {
+        self::requireManager($request);
+
         $contact = Contact::find($id);
         if (!$contact) {
             if ($request->isAjax()) {
@@ -539,6 +542,8 @@ class ContactController
 
     public function merge(Request $request, int $id): void
     {
+        self::requireManager($request);
+
         $targetId = (int) $request->post('target_id');
         if ($targetId && $targetId !== $id) {
             Contact::merge($id, $targetId);
@@ -547,6 +552,31 @@ class ContactController
         }
         Session::setFlash('error', 'Selecione um contato de destino válido.');
         View::redirect("/contacts/{$id}");
+    }
+
+    /**
+     * Guarda de papel (defesa em profundidade).
+     *
+     * As rotas de edicao/mesclagem de contato exigem 'manager', mas a
+     * verificacao tambem fica no controller: mesclar move conversas,
+     * telefones, e-mails e etiquetas de um contato para o outro e apaga
+     * a origem — dano que nao pode depender so do roteador.
+     */
+    private static function requireManager(Request $request): void
+    {
+        if (Auth::isManager()) {
+            return;
+        }
+
+        if ($request->isAjax() || $request->wantsJson()) {
+            http_response_code(403);
+            header('Content-Type: application/json');
+            echo json_encode(['success' => false, 'error' => 'Acesso restrito a gestores.']);
+            exit;
+        }
+
+        Session::setFlash('error', 'Acesso restrito a gestores.');
+        View::redirect('/contacts');
     }
 
 }
