@@ -11,8 +11,19 @@ class Session
         if (!self::$started && session_status() === PHP_SESSION_NONE) {
             $isHttps = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')
                 || (($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? '') === 'https');
+            $cookieLifetime = (int) env('SESSION_LIFETIME', 120) * 60;
+            // O GC do PHP não pode ser mais curto que nosso timeout de
+            // inatividade (em produção o php.ini costuma ter 1440s): senão o
+            // arquivo da sessão é apagado antes do nosso last_activity vencer.
+            // Só aumenta, nunca encurta (save_path pode ser compartilhado).
+            if ($cookieLifetime > 0) {
+                $curGc = (int) ini_get('session.gc_maxlifetime');
+                if ($curGc <= 0 || $curGc < $cookieLifetime) {
+                    @ini_set('session.gc_maxlifetime', (string) $cookieLifetime);
+                }
+            }
             session_set_cookie_params([
-                'lifetime' => (int) env('SESSION_LIFETIME', 120) * 60,
+                'lifetime' => $cookieLifetime,
                 'path' => '/',
                 'httponly' => true,
                 'samesite' => 'Lax',
@@ -33,6 +44,23 @@ class Session
                 self::$started = true;
             }
             $_SESSION['last_activity'] = time();
+
+            // Cookie deslizante: o PHP só emite o cookie de sessão na criação
+            // dela — NÃO renova a validade a cada request. Sem esta reemissão,
+            // o navegador apaga o cookie exatamente `lifetime` após o LOGIN,
+            // mesmo com uso contínuo ("desloga sozinho usando o sistema").
+            if ($lifetime > 0 && !headers_sent()
+                && session_status() === PHP_SESSION_ACTIVE
+                && isset($_COOKIE[session_name()]) && $_SESSION !== []
+            ) {
+                setcookie(session_name(), session_id(), [
+                    'expires' => time() + $lifetime,
+                    'path' => '/',
+                    'httponly' => true,
+                    'samesite' => 'Lax',
+                    'secure' => $isHttps,
+                ]);
+            }
         }
     }
 

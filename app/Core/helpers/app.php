@@ -71,7 +71,7 @@ function route(string $name): string
         'inbox.new' => '/inbox/new',
         'contacts' => '/contacts',
         'contacts.create' => '/contacts/create',
-        'departments' => '/departments',
+        'departments' => '/settings/departments',
         'flows' => '/flows',
         'flows.create' => '/flows/create',
         'users' => '/users',

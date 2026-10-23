@@ -19,16 +19,23 @@ class Macro
 
     public static function getForContext(?int $departmentId, ?int $userId): array
     {
-        $sql = "SELECT * FROM macros WHERE 1=1";
+        // Mesmo critério de CannedResponse::getForContext (ver comentário lá):
+        // OR em vez de AND para não esconder itens do departamento
+        // criados por outro colega.
+        $clauses = ["(department_id IS NULL AND user_id IS NULL)"];
         $params = [];
         if ($departmentId) {
-            $sql .= " AND (department_id IS NULL OR department_id = ?)";
+            $clauses[] = "(department_id = ?)";
             $params[] = $departmentId;
-        }
-        if ($userId) {
-            $sql .= " AND (user_id IS NULL OR user_id = ?)";
+        } elseif ($userId) {
+            $clauses[] = "(department_id IN (SELECT department_id FROM department_users WHERE user_id = ?))";
             $params[] = $userId;
         }
+        if ($userId) {
+            $clauses[] = "(user_id = ?)";
+            $params[] = $userId;
+        }
+        $sql = "SELECT * FROM macros WHERE (" . implode(" OR ", $clauses) . ")";
         $sql .= " ORDER BY title ASC LIMIT 200";
         $macros = Database::getInstance()->fetchAll($sql, $params);
         foreach ($macros as &$m) {

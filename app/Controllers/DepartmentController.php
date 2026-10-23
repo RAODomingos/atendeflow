@@ -2,7 +2,6 @@
 
 namespace App\Controllers;
 
-use App\Core\Auth;
 use App\Core\Database;
 use App\Core\Request;
 use App\Core\Session;
@@ -12,6 +11,9 @@ use App\Models\User;
 
 class DepartmentController
 {
+    /**
+     * Lista de departamentos (aba Departamentos em Configurações — admin).
+     */
     public function index(Request $request): void
     {
         $departments = Department::all();
@@ -27,9 +29,9 @@ class DepartmentController
             "SELECT COUNT(*) as t FROM conversations WHERE department_id IS NOT NULL"
         )['t'] ?? 0);
 
-        View::renderWithLayout('departments/index', 'main', [
+        View::renderWithLayout('settings/departments', 'main', [
             'title' => 'Departamentos',
-            'activePage' => 'departments',
+            'activePage' => 'settings_departments',
             'departments' => $departments,
             'stats' => [
                 'total' => $totalDepts,
@@ -40,23 +42,20 @@ class DepartmentController
         ]);
     }
 
+    /**
+     * URL antiga da listagem — mantém bookmarks funcionando.
+     */
+    public function redirectIndex(Request $request): void
+    {
+        View::redirect('/settings/departments');
+    }
+
     public function show(Request $request, int $id): void
     {
         $department = Department::find($id);
         if (!$department) {
             Session::setFlash('error', 'Departamento não encontrado.');
-            View::redirect('/departments');
-        }
-
-        if (!Auth::isManager()) {
-            $member = \App\Core\Database::getInstance()->fetch(
-                "SELECT 1 FROM department_users WHERE department_id = ? AND user_id = ? LIMIT 1",
-                [$id, Auth::id()]
-            );
-            if (!$member) {
-                Session::setFlash('error', 'Voce nao tem acesso a este departamento.');
-                View::redirect('/departments');
-            }
+            View::redirect('/settings/departments');
         }
 
         $filters = [
@@ -76,7 +75,7 @@ class DepartmentController
 
         View::renderWithLayout('departments/show', 'main', [
             'title' => $department['name'],
-            'activePage' => 'departments',
+            'activePage' => 'settings_departments',
             'department' => $department,
             'users' => $users,
             'allUsers' => $allUsers,
@@ -107,7 +106,7 @@ class DepartmentController
         ]);
 
         Session::setFlash('success', 'Departamento criado com sucesso.');
-        View::redirect('/departments');
+        View::redirect('/settings/departments');
     }
 
     public function update(Request $request, int $id): void
@@ -125,7 +124,7 @@ class DepartmentController
         ]);
 
         Session::setFlash('success', 'Departamento atualizado.');
-        View::redirect('/departments');
+        View::redirect('/settings/departments');
     }
 
     /**
@@ -137,7 +136,7 @@ class DepartmentController
         $department = Department::find($id);
         if (!$department) {
             Session::setFlash('error', 'Departamento não encontrado.');
-            View::redirect('/departments');
+            View::redirect('/settings/departments');
         }
 
         Department::update($id, [
@@ -176,7 +175,7 @@ class DepartmentController
     {
         Department::delete($id);
         Session::setFlash('success', 'Departamento removido.');
-        View::redirect('/departments');
+        View::redirect('/settings/departments');
     }
 
     public function apiUsers(Request $request, int $id): void
