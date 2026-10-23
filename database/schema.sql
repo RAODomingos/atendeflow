@@ -242,6 +242,7 @@ CREATE TABLE conversations (
     INDEX idx_conversation_contact (contact_id),
     INDEX idx_conversation_channel (channel_id),
     INDEX idx_conversation_last_message (last_message_at),
+    INDEX idx_conv_closed_at (closed_at),
     FOREIGN KEY (contact_id) REFERENCES contacts(id),
     FOREIGN KEY (department_id) REFERENCES departments(id) ON DELETE SET NULL,
     FOREIGN KEY (assigned_user_id) REFERENCES users(id) ON DELETE SET NULL,
@@ -300,6 +301,7 @@ CREATE TABLE messages (
     INDEX idx_messages_created (created_at),
     INDEX idx_messages_conv_created_id (conversation_id, created_at, id),
     INDEX idx_messages_unread (conversation_id, direction, is_read, user_id),
+    INDEX idx_messages_channel_msg (channel_message_id),
     FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE,
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL
 );
@@ -358,6 +360,7 @@ CREATE TABLE IF NOT EXISTS conversation_slas (
     UNIQUE KEY uq_slas_conversation (conversation_id),
     INDEX idx_slas_breached (response_breached, resolution_breached),
     INDEX idx_slas_updated (updated_at),
+    INDEX idx_slas_period (period_started_at),
     FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE
 ) ENGINE=InnoDB;
 
@@ -564,7 +567,8 @@ CREATE TABLE jobs (
     last_error TEXT NULL,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     INDEX idx_jobs_queue (queue),
-    INDEX idx_jobs_available (available_at)
+    INDEX idx_jobs_available (available_at),
+    INDEX idx_jobs_scan (failed_at, reserved_at, priority, created_at)
 );
 
 -- ============================================================
