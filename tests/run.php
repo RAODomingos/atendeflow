@@ -509,5 +509,103 @@ $repSrc = file_get_contents(__DIR__ . '/../app/Controllers/ReportsController.php
 check('sla: o controller tem o metodo sla', str_contains($repSrc, 'function sla'));
 check('sla: a view do relatorio existe', is_file(__DIR__ . '/../app/Views/reports/sla.php'));
 
+// ─────────────────────────────────────────────────────────────
+// Regressão dos 8 cenários críticos da auditoria
+//
+// O comportamento de verdade é coberto pelo e2e
+// (php tests/e2e_regressao_critica.php, que precisa do MySQL).
+// Aqui ficam as guardas de contrato: se alguém apagar uma das
+// proteções, a suíte principal já avisa — sem esperar o e2e.
+// ─────────────────────────────────────────────────────────────
+check(
+    'regressao: existe o e2e dos 8 cenarios',
+    is_file(__DIR__ . '/e2e_regressao_critica.php')
+);
+
+// 1) Backfill nao escala
+check(
+    'regressao: o worker distingue backfill de medicao ao vivo',
+    str_contains($workerSrc, "'backfill'") && str_contains($workerSrc, "'finalize'")
+);
+check(
+    'regressao: o backfill nao gera evento de violacao',
+    (bool) preg_match(
+        '/if \(\$mode === \'backfill\'\) \{.*?return;/s',
+        $workerSrc
+    )
+);
+
+// 2) Reabertura volta a medir
+$slaModelSrc = file_get_contents(__DIR__ . '/../app/Models/ConversationSla.php');
+check(
+    'regressao: existe a consulta de ciclo pendente',
+    str_contains($slaModelSrc, 'function activeWithPendingCycle')
+);
+check(
+    'regressao: o worker mede o ciclo pendente',
+    str_contains($workerSrc, 'activeWithPendingCycle')
+);
+check(
+    'regressao: o reset guarda o inicio do novo ciclo',
+    str_contains($slaModelSrc, 'cycle_started_at')
+);
+
+// 3) Toggle de horario comercial: fonte unica
+check(
+    'regressao: a fonte unica do horario comercial existe',
+    str_contains($slaSrc, 'function businessHoursFor')
+);
+check(
+    'regressao: o motor usa a fonte unica',
+    str_contains($measSrc, 'businessHoursFor')
+);
+check(
+    'regressao: a tela usa a fonte unica',
+    str_contains($slaSrc, 'businessHoursFor')
+);
+
+// 4) Dois workers em paralelo
+check(
+    'regressao: a violacao e reservada de forma atomica',
+    str_contains($slaModelSrc, 'function claimResponseBreach')
+    && str_contains($slaModelSrc, 'AND response_breached = 0')
+);
+check(
+    'regressao: o worker usa a reserva antes de escalar',
+    str_contains($workerSrc, 'claimResponseBreach')
+);
+check(
+    'regressao: o worker de sla tem lock proprio',
+    str_contains($workerSrc, 'flock')
+);
+
+// 5) Compliance sem linhas NULL
+check(
+    'regressao: o compliance so conta o que foi medido',
+    str_contains($slaModelSrc, 'WHEN s.response_seconds IS NOT NULL THEN 1 END')
+);
+
+// 6) Autoassign em conversa encerrada
+check(
+    'regressao: o autoassign nao mexe em conversa encerrada',
+    str_contains($escSrc, "in_array(\$status, ['new', 'open', 'waiting_customer', 'waiting_internal'], true)")
+);
+
+// 7) Contagem do relatorio
+check(
+    'regressao: o relatorio lista as conversas violadas',
+    str_contains($slaModelSrc, 'function violatedConversations')
+);
+
+// 8) Contrato do sla_response_at no poll
+check(
+    'regressao: a api envia o sla_response_at',
+    str_contains($inboxCtlSrc, "'sla_response_at'")
+);
+check(
+    'regressao: o painel le o sla_response_at',
+    str_contains($panelSrc, 'c.sla_response_at')
+);
+
 echo "\n$passes passed, $failures failed\n";
 exit($failures > 0 ? 1 : 0);
