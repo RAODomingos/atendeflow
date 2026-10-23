@@ -389,7 +389,9 @@ class ContactController
             $cid = (int) $conv['id'];
             $conversationsData[] = [
                 'conversation' => $this->enrichConversationForPdf($conv),
-                'messages'     => \App\Models\Conversation::getMessages($cid),
+                // Teto por conversa: o PDF de um contato com historico
+                // gigante estoura memoria e o DOMPDF nao fecha.
+                'messages'     => \App\Models\Conversation::getMessages($cid, ['tail' => 500]),
                 'events'       => \App\Models\Conversation::getEvents($cid),
                 'csat'         => \App\Models\Conversation::getCsat($cid),
             ];

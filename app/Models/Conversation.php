@@ -126,6 +126,12 @@ class Conversation
                     END,
                     c.last_message_at DESC";
 
+        // Teto de linhas no proprio SQL: quem so precisa de uma amostra
+        // (dashboard) nao deve carregar a lista inteira para cortar depois.
+        if (!empty($filters['limit'])) {
+            $sql .= " LIMIT " . (int) $filters['limit'];
+        }
+
         return Database::getInstance()->fetchAll($sql, $params);
     }
 
@@ -143,6 +149,13 @@ class Conversation
         $sql .= self::listFilterSql($filters, $params, $userId);
 
         $sql .= " ORDER BY COALESCE(c.last_message_at, c.created_at) DESC";
+
+        // Teto opcional de linhas (o endpoint JSON de atualizacao periodica
+        // nao precisa da fila inteira a cada refresh).
+        if (!empty($filters['limit'])) {
+            $sql .= " LIMIT " . (int) $filters['limit'];
+        }
+
         $rows = Database::getInstance()->fetchAll($sql, $params);
         return SlaService::applyClock(self::attachTagsJson($rows));
     }
@@ -412,6 +425,10 @@ class Conversation
         $sql .= self::listFilterSql($filters, $params, $userId, 'u.', 'u.contact_name', 'u.contact_email');
         $sql .= " ORDER BY COALESCE(u.last_msg_at, u.created_at) DESC";
 
+        if (!empty($filters['limit'])) {
+            $sql .= " LIMIT " . (int) $filters['limit'];
+        }
+
         $rows = Database::getInstance()->fetchAll($sql, $params);
 
         // Deduplica (conversa pode estar em 2 caixas): mantém a mais recente.
@@ -665,6 +682,38 @@ class Conversation
         }
         $row = Database::getInstance()->fetch($sql, $params);
         return (int) ($row['t'] ?? 0);
+    }
+
+    /**
+     * Mensagens criadas ou alteradas depois de um instante.
+     *
+     * O `since` chega em UTC (ISO 8601 do navegador) e é convertido para
+     * a hora local da aplicação — o banco guarda hora local.
+     *
+     * @param string $since ISO 8601 (UTC) do último poll
+     */
+    public static function getMessagesSince(int $conversationId, string $since, int $limit = 200): array
+    {
+        $ts = strtotime($since);
+        if ($ts === false) {
+            return [];
+        }
+        // Overlap de 2s: uma mensagem gravada no instante do poll não pode
+        // ficar de fora por causa do relógio do cliente.
+        $local = date('Y-m-d H:i:s', $ts - 2);
+
+        $sql = "SELECT m.*, u.name as user_name, u.avatar as user_avatar, ct.avatar as contact_avatar
+                FROM messages m
+                LEFT JOIN users u ON u.id = m.user_id
+                JOIN conversations c ON c.id = m.conversation_id
+                LEFT JOIN contacts ct ON ct.id = c.contact_id
+                WHERE m.conversation_id = ?
+                  AND (m.created_at > ? OR m.updated_at > ?)
+                ORDER BY m.created_at ASC, m.id ASC
+                LIMIT " . (int) $limit;
+
+        $msgs = Database::getInstance()->fetchAll($sql, [$conversationId, $local, $local]);
+        return self::enrichMessages($msgs);
     }
 
     private static function enrichMessages(array $msgs): array
