@@ -46,6 +46,16 @@ disparariam duas vezes). O `process_jobs.php` e um daemon de fila e
 tambem aceita `--once` (uma passagem por job, para cron sem processo
 residente).
 
+A midia antiga e limpa uma vez por dia:
+
+```cron
+17 3 * * * cd /var/www/atendeflow && php workers/cleanup_uploads.php >> storage/logs/cleanup_uploads.log 2>&1
+```
+
+`cleanup_uploads.php` apaga de `public/uploads/` o que nao esta
+referenciado por nenhuma mensagem e tem mais de `MEDIA_RETENTION_DAYS`
+(default 180). Use `--dry-run` para ver o que seria apagado.
+
 ## 3) Fuso horario
 
 O app grava hora local (`America/Sao_Paulo`) e usa `NOW()` do MySQL
