@@ -19,6 +19,22 @@ date_default_timezone_set($appConfig['timezone'] ?? 'America/Sao_Paulo');
 
 Database::connect();
 
+// Exclusividade: dois workers sobrepostos processariam o mesmo delay e
+// disparariam a mensagem do fluxo duas vezes.
+$lockDir = dirname(__DIR__) . '/storage/cache';
+if (!is_dir($lockDir)) {
+    @mkdir($lockDir, 0775, true);
+}
+$lockHandle = @fopen($lockDir . '/flow_worker.lock', 'c');
+if (!$lockHandle) {
+    echo '[' . date('Y-m-d H:i:s') . "] ERRO: nao foi possivel abrir o lock do worker.\n";
+    exit(1);
+}
+if (!flock($lockHandle, LOCK_EX | LOCK_NB)) {
+    echo '[' . date('Y-m-d H:i:s') . "] Flow: outra execucao esta em andamento; saindo.\n";
+    exit(0);
+}
+
 echo "[" . date('Y-m-d H:i:s') . "] Iniciando worker de fluxos...\n";
 
 try {
@@ -47,5 +63,10 @@ try {
 } catch (\Throwable $e) {
     echo "[" . date('Y-m-d H:i:s') . "] ERRO: " . $e->getMessage() . "\n";
     echo "[" . date('Y-m-d H:i:s') . "] Stack trace: " . $e->getTraceAsString() . "\n";
+    flock($lockHandle, LOCK_UN);
+    fclose($lockHandle);
     exit(1);
 }
+
+flock($lockHandle, LOCK_UN);
+fclose($lockHandle);

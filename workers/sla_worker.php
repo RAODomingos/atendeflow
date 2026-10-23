@@ -91,16 +91,26 @@ try {
                 ? (int) ($previous['response_breached'] ?? 0) === 1
                 : false;
 
-            SlaMeasurement::saveMeasurement($conversationId, $measurement);
-            $measured++;
-
-            // Backfill é histórico: grava o valor para o compliance, mas
-            // não polui a linha do tempo nem dispara notificação/WhatsApp.
+            // Backfill e historico: grava o valor para o compliance, mas
+            // nao polui a linha do tempo nem dispara notificacao/WhatsApp.
             if ($mode === 'backfill') {
+                SlaMeasurement::saveMeasurement($conversationId, $measurement);
+                $measured++;
                 return;
             }
 
             if ($measurement['response_breached'] && !$wasBreached) {
+                // Reserva atomica da violacao: com dois workers
+                // sobrepostos, so um escalona (tag, gerentes e WhatsApp
+                // sao disparados uma vez so).
+                $claimed = ConversationSla::claimResponseBreach($conversationId);
+                SlaMeasurement::saveMeasurement($conversationId, $measurement);
+                $measured++;
+
+                if (!$claimed) {
+                    return; // outro worker ja escalonou
+                }
+
                 Conversation::addEvent(
                     $conversationId,
                     'sla_breached',
@@ -118,7 +128,11 @@ try {
                 if ($conv) {
                     SlaEscalation::escalate($conversationId, $measurement, $conv);
                 }
+                return;
             }
+
+            SlaMeasurement::saveMeasurement($conversationId, $measurement);
+            $measured++;
         } catch (\Throwable $e) {
             // Uma conversa quebrada nao pode abortar a rodada inteira:
             // as demais ficariam sem medicao naquele minuto.
