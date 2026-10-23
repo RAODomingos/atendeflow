@@ -560,6 +560,8 @@ CREATE TABLE jobs (
     priority INT NOT NULL DEFAULT 0,
     available_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     reserved_at DATETIME NULL,
+    failed_at DATETIME NULL,
+    last_error TEXT NULL,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     INDEX idx_jobs_queue (queue),
     INDEX idx_jobs_available (available_at)
