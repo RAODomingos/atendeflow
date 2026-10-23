@@ -76,7 +76,7 @@
         <div class="modal-body" style="padding:14px">
             <input type="text" id="subjectSearchInput" class="form-control" placeholder="Buscar assunto..." oninput="filterSubjects()" style="margin-bottom:10px">
             <div class="option-list" id="subjectList">
-                <button type="button" class="option-item <?= empty($conv['subject']) ? 'is-active' : '' ?>" data-subject="" onclick="pickSubject('')">
+                <button type="button" class="option-item <?= empty($conv['subject']) ? 'is-active' : '' ?>" data-subject="">
                     <span class="option-icon" style="background:var(--bg-panel-alt);color:var(--text-muted)"><i class="fas fa-ban"></i></span>
                     <span class="option-content">
                         <span class="option-title">Sem assunto</span>
@@ -87,7 +87,7 @@
                     <?php endif; ?>
                 </button>
                 <?php foreach (($convSubjects ?? []) as $s): ?>
-                <button type="button" class="option-item <?= ($conv['subject'] ?? '') === $s['name'] ? 'is-active' : '' ?>" data-subject="<?= e($s['name']) ?>" onclick="pickSubject('<?= e($s['name']) ?>')">
+                <button type="button" class="option-item <?= ($conv['subject'] ?? '') === $s['name'] ? 'is-active' : '' ?>" data-subject="<?= e($s['name']) ?>">
                     <span class="option-icon" style="background:var(--brand-soft);color:var(--brand-2)"><i class="fas fa-tag"></i></span>
                     <span class="option-content">
                         <span class="option-title"><?= e($s['name']) ?></span>
@@ -207,7 +207,7 @@
                         <input type="hidden" name="reason" id="closeReasonValue" value="<?= e($conversation['close_reason'] ?? '') ?>">
                         <div class="reason-grid" id="reasonGrid">
                             <?php foreach ($closeReasons as $r): ?>
-                            <button type="button" class="reason-chip <?= ($conversation['close_reason'] ?? '') === $r['code'] ? 'is-active' : '' ?>" data-reason="<?= e($r['code']) ?>" data-label="<?= e($r['label']) ?>" onclick="pickReason('<?= e($r['code']) ?>', this)" style="--reason-color:<?= e($r['color']) ?>">
+                            <button type="button" class="reason-chip <?= ($conversation['close_reason'] ?? '') === $r['code'] ? 'is-active' : '' ?>" data-reason="<?= e($r['code']) ?>" data-label="<?= e($r['label']) ?>" onclick="pickReason('<?= js($r['code']) ?>', this)" style="--reason-color:<?= e($r['color']) ?>">
                                 <span class="reason-icon"><i class="fas <?= e($r['icon'] ?: 'fa-tag') ?>"></i></span>
                                 <span class="reason-label"><?= e($r['label']) ?></span>
                                 <?php if (!empty($r['description'])): ?>

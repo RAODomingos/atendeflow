@@ -34,7 +34,7 @@
         <div class="card-body">
             <div style="display:flex;gap:8px">
                 <input class="form-control" readonly value="<?= e($portalUrl) ?>" onclick="this.select()" style="font-family:monospace;font-size:12px">
-                <button class="btn btn-outline" onclick="navigator.clipboard.writeText('<?= e($portalUrl) ?>');this.innerHTML='<i class=&quot;fas fa-check&quot;></i>'" title="Copiar link do portal"><i class="fas fa-copy"></i></button>
+                <button class="btn btn-outline" onclick="navigator.clipboard.writeText('<?= js($portalUrl) ?>');this.innerHTML='<i class=&quot;fas fa-check&quot;></i>'" title="Copiar link do portal"><i class="fas fa-copy"></i></button>
                 <a class="btn btn-outline" href="<?= e($portalUrl) ?>" target="_blank" title="Abrir portal"><i class="fas fa-external-link-alt"></i></a>
             </div>
             <p style="margin:8px 0 0;font-size:12px;color:var(--text-muted)">É este endereço que vai nos links enviados pelo chat. O link de cada artigo é <code><?= e($portalUrl) ?>#article/{slug}</code>.</p>
@@ -48,7 +48,7 @@
                 <label style="font-size:12px;font-weight:600;color:var(--secondary)">URL base da API (WIKI_API_URL)</label>
                 <div style="display:flex;gap:8px;margin-top:4px">
                     <input class="form-control" readonly value="<?= e($apiBaseUrl) ?>" onclick="this.select()" style="font-family:monospace;font-size:12px">
-                    <button class="btn btn-outline" onclick="navigator.clipboard.writeText('<?= e($apiBaseUrl) ?>');this.innerHTML='<i class=&quot;fas fa-check&quot;></i>'"><i class="fas fa-copy"></i></button>
+                    <button class="btn btn-outline" onclick="navigator.clipboard.writeText('<?= js($apiBaseUrl) ?>');this.innerHTML='<i class=&quot;fas fa-check&quot;></i>'"><i class="fas fa-copy"></i></button>
                 </div>
             </div>
             <div>

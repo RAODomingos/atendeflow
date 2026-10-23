@@ -27,7 +27,7 @@
                                 <td><?= e($w['channel_name']) ?></td>
                                 <td>
                                     <code class="copy-target" data-copy="<?= e($w['widget_key']) ?>"><?= e(truncate($w['widget_key'], 20)) ?>…</code>
-                                    <button class="btn btn-sm btn-outline" onclick="copyText('<?= e($w['widget_key']) ?>', this)" title="Copiar chave"><i class="fas fa-copy"></i></button>
+                                    <button class="btn btn-sm btn-outline" onclick="copyText('<?= js($w['widget_key']) ?>', this)" title="Copiar chave"><i class="fas fa-copy"></i></button>
                                 </td>
                                 <td><?= e($w['department_name'] ?? '-') ?></td>
                                 <td><?= e($w['title']) ?></td>
@@ -35,7 +35,7 @@
                                 <td class="action-cell">
                                     <button class="btn btn-sm btn-outline" onclick="editChannel(<?= $w['channel_id'] ?>)" title="Editar"><i class="fas fa-edit"></i></button>
                                     <a href="<?= url('widget/demo/') ?><?= e($w['widget_key']) ?>" class="btn btn-sm btn-outline" target="_blank" title="Testar widget"><i class="fas fa-eye"></i></a>
-                                    <button class="btn btn-sm btn-outline" onclick="showWidgetCode('<?= e($w['widget_key']) ?>')" title="Código do widget"><i class="fas fa-code"></i></button>
+                                    <button class="btn btn-sm btn-outline" onclick="showWidgetCode('<?= js($w['widget_key']) ?>')" title="Código do widget"><i class="fas fa-code"></i></button>
                                     <form action="<?= url('channels/widget/') ?><?= $w['id'] ?>/regenerate-key" method="POST" style="display:inline">
                                         <?= csrf_field() ?>
                                         <button type="submit" class="btn btn-sm btn-outline" title="Nova chave"><i class="fas fa-key"></i></button>
@@ -91,7 +91,7 @@
                                 ?>
                                 <td><?= $lastEv > 0 ? format_datetime($wc['last_webhook_at']) : '-' ?><?php if ($evStale): ?><br><span class="badge badge-warning" title="Conectado, mas sem nenhum evento do provedor há <?= (int) floor($evIdle / 60) ?> min — sintoma de queda silenciosa">sem eventos há <?= (int) floor($evIdle / 60) ?> min</span><?php endif; ?></td>
                                 <td class="action-cell">
-                                    <button class="btn btn-sm btn-outline" onclick="openQrModal(<?= (int) $wc['channel_id'] ?>, '<?= e($wc['channel_name']) ?>')" title="Conectar / QR Code">
+                                    <button class="btn btn-sm btn-outline" onclick="openQrModal(<?= (int) $wc['channel_id'] ?>, '<?= js($wc['channel_name']) ?>')" title="Conectar / QR Code">
                                         <i class="fas fa-qrcode"></i> Conectar
                                     </button>
                                     <button class="btn btn-sm btn-outline" onclick="editWhatsappChannel(<?= (int) $wc['channel_id'] ?>)" title="Editar canal">

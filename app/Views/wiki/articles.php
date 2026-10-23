@@ -44,7 +44,7 @@
                             <td>
                                 <div style="display:flex;gap:4px;align-items:center">
                                     <a href="<?= e($clientUrl) ?>" target="_blank" class="btn btn-sm btn-outline" title="Abrir link do cliente"><i class="fas fa-external-link-alt"></i></a>
-                                    <button class="btn btn-sm btn-outline" onclick="navigator.clipboard.writeText('<?= e($clientUrl) ?>');this.innerHTML='<i class=&quot;fas fa-check&quot;></i>'" title="Copiar link do cliente"><i class="fas fa-copy"></i></button>
+                                    <button class="btn btn-sm btn-outline" onclick="navigator.clipboard.writeText('<?= js($clientUrl) ?>');this.innerHTML='<i class=&quot;fas fa-check&quot;></i>'" title="Copiar link do cliente"><i class="fas fa-copy"></i></button>
                                 </div>
                             </td>
                             <td>

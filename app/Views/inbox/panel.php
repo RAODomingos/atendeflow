@@ -938,6 +938,17 @@ function pickSubject(val) {
             }
         }).catch(function(){ if (btn) { btn.disabled = false; btn.style.opacity = '1'; } });
 }
+/* Delegacao: o nome do assunto vem do banco e nunca e interpolado em JS
+   inline (o valor viaja pelo atributo data-subject). */
+(function(){
+    var list = document.getElementById('subjectList');
+    if (!list) return;
+    list.addEventListener('click', function(ev){
+        var btn = ev.target.closest('.option-item[data-subject]');
+        if (!btn || !list.contains(btn)) return;
+        pickSubject(btn.getAttribute('data-subject') || '');
+    });
+})();
 
 function pickPriority(val) {
     var fd = csrfForm();

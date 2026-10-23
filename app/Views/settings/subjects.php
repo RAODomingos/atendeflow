@@ -36,7 +36,7 @@
                                     <?php endif; ?>
                                 </td>
                                 <td style="padding:12px 16px">
-                                    <button type="button" class="btn btn-sm btn-outline" onclick="editSubject(<?= $s['id'] ?>, '<?= e($s['name']) ?>', <?= (int)($s['sort_order'] ?? 0) ?>, <?= !empty($s['is_active']) ? 1 : 0 ?>)">
+                                    <button type="button" class="btn btn-sm btn-outline" onclick="editSubject(<?= $s['id'] ?>, '<?= js($s['name']) ?>', <?= (int)($s['sort_order'] ?? 0) ?>, <?= !empty($s['is_active']) ? 1 : 0 ?>)">
                                         <i class="fas fa-pen"></i>
                                     </button>
                                     <form method="POST" action="<?= url('settings/subjects/') ?><?= $s['id'] ?>/delete" style="display:inline" data-confirm="Remover assunto?">
