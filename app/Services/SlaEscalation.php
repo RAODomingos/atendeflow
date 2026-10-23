@@ -102,6 +102,14 @@ class SlaEscalation
      */
     private static function autoAssign(int $conversationId, array $conv): ?int
     {
+        // Conversa encerrada não entra na escala: atribuir um atendente a
+        // ela reabriria a conversa (assign grava status='open') sem limpar
+        // o closed_at, tirando a conversa da lista de encerradas.
+        $status = (string) ($conv['status'] ?? '');
+        if (!in_array($status, ['new', 'open', 'waiting_customer', 'waiting_internal'], true)) {
+            return null;
+        }
+
         $assigned = !empty($conv['assigned_user_id']) ? (int) $conv['assigned_user_id'] : 0;
         if ($assigned > 0) {
             $row = Database::getInstance()->fetch(
@@ -118,19 +126,21 @@ class SlaEscalation
             return null;
         }
 
-        // Candidatos: membros da caixa + do departamento. Admins ficam de
+        // Candidatos: membros da caixa + membros do departamento da conversa
+        // (quando esse departamento está ligado à caixa). Admins ficam de
         // fora: eles aparecem na lista de acesso por visibilidade, não
         // por escala.
+        $departmentId = !empty($conv['department_id']) ? (int) $conv['department_id'] : 0;
         $candidates = Database::getInstance()->fetchAll(
             "SELECT u.id FROM users u
              LEFT JOIN inbox_users iu ON iu.user_id = u.id AND iu.inbox_id = ?
-             LEFT JOIN department_users du ON du.user_id = u.id
+             LEFT JOIN department_users du ON du.user_id = u.id AND du.department_id = ?
              LEFT JOIN inbox_departments idp ON idp.department_id = du.department_id AND idp.inbox_id = ?
              WHERE u.is_active = 1 AND u.role != 'admin'
                AND (iu.id IS NOT NULL OR idp.id IS NOT NULL)
              GROUP BY u.id
              ORDER BY u.id ASC",
-            [$inboxId, $inboxId]
+            [$inboxId, $departmentId, $inboxId]
         );
 
         if (!$candidates) {

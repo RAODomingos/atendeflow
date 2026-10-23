@@ -134,12 +134,12 @@ class ConversationSla
      * Conversas encerradas sem linha de SLA: precisam ser finalizadas
      * (o valor final é gravado uma vez e não muda mais).
      *
-     * @return array<int> ids de conversa
+     * @return array<int, array{id:int, closed_at:string}> linhas das conversas
      */
     public static function closedWithoutRow(int $limit = 200): array
     {
         $rows = Database::getInstance()->fetchAll(
-            "SELECT c.id FROM conversations c
+            "SELECT c.id, c.closed_at FROM conversations c
              LEFT JOIN conversation_slas s ON s.conversation_id = c.id
              WHERE s.id IS NULL
                AND c.closed_at IS NOT NULL
@@ -147,7 +147,36 @@ class ConversationSla
              ORDER BY c.closed_at ASC
              LIMIT " . (int) $limit
         );
-        return array_map(fn($r) => (int) $r['id'], $rows);
+        return array_map(
+            fn($r) => ['id' => (int) $r['id'], 'closed_at' => (string) $r['closed_at']],
+            $rows
+        );
+    }
+
+    /**
+     * Conversas encerradas que JÁ tinham linha de SLA medida enquanto
+     * estavam ativas.
+     *
+     * A linha é congelada no último valor medido antes do encerramento
+     * (`updated_at < closed_at`), então o valor final da resolução nunca
+     * era gravado. Esta consulta devolve cada conversa uma única vez: depois
+     * de finalizada, `updated_at` passa a ser maior que `closed_at` e ela
+     * some da lista.
+     *
+     * @return array<int> ids de conversa
+     */
+    public static function closedWithStaleRow(int $limit = 200): array
+    {
+        $rows = Database::getInstance()->fetchAll(
+            "SELECT s.conversation_id FROM conversation_slas s
+             JOIN conversations c ON c.id = s.conversation_id
+             WHERE c.closed_at IS NOT NULL
+               AND s.updated_at < c.closed_at
+               AND c.group_id IS NULL
+             ORDER BY c.closed_at ASC
+             LIMIT " . (int) $limit
+        );
+        return array_map(fn($r) => (int) $r['conversation_id'], $rows);
     }
 
     /**
