@@ -181,8 +181,22 @@ class SlaMeasurement
             $responseAt = null;
             $responseBreached = $responseSeconds >= $responseThreshold;
         } else {
-            // Encerrada sem resposta humana: violação consumada.
-            $responseSeconds = null;
+            // Encerrada sem resposta humana: violação consumada. O tempo
+            // de espera é conhecido (do cliente até o encerramento) e
+            // precisa ser guardado: com response_seconds nulo a conversa
+            // ficava fora da medição do compliance e o relatório a contava
+            // como cumprida.
+            $endAt = $closedAt ?? $nowAt;
+            $responseSeconds = self::countWithPause(
+                $schedule,
+                $scheduleTz,
+                $appTz,
+                $firstInbound,
+                $endAt,
+                $timeline,
+                $fallbackStatus
+            );
+            $responseAt = null;
             $responseBreached = true;
         }
 
@@ -300,14 +314,17 @@ class SlaMeasurement
         );
         $timeline = self::loadTimeline($conversationId);
 
-        // Grade do departamento (null = sem horário configurado).
+        // Grade do relogio: mesma regra do chip na tela (toggle global +
+        // override da caixa + grade do departamento). Sem isso, com o
+        // horario comercial desligado, a tela mostrava relogio de
+        // parede e o motor media segundos uteis.
         $deptId = !empty($conv['department_id']) ? (int) $conv['department_id'] : null;
-        $deptCfg = $deptId ? BusinessHoursService::slaConfig($deptId) : null;
-        $schedule = $deptCfg['schedule'] ?? null;
-        $scheduleTz = $deptCfg['timezone'] ?? date_default_timezone_get();
+        $inboxId = !empty($conv['inbox_id']) ? (int) $conv['inbox_id'] : null;
+        $hours = \App\Services\SlaService::businessHoursFor($inboxId, $deptId, date_default_timezone_get());
+        $schedule = $hours['schedule'];
+        $scheduleTz = $hours['timezone'];
 
         // Limites: config da caixa (herda o global) ou o global direto.
-        $inboxId = !empty($conv['inbox_id']) ? (int) $conv['inbox_id'] : null;
         $cfg = SlaService::configFor($inboxId)['config'] ?? [];
         $responseMinutes = (int) ($cfg['response_minutes']
             ?? \App\Models\Setting::get('sla_response_minutes', '15'));

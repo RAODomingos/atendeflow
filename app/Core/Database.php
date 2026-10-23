@@ -34,9 +34,69 @@ class Database
                 PDO::ATTR_TIMEOUT => 5,
             ];
             $this->connection = new PDO($dsn, $username, $password, $options);
+            $this->applySessionTimezone();
         } catch (PDOException $e) {
             throw new Exception("Connection failed: " . $e->getMessage());
         }
+    }
+
+    /**
+     * Alinha o fuso da sessão MySQL com o fuso da aplicação.
+     *
+     * O app grava hora local (America/Sao_Paulo) e usa NOW()/CURDATE()
+     * do banco em filtros (fila de jobs, janelas do relatorio, "hoje",
+     * conversas vencidas). Se o servidor MySQL rodar em UTC, NOW() fica
+     * 3 horas a frente do date() do PHP: a fila nunca processa nada, o
+     * periodo do relatorio corta na hora errada e o "hoje" comeca na
+     * hora errada.
+     *
+     * Tenta o fuso nomeado; se o MySQL nao tiver as tabelas de fuso,
+     * cai para o deslocamento numerico atual.
+     */
+    private function applySessionTimezone(): void
+    {
+        $configured = (string) (env('DB_TIMEZONE', '') ?: '');
+        $appTz = (string) (env('APP_TIMEZONE', '') ?: $this->appTimezone());
+        $named = $configured !== '' ? $configured : $appTz;
+
+        foreach ([$named, $this->numericUtcOffset()] as $candidate) {
+            if ($candidate === '') {
+                continue;
+            }
+            try {
+                $this->connection->exec("SET time_zone = '" . str_replace("'", '', $candidate) . "'");
+                return;
+            } catch (PDOException $e) {
+                // Fuso nao suportado: tenta o proximo candidato.
+            }
+        }
+    }
+
+    /**
+     * Fuso da aplicacao (config/app.php), com fallback seguro.
+     */
+    private function appTimezone(): string
+    {
+        $configFile = dirname(__DIR__, 2) . '/config/app.php';
+        if (is_file($configFile)) {
+            $config = require $configFile;
+            if (is_array($config) && !empty($config['timezone'])) {
+                return (string) $config['timezone'];
+            }
+        }
+        return 'America/Sao_Paulo';
+    }
+
+    /**
+     * Deslocamento atual em relacao ao UTC (ex.: -03:00).
+     */
+    private function numericUtcOffset(): string
+    {
+        $now = time();
+        $offset = (int) (date('Z', $now) ?: 0);
+        $sign = $offset < 0 ? '-' : '+';
+        $offset = abs($offset);
+        return sprintf('%s%02d:%02d', $sign, intdiv($offset, 3600), intdiv($offset % 3600, 60));
     }
 
     private function shouldReconnect(PDOException $e): bool
