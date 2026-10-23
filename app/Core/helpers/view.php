@@ -58,3 +58,22 @@ function e(mixed $value): string
 {
     return htmlspecialchars((string) $value, ENT_QUOTES, 'UTF-8');
 }
+
+/**
+ * Literal JS seguro para interpolar em atributo HTML.
+ *
+ * `e()` sozinho NAO serve para isso: dentro de `onclick="fn('...')"` o
+ * navegador decodifica as entidades HTML do atributo ANTES de entregar o
+ * codigo ao JS, entao um `'` virava aspa real e quebrava o literal JS
+ * (XSS armazenado). Aqui o valor vira um literal JSON com ' " < & escapados
+ * como \uXXXX: nao quebra o literal JS nem o atributo.
+ *
+ * Uso: onclick="pickSubject('<?= js($nome) ?>')"
+ */
+function js(mixed $value): string
+{
+    return (string) json_encode(
+        (string) $value,
+        JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_TAG | JSON_HEX_AMP | JSON_UNESCAPED_UNICODE
+    );
+}

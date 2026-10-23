@@ -14,7 +14,7 @@
                 <div class="client-cover">
                     <div class="client-cover-photo">
                         <?php if (!empty($contact['avatar'])): ?>
-                            <img src="<?= e(str_starts_with($contact['avatar'], 'http') ? $contact['avatar'] : upload_url($contact['avatar'])) ?>" alt="<?= e($contact['name'] ?? '') ?>" onerror="this.style.display='none';this.parentElement.textContent='<?= e($initial) ?>'">
+                            <img src="<?= e(str_starts_with($contact['avatar'], 'http') ? $contact['avatar'] : upload_url($contact['avatar'])) ?>" alt="<?= e($contact['name'] ?? '') ?>" onerror="this.style.display='none';this.parentElement.textContent=<?= js($initial) ?>">
                         <?php else: ?>
                             <?= e($initial) ?>
                         <?php endif; ?>
