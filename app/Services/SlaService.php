@@ -84,6 +84,39 @@ class SlaService
     ];
 
     /**
+     * Regra unica do relogio de horario comercial.
+     *
+     * O chip na tela e o motor de medicao (SlaMeasurement) precisam usar
+     * a MESMA regra: o toggle global (sla_business_hours), o override da
+     * caixa e, so com o horario ligado, a grade do departamento.
+     *
+     * Antes o motor usava apenas a grade do departamento: com o toggle
+     * desligado, a tela mostrava relogio de parede e o relatorio media
+     * segundos uteis — o mesmo SLA, duas respostas.
+     *
+     * @return array{schedule: ?array, timezone: string}
+     */
+    public static function businessHoursFor(?int $inboxId, ?int $departmentId, ?string $appTz = null): array
+    {
+        $appTz = $appTz ?: date_default_timezone_get();
+        $useHours = (string) (self::configFor($inboxId)['config']['business_hours'] ?? '1') === '1';
+
+        if (!$useHours || !$departmentId) {
+            return ['schedule' => null, 'timezone' => $appTz];
+        }
+
+        $deptConfig = BusinessHoursService::slaConfig($departmentId);
+        if (!$deptConfig) {
+            return ['schedule' => null, 'timezone' => $appTz];
+        }
+
+        return [
+            'schedule' => $deptConfig['schedule'],
+            'timezone' => $deptConfig['timezone'] ?? $appTz,
+        ];
+    }
+
+    /**
      * Lê config global (chaves sla_*) já com defaults.
      */
     public static function globalConfig(): array
@@ -258,12 +291,7 @@ class SlaService
 
             // A caixa pode desligar o horário comercial (NULL = global).
             $inboxId = !empty($row['inbox_id']) ? (int) $row['inbox_id'] : null;
-            $boxUsesHours = $inboxId !== null
-                ? (self::configFor($inboxId)['config']['business_hours'] ?? '1')
-                : null;
-            $useHours = $boxUsesHours !== null
-                ? ((string) $boxUsesHours === '1')
-                : $useBusinessHours;
+            $useHours = (string) (self::configFor($inboxId)['config']['business_hours'] ?? '1') === '1';
 
             if ($useHours && $deptId) {
                 if (!array_key_exists($deptId, $departments)) {

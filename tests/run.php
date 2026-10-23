@@ -348,7 +348,9 @@ $closedConv['closed_at'] = '2026-10-19 10:00:00';
 $st = slaMeasure([$closedConv, [
     $msgSla(1, 'inbound', 'text', null, '2026-10-19 09:00:00'),
 ], [], $office, 'UTC', '2026-10-19 10:00:00', $optsSla]);
-check('sla: conversa encerrada sem resposta tem sla de resposta nulo', array_key_exists('response_seconds', $st) && $st['response_seconds'] === null, json_encode($st));
+// A espera e conhecida: com response_seconds nulo a conversa ficava fora
+// da medicao do compliance e o relatorio a contava como cumprida.
+check('sla: conversa encerrada sem resposta guarda a espera', array_key_exists('response_seconds', $st) && (int) $st['response_seconds'] === 3600, json_encode($st));
 check('sla: conversa encerrada sem resposta conta como violacao', array_key_exists('response_breached', $st) && $st['response_breached'] === true, json_encode($st));
 
 // 5) o periodo aberto conta ate agora

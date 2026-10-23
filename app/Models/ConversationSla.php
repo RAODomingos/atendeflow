@@ -346,10 +346,10 @@ class ConversationSla
         }
 
         $row = Database::getInstance()->fetch(
-            "SELECT COUNT(s.id) as measured,
-                    SUM(CASE WHEN s.response_breached = 1 THEN 1 ELSE 0 END) as breached,
-                    SUM(CASE WHEN c.closed_at IS NOT NULL THEN 1 ELSE 0 END) as measured_res,
-                    SUM(CASE WHEN c.closed_at IS NOT NULL AND s.resolution_breached = 1 THEN 1 ELSE 0 END) as breached_res
+            "SELECT COUNT(CASE WHEN s.response_seconds IS NOT NULL THEN 1 END) as measured,
+                    SUM(CASE WHEN s.response_seconds IS NOT NULL AND s.response_breached = 1 THEN 1 ELSE 0 END) as breached,
+                    SUM(CASE WHEN c.closed_at IS NOT NULL AND s.resolution_seconds > 0 THEN 1 ELSE 0 END) as measured_res,
+                    SUM(CASE WHEN c.closed_at IS NOT NULL AND s.resolution_seconds > 0 AND s.resolution_breached = 1 THEN 1 ELSE 0 END) as breached_res
              FROM conversation_slas s
              JOIN conversations c ON c.id = s.conversation_id
              WHERE {$where}",
@@ -395,8 +395,8 @@ class ConversationSla
 
         $rows = Database::getInstance()->fetchAll(
             "SELECT {$label} as label,
-                    COUNT(s.id) as total,
-                    SUM(CASE WHEN s.response_breached = 1 THEN 1 ELSE 0 END) as breached
+                    COUNT(CASE WHEN s.response_seconds IS NOT NULL THEN 1 END) as total,
+                    SUM(CASE WHEN s.response_seconds IS NOT NULL AND s.response_breached = 1 THEN 1 ELSE 0 END) as breached
              FROM conversation_slas s
              JOIN conversations c ON c.id = s.conversation_id
              {$join}
