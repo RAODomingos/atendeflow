@@ -14,6 +14,7 @@ use App\Controllers\SettingsController;
 use App\Controllers\WhatsAppController;
 use App\Controllers\WhatsAppGroupController;
 use App\Controllers\CsatController;
+use App\Controllers\HealthController;
 use App\Controllers\ReportsController;
 use App\Controllers\WikiController;
 /** @var Router $router */
@@ -40,6 +41,9 @@ $router->post('/csat/{token}', [CsatController::class, 'submit']);
 
 // Public WhatsApp webhook (called by WAHA / Evolution API — no auth)
 $router->post('/webhooks/whatsapp', [WhatsAppController::class, 'webhook']);
+
+// Health check público (monitor externo): devolve só ok/erro
+$router->get('/health', [HealthController::class, 'check']);
 
 // Public Wiki API (front-end externo hospedado em qualquer lugar — auth via X-API-Key)
 $router->get('/api/wiki/categories', [\App\Controllers\Api\WikiApiController::class, 'categories']);
@@ -240,6 +244,7 @@ $router->group('', function (Router $router) {
 
 // Internal JSON API routes (auth + csrf — fetch() envia via FormData ou X-CSRF-TOKEN)
 $router->group('', function (Router $router) {
+    $router->get('/api/health', [HealthController::class, 'details'], ['admin']);
     $router->get('/api/conversations', [InboxController::class, 'apiConversations']);
     $router->get('/api/conversations-list', [InboxController::class, 'conversationsListFragment']);
     $router->post('/api/flows/upload-media', [FlowController::class, 'uploadMedia'], ['manager']);

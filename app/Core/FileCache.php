@@ -28,8 +28,21 @@ class FileCache
         if (!is_file($f)) {
             return null;
         }
-        $raw = @file_get_contents($f);
-        if ($raw === false) {
+        // Leitura sob lock compartilhado: quem escreve faz truncate antes
+        // de gravar, e uma leitura sem lock podia pegar o arquivo vazio
+        // (miss forcado).
+        $fp = @fopen($f, 'r');
+        if (!$fp) {
+            return null;
+        }
+        try {
+            flock($fp, LOCK_SH);
+            $raw = stream_get_contents($fp);
+            flock($fp, LOCK_UN);
+        } finally {
+            fclose($fp);
+        }
+        if ($raw === false || $raw === '') {
             return null;
         }
         $entry = json_decode($raw, true);
@@ -66,9 +79,33 @@ class FileCache
         if ($cached !== null) {
             return $cached;
         }
-        $value = $callback();
-        self::set($key, $value, $ttlSeconds);
-        return $value;
+
+        // Single-flight: so um processo por vez recalcula. Sem isso, N
+        // requisicoes simultaneas que perdem o cache ao mesmo tempo
+        // disparam N consultas iguais ao banco (cache stampede).
+        $lockFp = @fopen(self::file($key) . '.lock', 'c');
+        if (!$lockFp) {
+            $value = $callback();
+            self::set($key, $value, $ttlSeconds);
+            return $value;
+        }
+
+        try {
+            flock($lockFp, LOCK_EX);
+
+            // Outra requisicao pode ter calculado enquanto este esperava.
+            $cached = self::get($key);
+            if ($cached !== null) {
+                return $cached;
+            }
+
+            $value = $callback();
+            self::set($key, $value, $ttlSeconds);
+            return $value;
+        } finally {
+            flock($lockFp, LOCK_UN);
+            fclose($lockFp);
+        }
     }
 
     public static function forget(string $key): void
