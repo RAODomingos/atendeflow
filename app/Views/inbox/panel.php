@@ -1905,6 +1905,10 @@ function decorateDates() {
 var lastMid = 0;
 msgContainer.querySelectorAll('.message[data-mid]').forEach(function(el) { var id = parseInt(el.getAttribute('data-mid'), 10); if (id > lastMid) lastMid = id; });
 
+/* Ultimo poll (ISO UTC): o servidor devolve so o que mudou desde entao,
+   em vez de repetir o historico inteiro a cada 10 segundos. */
+var lastPollAt = '';
+
 /* ---------- Lightbox de imagens e vídeos ---------- */
 var lightboxItems = [];
 var lightboxIndex = -1;
@@ -2486,7 +2490,10 @@ function msgSig(m) {
         String(m.content || '').length + ':' + String(m.content || '').substring(0, 64);
 }
 function pollMessages() {
-    fetch(API + '/conversations/' + CONV_ID + '/messages').then(function(r) { return r.json(); }).then(function(msgs) {
+    var url = API + '/conversations/' + CONV_ID + '/messages';
+    if (lastPollAt) { url += '?since=' + encodeURIComponent(lastPollAt); }
+    fetch(url).then(function(r) { return r.json(); }).then(function(msgs) {
+        lastPollAt = new Date().toISOString();
         var added = 0, inboundNew = false;
         (msgs || []).forEach(function(m) {
             var id = parseInt(m.id, 10);

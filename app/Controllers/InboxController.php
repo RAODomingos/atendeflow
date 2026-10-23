@@ -76,7 +76,9 @@ class InboxController
 
         return [
             'conversation' => $conversation,
-            'messages' => Conversation::getMessages($id),
+            // Teto por conversa: o PDF de uma conversa com historico
+            // gigante estoura memoria e o DOMPDF nao fecha.
+            'messages' => Conversation::getMessages($id, ['tail' => 500]),
             'events' => Conversation::getEvents($id),
             'contact' => Contact::find($conversation['contact_id']),
             'csat' => Conversation::getCsat($id),
@@ -178,10 +180,13 @@ class InboxController
             return null;
         }
         $conversation['csat'] = Conversation::getCsat($id);
-        $allMessages = Conversation::getMessages($id);
-        $hasOlder = count($allMessages) > 30;
-        $messages = $hasOlder ? array_slice($allMessages, -30) : $allMessages;
-        $firstMid = $hasOlder ? (int) $messages[0]['id'] : 0;
+        // Só as 30 mais recentes: o histórico antigo fica no botão
+        // "carregar mensagens anteriores". Antes carregava a conversa
+        // inteira (toda linha hidratada) só para cortar 30.
+        $totalMessages = Conversation::countMessages($id);
+        $hasOlder = $totalMessages > 30;
+        $messages = Conversation::getMessages($id, ['tail' => 30]);
+        $firstMid = $hasOlder ? (int) ($messages[0]['id'] ?? 0) : 0;
 
         $internalNotes = [];
         try {
@@ -737,6 +742,8 @@ class InboxController
         if ($statusFilter && $statusFilter !== 'all') {
             $filters['status'] = $statusFilter;
         }
+        // Endpoint de atualizacao periodica: nao precisa da fila inteira.
+        $filters['limit'] = 200;
         $conversations = Conversation::getConversationsForInboxes($ids, Auth::id(), $filters);
         View::json(self::attachSlaFields($conversations));
     }
@@ -996,12 +1003,23 @@ class InboxController
             return;
         }
         $before = $request->input('before');
-        $opts = [];
+        $since = $request->input('since');
+
         if ($before) {
-            $opts['before'] = (int) $before;
-            $opts['limit'] = 50;
+            // Pagina para trás: as 50 mensagens anteriores.
+            $messages = Conversation::getMessages($id, [
+                'before' => (int) $before,
+                'limit'  => 50,
+            ]);
+        } elseif ($since) {
+            // Poll: só o que é novo ou foi editado desde o último poll.
+            $messages = Conversation::getMessagesSince($id, (string) $since);
+        } else {
+            // Primeiro poll: as 50 mais recentes. Antes devolvia a conversa
+            // inteira a cada 10 segundos.
+            $messages = Conversation::getMessages($id, ['tail' => 50]);
         }
-        $messages = Conversation::getMessages($id, $opts);
+
         if (!$before) {
             Conversation::markMessagesAsRead($id, Auth::id());
             \App\Models\Notification::markConversationNotificationsRead($id, Auth::id());

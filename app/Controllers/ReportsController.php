@@ -405,7 +405,9 @@ class ReportsController
             $conv['tags'] = $tagsByConv[$cid] ?? [];
             $conversationsData[] = [
                 'conversation' => $conv,
-                'messages'     => \App\Models\Conversation::getMessages($cid),
+                // Teto por conversa: 100 conversas x historico inteiro
+                // estoura memoria e o DOMPDF nao fecha.
+                'messages'     => \App\Models\Conversation::getMessages($cid, ['tail' => 500]),
                 'events'       => \App\Models\Conversation::getEvents($cid),
                 'csat'         => \App\Models\Conversation::getCsat($cid),
             ];

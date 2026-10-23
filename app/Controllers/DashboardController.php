@@ -262,8 +262,9 @@ class DashboardController
         }
 
         // --- Recent conversations (global, unassigned + assigned) ---
-        $recentConversations = Conversation::getInboxConversations(null, null, 'open');
-        $recentConversations = array_slice($recentConversations, 0, 10);
+        // O limite vai no SQL: antes carregava todas as conversas abertas
+        // para exibir 10.
+        $recentConversations = Conversation::getInboxConversations(null, null, 'open', ['limit' => 10]);
         if ($hasGroups) {
             try {
                 $gids = array_values(array_unique(array_filter(array_map(
