@@ -1502,9 +1502,15 @@ class WhatsAppService
 
     /**
      * Valida a autenticidade do webhook para a conexão.
+     *
      * Aceita (qualquer um vale):
-     *   a) ?secret= na query string (Uazapi pode sufixar /messages/text);
-     *   b) HMAC-SHA256 do corpo bruto nos headers X-Webhook-Signature,
+     *   a) header X-Webhook-Secret (recomendado: nao vai para o log do
+     *      servidor nem para o historico do navegador);
+     *   b) ?secret= na query string (alguns provedores, como o Uazapi,
+     *      so aceitam assim — ATENÇÃO: a query completa fica no access
+     *      log do Apache/nginx; desligue com WHATSAPP_WEBHOOK_QUERY_SECRET=0
+     *      e use o header);
+     *   c) HMAC-SHA256 do corpo bruto nos headers X-Webhook-Signature,
      *      X-Signature ou X-Hub-Signature-256 (prefixo "sha256=" opcional).
      * Sem webhook_secret configurado na conexão, permite (compatibilidade).
      */
@@ -1517,13 +1523,23 @@ class WhatsAppService
             return true;
         }
 
-        $secret = (string) ($_GET['secret'] ?? '');
-        // Uazapi pode adicionar /messages/text ao final da URL; extrai apenas a parte hex
-        if (preg_match('/^([a-f0-9]{32})/i', $secret, $m)) {
-            $secret = $m[1];
-        }
-        if ($secret !== '' && hash_equals($stored, $secret)) {
+        // Header: o jeito limpo (nao passa por URL nem por log).
+        $headerSecret = trim((string) ($_SERVER['HTTP_X_WEBHOOK_SECRET'] ?? ''));
+        if ($headerSecret !== '' && hash_equals($stored, $headerSecret)) {
             return true;
+        }
+
+        // Query string: alguns provedores nao aceitam header.
+        $querySecretEnabled = trim((string) (env('WHATSAPP_WEBHOOK_QUERY_SECRET', '1') ?: '1')) !== '0';
+        if ($querySecretEnabled) {
+            $secret = (string) ($_GET['secret'] ?? '');
+            // Uazapi pode adicionar /messages/text ao final da URL; extrai apenas a parte hex
+            if (preg_match('/^([a-f0-9]{32})/i', $secret, $m)) {
+                $secret = $m[1];
+            }
+            if ($secret !== '' && hash_equals($stored, $secret)) {
+                return true;
+            }
         }
 
         $sig = '';
