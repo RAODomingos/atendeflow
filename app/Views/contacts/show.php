@@ -18,15 +18,17 @@ $totalCount = (int) ($statusCounts['_total'] ?? count($conversations));
             <a href="<?= url('contacts/') ?><?= (int) $contact['id'] ?>/pdf" target="_blank" class="btn btn-sm btn-outline" title="Baixar PDF">
                 <i class="fas fa-file-pdf"></i> PDF
             </a>
-            <button class="btn btn-sm btn-outline" onclick="openMergeContactModal()">
-                <i class="fas fa-code-merge"></i> Mesclar
-            </button>
-            <button class="btn btn-sm btn-primary" onclick="openContactDrawer()">
-                <i class="fas fa-edit"></i> Editar
-            </button>
-            <button class="btn btn-sm btn-danger" onclick="confirmDelete()" title="Excluir">
-                <i class="fas fa-trash"></i>
-            </button>
+            <?php if (!empty($isManager)): ?>
+                <button class="btn btn-sm btn-outline" onclick="openMergeContactModal()">
+                    <i class="fas fa-code-merge"></i> Mesclar
+                </button>
+                <button class="btn btn-sm btn-primary" onclick="openContactDrawer()">
+                    <i class="fas fa-edit"></i> Editar
+                </button>
+                <button class="btn btn-sm btn-danger" onclick="confirmDelete()" title="Excluir">
+                    <i class="fas fa-trash"></i>
+                </button>
+            <?php endif; ?>
         </div>
     </div>
 
@@ -126,9 +128,11 @@ $totalCount = (int) ($statusCounts['_total'] ?? count($conversations));
                 <i class="fas fa-id-card" style="color:var(--brand)"></i>
                 Informações do contato
             </span>
-            <button type="button" class="btn btn-sm btn-outline" onclick="openContactDrawer()">
-                <i class="fas fa-edit"></i> Editar
-            </button>
+            <?php if (!empty($isManager)): ?>
+                <button type="button" class="btn btn-sm btn-outline" onclick="openContactDrawer()">
+                    <i class="fas fa-edit"></i> Editar
+                </button>
+            <?php endif; ?>
         </div>
         <div class="cd-info-body">
             <div class="cd-info-item">
