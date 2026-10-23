@@ -131,6 +131,52 @@ class ConversationSla
     }
 
     /**
+     * Reserva (de forma atomica) o escalonamento de uma violacao.
+     *
+     * A transicao 0 -> 1 acontece num UPDATE condicional: com dois
+     * workers sobrepostos, so quem altera a linha escala. Sem isso, o
+     * segundo worker via a leitura antiga (`response_breached = 0`) e
+     * disparava uma segunda notificacao, uma segunda tag e um segundo
+     * WhatsApp para o mesmo cliente.
+     *
+     * @return bool true se ESTE processo foi o dono da violacao
+     */
+    public static function claimResponseBreach(int $conversationId): bool
+    {
+        $db = Database::getInstance();
+        $now = date('Y-m-d H:i:s');
+
+        $affected = $db->execute(
+            "UPDATE conversation_slas SET response_breached = 1, updated_at = ?
+             WHERE conversation_id = ? AND response_breached = 0",
+            [$now, $conversationId]
+        );
+        if ($affected > 0) {
+            return true;
+        }
+
+        // Sem linha ainda: cria ja marcada (a medicao completa vem
+        // logo depois, no saveMeasurement).
+        $row = $db->fetch("SELECT id FROM conversation_slas WHERE conversation_id = ?", [$conversationId]);
+        if ($row) {
+            return false; // ja existia e ja estava marcada
+        }
+
+        try {
+            $db->insert('conversation_slas', [
+                'conversation_id' => $conversationId,
+                'response_breached' => 1,
+                'created_at' => $now,
+                'updated_at' => $now,
+            ]);
+            return true;
+        } catch (\Throwable $e) {
+            // Corrida com outro worker: ele criou a linha primeiro.
+            return false;
+        }
+    }
+
+    /**
      * Conversas ativas cujo ciclo foi reiniciado (reabertura).
      *
      * A linha existe, mas o ciclo novo ainda nao foi medido
