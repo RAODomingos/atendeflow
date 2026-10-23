@@ -308,6 +308,229 @@ function format_bytes(int $bytes): string
 }
 
 /**
+ * Hosts liberados para download remoto.
+ *
+ * Vazio = nenhum host especifico (o bloqueio de rede privada continua
+ * valendo). Preencha com padroes separatedos por virgula, ex.:
+ * REMOTE_FETCH_ALLOWED_HOSTS=pps.whatsapp.net,*.waha.*
+ */
+function remote_fetch_allowed_hosts(): array
+{
+    $raw = function_exists('env') ? (string) env('REMOTE_FETCH_ALLOWED_HOSTS', '') : '';
+    $list = array_values(array_filter(array_map('trim', explode(',', $raw))));
+    return $list;
+}
+
+/**
+ * Verificacao TLS desligada (ambiente com certificado proprio).
+ *
+ * O padrao e VERIFICAR: sem isso, quem esta no meio da conexao
+ * consegue trocar o arquivo baixado. so desligue em ambiente de
+ * teste, com REMOTE_FETCH_INSECURE=1.
+ */
+function remote_fetch_insecure(): bool
+{
+    $raw = function_exists('env') ? (string) env('REMOTE_FETCH_INSECURE', '') : '';
+    return trim($raw) === '1' || strtolower(trim($raw)) === 'true';
+}
+
+/**
+ * Host do provedor de WhatsApp configurado (WAHA_BASE_URL).
+ *
+ * O provedor pode devolver midia hospedada na propria maquina
+ * (comum em ambiente local) — esse host e liberado mesmo em rede
+ * privada.
+ */
+function remote_fetch_provider_host(): string
+{
+    $base = function_exists('env') ? (string) env('WAHA_BASE_URL', '') : '';
+    if (trim($base) === '') {
+        return '';
+    }
+    $host = parse_url($base, PHP_URL_HOST);
+    return is_string($host) ? $host : '';
+}
+
+/**
+ * Hosts dos provedores de WhatsApp configurados (tabela
+ * whatsapp_connections). O provedor pode devolver midia hospedada na
+ * propria maquina — o host dele e liberado mesmo em rede privada.
+ *
+ * @return array<int, string>
+ */
+function remote_fetch_provider_hosts(): array
+{
+    static $hosts = null;
+    if ($hosts !== null) {
+        return $hosts;
+    }
+
+    $hosts = [];
+    $envHost = remote_fetch_provider_host();
+    if ($envHost !== '') {
+        $hosts[] = strtolower($envHost);
+    }
+
+    try {
+        if (class_exists(\App\Core\Database::class)) {
+            $rows = \App\Core\Database::getInstance()->fetchAll(
+                "SELECT DISTINCT base_url FROM whatsapp_connections WHERE base_url IS NOT NULL AND base_url <> ''"
+            );
+            foreach ($rows as $r) {
+                $host = parse_url((string) $r['base_url'], PHP_URL_HOST);
+                if (is_string($host) && $host !== '') {
+                    $hosts[] = strtolower($host);
+                }
+            }
+        }
+    } catch (\Throwable $e) {
+        // Sem banco (script isolado): segue so com o host do env.
+    }
+
+    return array_values(array_unique($hosts));
+}
+
+/**
+ * O IP e de rede privada/reservada (loopback, RFC1918, link-local,
+ * multicast, IPv6 local)?
+ */
+function is_private_ip(string $ip): bool
+{
+    if (filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4)) {
+        $cidrs = [
+            '0.0.0.0/8', '10.0.0.0/8', '100.64.0.0/10', '127.0.0.0/8',
+            '169.254.0.0/16', '172.16.0.0/12', '192.0.0.0/24', '192.168.0.0/16',
+            '198.18.0.0/15', '224.0.0.0/4', '240.0.0.0/4',
+        ];
+        foreach ($cidrs as $cidr) {
+            if (ip_in_range($ip, $cidr)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    if (filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV6)) {
+        if ($ip === '::1' || $ip === '::') {
+            return true;
+        }
+        $bin = inet_pton($ip);
+        if ($bin === false) {
+            return true;
+        }
+        $hex = bin2hex($bin);
+        // fc00::/7 (unicast local), fe80::/10 (link-local)
+        if (str_starts_with($hex, 'fc') || str_starts_with($hex, 'fd')) {
+            return true;
+        }
+        if (preg_match('/^fe[89ab]/', $hex)) {
+            return true;
+        }
+        // ::ffff:x.x.x.x (IPv4 mapeado)
+        if (str_starts_with($hex, '00000000000000000000ffff')) {
+            $mapped = inet_ntop(substr($bin, 12));
+            return $mapped === false ? true : is_private_ip($mapped);
+        }
+        return false;
+    }
+
+    return true;
+}
+
+/**
+ * O IP esta dentro da faixa CIDR?
+ */
+function ip_in_range(string $ip, string $cidr): bool
+{
+    [$subnet, $bits] = array_pad(explode('/', $cidr, 2), 2, '32');
+    $ipBin = @inet_pton($ip);
+    $subnetBin = @inet_pton($subnet);
+    if ($ipBin === false || $subnetBin === false || strlen($ipBin) !== strlen($subnetBin)) {
+        return false;
+    }
+    $bits = (int) $bits;
+    $bytes = intdiv($bits, 8);
+    if ($bytes > 0 && substr($ipBin, 0, $bytes) !== substr($subnetBin, 0, $bytes)) {
+        return false;
+    }
+    $rest = $bits % 8;
+    if ($rest === 0) {
+        return true;
+    }
+    $mask = ~((1 << (8 - $rest)) - 1) & 0xFF;
+    return (ord($ipBin[$bytes]) & $mask) === (ord($subnetBin[$bytes]) & $mask);
+}
+
+/**
+ * A URL pode ser buscada?
+ *
+ * - somente http/https
+ * - o host nao pode apontar para rede privada/reservada (SSRF: a URL
+ *   vem do payload do webhook, que eControlled por terceiros)
+ * - se houver allowlist configurada, o host precisa estar nela
+ */
+function remote_fetch_allowed(string $url): bool
+{
+    if (!filter_var($url, FILTER_VALIDATE_URL)) {
+        return false;
+    }
+    $parts = parse_url($url);
+    $scheme = strtolower((string) ($parts['scheme'] ?? ''));
+    if (!in_array($scheme, ['http', 'https'], true)) {
+        return false;
+    }
+    $host = (string) ($parts['host'] ?? '');
+    if ($host === '') {
+        return false;
+    }
+
+    $allowed = remote_fetch_allowed_hosts();
+    if ($allowed) {
+        $ok = false;
+        foreach ($allowed as $pattern) {
+            if (fnmatch(strtolower($pattern), strtolower($host))) {
+                $ok = true;
+                break;
+            }
+        }
+        if (!$ok) {
+            return false;
+        }
+    }
+
+    // O proprio provedor (Uazapi/WAHA/Evolution) pode devolver midia
+    // hospedada na maquina dele (comum em ambiente local). Os hosts
+    // configurados dos provedores sao liberados mesmo em rede privada.
+    if (in_array(strtolower($host), remote_fetch_provider_hosts(), true)) {
+        return true;
+    }
+
+    if (filter_var($host, FILTER_VALIDATE_IP)) {
+        return !is_private_ip($host);
+    }
+
+    // Host nome: resolve e valida cada IP (pega nome que aponta para
+    // rede interna).
+    $ips = @gethostbynamel($host);
+    if (!$ips) {
+        $v6 = @dns_get_record($host, DNS_AAAA);
+        $ips = array_values(array_filter(array_map(
+            static fn($r) => $r['ipv6'] ?? null,
+            is_array($v6) ? $v6 : []
+        )));
+    }
+    if (!$ips) {
+        return false; // nao deu para validar: bloqueia
+    }
+    foreach ($ips as $ip) {
+        if (is_private_ip((string) $ip)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+/**
  * Baixa uma imagem remota (ex.: foto de perfil do WhatsApp) e a salva localmente
  * em public/uploads/avatars. Retorna o caminho relativo (ex.: "avatars/abc.png")
  * ou null em caso de falha. As URLs do WhatsApp (pps.whatsapp.net) expiram, por
@@ -316,12 +539,13 @@ function format_bytes(int $bytes): string
 
 function download_remote_image(string $url, string $subdir = 'avatars'): ?string
 {
-    if (!filter_var($url, FILTER_VALIDATE_URL)) {
+    if (!remote_fetch_allowed($url)) {
         return null;
     }
 
     $maxBytes = 10 * 1024 * 1024;
     $raw = null;
+    $insecure = remote_fetch_insecure();
 
     if (function_exists('curl_init')) {
         $ch = curl_init($url);
@@ -330,8 +554,11 @@ function download_remote_image(string $url, string $subdir = 'avatars'): ?string
         curl_setopt($ch, CURLOPT_TIMEOUT, 15);
         curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 10);
         curl_setopt($ch, CURLOPT_USERAGENT, 'Mozilla/5.0 (OminiDesk)');
-        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
-        curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, 0);
+        // TLS verificado por padrao (o redirect tambem so pode ser http/https).
+        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, !$insecure);
+        curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, $insecure ? 0 : 2);
+        curl_setopt($ch, CURLOPT_PROTOCOLS, CURLPROTO_HTTP | CURLPROTO_HTTPS);
+        curl_setopt($ch, CURLOPT_REDIR_PROTOCOLS, CURLPROTO_HTTP | CURLPROTO_HTTPS);
         $raw = (string) curl_exec($ch);
         $status = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
         curl_close($ch);
@@ -393,18 +620,19 @@ function download_remote_image(string $url, string $subdir = 'avatars'): ?string
 
 /**
  * Baixa um arquivo remoto (URL) e retorna os bytes crus e o tamanho.
- * Usa cURL com redirecionamento e sem verificação de SSL (ambiente localhost),
- * idêntico a download_remote_image, mas genérico (qualquer mídia).
+ * Mesma politica de seguranca de download_remote_image: TLS verificado
+ * por padrao e bloqueio de rede privada (SSRF).
  *
  * @return array{data:string, size:int}|null
  */
 
 function download_remote_file(string $url, int $maxBytes = 0, ?array $extraHeaders = null): ?array
 {
-    if (!filter_var($url, FILTER_VALIDATE_URL)) {
+    if (!remote_fetch_allowed($url)) {
         return null;
     }
     $maxBytes = $maxBytes > 0 ? $maxBytes : 20 * 1024 * 1024;
+    $insecure = remote_fetch_insecure();
 
     $raw = null;
     if (function_exists('curl_init')) {
@@ -415,8 +643,10 @@ function download_remote_file(string $url, int $maxBytes = 0, ?array $extraHeade
             CURLOPT_TIMEOUT => 60,
             CURLOPT_CONNECTTIMEOUT => 10,
             CURLOPT_USERAGENT => 'Mozilla/5.0 (OminiDesk)',
-            CURLOPT_SSL_VERIFYPEER => false,
-            CURLOPT_SSL_VERIFYHOST => 0,
+            CURLOPT_SSL_VERIFYPEER => !$insecure,
+            CURLOPT_SSL_VERIFYHOST => $insecure ? 0 : 2,
+            CURLOPT_PROTOCOLS => CURLPROTO_HTTP | CURLPROTO_HTTPS,
+            CURLOPT_REDIR_PROTOCOLS => CURLPROTO_HTTP | CURLPROTO_HTTPS,
         ]);
         if ($extraHeaders) {
             curl_setopt($ch, CURLOPT_HTTPHEADER, $extraHeaders);
