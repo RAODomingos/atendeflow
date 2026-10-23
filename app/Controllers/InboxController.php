@@ -1078,6 +1078,7 @@ class InboxController
         foreach ($conversations as $i => $c) {
             $sla = $map[(int) ($c['id'] ?? 0)] ?? null;
             $conversations[$i]['sla_response_seconds'] = $sla['response_seconds'] ?? null;
+            $conversations[$i]['sla_response_at'] = $sla['response_at'] ?? null;
             $conversations[$i]['sla_response_breached'] = (int) ($sla['response_breached'] ?? 0);
             $conversations[$i]['sla_response_threshold'] = $sla['response_threshold'] ?? null;
             $conversations[$i]['sla_resolution_seconds'] = $sla['resolution_seconds'] ?? null;
