@@ -13,6 +13,21 @@ use App\Services\FlowEngineService;
 
 class WebChatController
 {
+    /**
+     * Tipos de mensagem que o cliente final pode ver.
+     *
+     * `internal_note` (anotação do agente) e `system` (evento interno) NUNCA
+     * saem do servidor: o widget apenas os esconderia no navegador, o que
+     * deixaria o dado exposto na resposta HTTP.
+     */
+    public const CUSTOMER_VISIBLE_TYPES = [
+        'text', 'image', 'audio', 'video', 'file',
+        'button_list', 'list_menu', 'contact', 'csat_request',
+    ];
+
+    /** Quantidade de mensagens devolvidas ao widget por poll. */
+    private const CUSTOMER_MESSAGE_LIMIT = 50;
+
     private ConversationService $conversationService;
     private FlowEngineService $flowEngine;
 
@@ -116,7 +131,10 @@ class WebChatController
             View::json(['valid' => false]);
         }
 
-        $messages = Conversation::getMessages($conversation['id']);
+        $messages = Conversation::getMessages($conversation['id'], [
+            'types' => self::CUSTOMER_VISIBLE_TYPES,
+            'tail'  => self::CUSTOMER_MESSAGE_LIMIT,
+        ]);
 
         View::json([
             'valid' => true,
@@ -211,7 +229,10 @@ class WebChatController
                 $this->conversationService->receiveMessage($conversation['id'], trim($text), 'text', null, $replyTo > 0 ? $replyTo : null);
             }
 
-            $messages = Conversation::getMessages($conversation['id']);
+            $messages = Conversation::getMessages($conversation['id'], [
+                'types' => self::CUSTOMER_VISIBLE_TYPES,
+                'tail'  => self::CUSTOMER_MESSAGE_LIMIT,
+            ]);
 
             $convUpdated = Conversation::findByPublicId($publicId);
             View::json([
@@ -227,6 +248,8 @@ class WebChatController
             if ($since) {
                 // Inclui mensagens EDITADAS (updated_at novo) para o cliente
                 // ver edições/reações do atendente sem recarregar a página.
+                // O filtro de tipos é o mesmo do histórico: nada interno sai.
+                $typePh = implode(',', array_fill(0, count(self::CUSTOMER_VISIBLE_TYPES), '?'));
                 $messages = Database::getInstance()->fetchAll(
                     "SELECT m.*, u.name as user_name, u.avatar as user_avatar, ct.avatar as contact_avatar
                      FROM messages m
@@ -234,8 +257,12 @@ class WebChatController
                      JOIN conversations c ON c.id = m.conversation_id
                      LEFT JOIN contacts ct ON ct.id = c.contact_id
                      WHERE m.conversation_id = ? AND (m.created_at > ? OR m.updated_at > ?)
-                     ORDER BY m.created_at ASC",
-                    [$conversation['id'], $since, $since]
+                       AND m.type IN ({$typePh})
+                     ORDER BY m.created_at ASC, m.id ASC",
+                    array_merge(
+                        [$conversation['id'], $since, $since],
+                        self::CUSTOMER_VISIBLE_TYPES
+                    )
                 );
                 foreach ($messages as &$m) {
                     $m['avatar_url'] = $m['direction'] === 'inbound'
@@ -262,7 +289,10 @@ class WebChatController
                     unset($m);
                 }
             } else {
-                $messages = Conversation::getMessages($conversation['id']);
+                $messages = Conversation::getMessages($conversation['id'], [
+                    'types' => self::CUSTOMER_VISIBLE_TYPES,
+                    'tail'  => self::CUSTOMER_MESSAGE_LIMIT,
+                ]);
             }
 
             View::json([

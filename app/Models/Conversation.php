@@ -590,25 +590,81 @@ class Conversation
         return $out;
     }
 
+    /**
+     * Mensagens de uma conversa.
+     *
+     * Opções:
+     *  - `before` (int): só mensagens com id menor que o informado.
+     *  - `limit` (int): teto de linhas (ORDER BY crescente).
+     *  - `tail` (int): devolve as N mensagens MAIS RECENTES em ordem crescente.
+     *  - `types` (array): whitelist de `messages.type`. Use sempre que o
+     *    consumidor for um cliente final — `internal_note` e `system` são
+     *    internos e não podem sair do servidor.
+     */
     public static function getMessages(int $conversationId, array $opts = []): array
     {
-        $sql = "SELECT m.*, u.name as user_name, u.avatar as user_avatar, ct.avatar as contact_avatar
+        $where = "m.conversation_id = ?";
+        $params = [$conversationId];
+
+        if (!empty($opts['before'])) {
+            $where .= " AND m.id < ?";
+            $params[] = (int) $opts['before'];
+        }
+
+        if (!empty($opts['types']) && is_array($opts['types'])) {
+            $types = array_values(array_filter(array_map('strval', $opts['types'])));
+            if ($types) {
+                $ph = implode(',', array_fill(0, count($types), '?'));
+                $where .= " AND m.type IN ({$ph})";
+                foreach ($types as $t) {
+                    $params[] = $t;
+                }
+            }
+        }
+
+        $select = "SELECT m.*, u.name as user_name, u.avatar as user_avatar, ct.avatar as contact_avatar
                 FROM messages m
                 LEFT JOIN users u ON u.id = m.user_id
                 JOIN conversations c ON c.id = m.conversation_id
                 LEFT JOIN contacts ct ON ct.id = c.contact_id
-                WHERE m.conversation_id = ?";
-        $params = [$conversationId];
-        if (!empty($opts['before'])) {
-            $sql .= " AND m.id < ?";
-            $params[] = (int) $opts['before'];
+                WHERE {$where}";
+
+        // Cauda: as N mais recentes, devolvidas em ordem crescente.
+        if (!empty($opts['tail'])) {
+            $sql = $select . " ORDER BY m.created_at DESC, m.id DESC LIMIT " . (int) $opts['tail'];
+            $msgs = array_reverse(Database::getInstance()->fetchAll($sql, $params));
+            return self::enrichMessages($msgs);
         }
-        $sql .= " ORDER BY m.created_at ASC";
+
+        $sql = $select . " ORDER BY m.created_at ASC, m.id ASC";
         if (!empty($opts['limit'])) {
             $sql .= " LIMIT " . (int) $opts['limit'];
         }
         $msgs = Database::getInstance()->fetchAll($sql, $params);
         return self::enrichMessages($msgs);
+    }
+
+    /**
+     * Quantidade de mensagens da conversa (para paginação/hasOlder).
+     *
+     * @param array $types whitelist de `messages.type` (vazio = todos)
+     */
+    public static function countMessages(int $conversationId, array $types = []): int
+    {
+        $sql = "SELECT COUNT(*) AS t FROM messages WHERE conversation_id = ?";
+        $params = [$conversationId];
+        if ($types) {
+            $types = array_values(array_filter(array_map('strval', $types)));
+            if ($types) {
+                $ph = implode(',', array_fill(0, count($types), '?'));
+                $sql .= " AND type IN ({$ph})";
+                foreach ($types as $t) {
+                    $params[] = $t;
+                }
+            }
+        }
+        $row = Database::getInstance()->fetch($sql, $params);
+        return (int) ($row['t'] ?? 0);
     }
 
     private static function enrichMessages(array $msgs): array
