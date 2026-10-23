@@ -29,9 +29,20 @@ class AuthController
             return;
         }
 
-        // Rate limit: 5 tentativas / 10 min por IP, bloqueio de 15 min.
+        // Rate limit em duas dimensoes:
+        //  - por IP: 20 tentativas / 10 min (protege contra forca bruta;
+        //    o teto e folgado porque varios usuarios podem sair do mesmo
+        //    IP de empresa e um unico erro nao pode travar todo mundo)
+        //  - por e-mail: 5 tentativas / 10 min (protege a conta mesmo
+        //    com o ataque distribuido em varios IPs)
+        // O bloqueio vale quando qualquer das dimensoes estoura.
         $rlKey = \App\Core\RateLimiter::clientKey('login');
-        if (($blocked = \App\Core\RateLimiter::blocked($rlKey)) > 0) {
+        $rlIdKey = \App\Core\RateLimiter::identifierKey('login', $email);
+        $blocked = max(
+            \App\Core\RateLimiter::blocked($rlKey),
+            \App\Core\RateLimiter::blocked($rlIdKey)
+        );
+        if ($blocked > 0) {
             Session::setFlash('error', 'Muitas tentativas. Tente novamente em ' . ceil($blocked / 60) . ' min.');
             Session::setFlash('old_email', $email);
             View::redirect('/login');
@@ -40,11 +51,15 @@ class AuthController
 
         if (Auth::attempt($email, $password)) {
             \App\Core\RateLimiter::clear($rlKey);
+            \App\Core\RateLimiter::clear($rlIdKey);
             self::audit('login_success', $email);
             Session::setFlash('success', 'Login realizado com sucesso.');
             View::redirect('/');
         } else {
-            $wait = \App\Core\RateLimiter::hit($rlKey);
+            $wait = max(
+                \App\Core\RateLimiter::hit($rlKey, 20, 600, 900),
+                \App\Core\RateLimiter::hit($rlIdKey, 5, 600, 900)
+            );
             self::audit('login_failed', $email);
             Session::setFlash(
                 'error',

@@ -41,11 +41,17 @@ check('bloqueado após limite', RateLimiter::blocked($key) > 0);
 RateLimiter::clear($key);
 check('clear libera bloqueio', RateLimiter::blocked($key) === 0);
 
-// clientKey: prefixo + IP, sem vazar X-Forwarded-For forjado
+// clientKey: prefixo + IP real, sem vazar X-Forwarded-For forjado
 $_SERVER['REMOTE_ADDR'] = '1.2.3.4';
-check('clientKey usa REMOTE_ADDR', RateLimiter::clientKey('login') === 'login:1.2.3.4');
+unset($_SERVER['HTTP_X_FORWARDED_FOR']);
+check('clientKey usa REMOTE_ADDR', RateLimiter::clientKey('login') === 'login:ip:1.2.3.4');
 $_SERVER['REMOTE_ADDR'] = '5.6.7.8, 9.9.9.9';
-check('clientKey pega primeiro IP', RateLimiter::clientKey('login') === 'login:5.6.7.8');
+check('clientKey pega primeiro IP', RateLimiter::clientKey('login') === 'login:ip:5.6.7.8');
+$_SERVER['REMOTE_ADDR'] = '1.2.3.4';
+$_SERVER['HTTP_X_FORWARDED_FOR'] = '8.8.8.8';
+check('clientKey ignora XFF de origem nao confiavel', RateLimiter::clientKey('login') === 'login:ip:1.2.3.4');
+check('identifierKey isola a dimensao por identidade', RateLimiter::identifierKey('login', ' Aluno@Empresa.COM ') === 'login:id:aluno@empresa.com');
+unset($_SERVER['HTTP_X_FORWARDED_FOR']);
 
 // CSRF: grupo API interno exige auth+csrf; middleware usa hash_equals e nunca lê query
 $routes = file_get_contents(__DIR__ . '/../routes/web.php');
