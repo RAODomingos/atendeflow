@@ -418,7 +418,129 @@ class FlowController
             $errors[] = "Fluxo deve ter um nó start";
         }
 
+        $cycle = $this->detectRunawayCycle($nodes);
+        if ($cycle !== null) {
+            $errors[] = "Fluxo tem ciclo que avanca sozinho ({$cycle}). Use um no de menu, espera ou pergunta para voltar a um no anterior.";
+        }
+
         return $errors;
+    }
+
+    /**
+     * Tipos de no que avancam sozinhos, sem resposta do cliente.
+     */
+    private const AUTO_ADVANCE_NODES = [
+        'start', 'message', 'condition', 'day_of_week', 'time_range',
+        'image', 'audio', 'video', 'send_file',
+        'assign_department', 'assign_user', 'add_tag', 'notify',
+    ];
+
+    /**
+     * Detecta ciclo perigoso no grafo do fluxo (ids do canvas).
+     *
+     * A execucao de nos e recursiva: um fluxo A -> B -> Apublished e
+     * ativado travava o worker em recursao infinita (memoria esgotada).
+     *
+     * So e perigoso o ciclo que passa apenas por nos que avancam sozinhos:
+     * um ciclo que passa por um menu (ou por um delay) so se repete quando
+     * o cliente age, e esse e um fluxo legitimo.
+     *
+     * @return string|null descricao do ciclo perigoso (null = nenhum)
+     */
+    private function detectRunawayCycle(array $nodes): ?string
+    {
+        $graph = [];
+        $types = [];
+
+        foreach ($nodes as $node) {
+            $id = (string) ($node['id'] ?? '');
+            if ($id === '') {
+                continue;
+            }
+            $types[$id] = (string) ($node['type'] ?? '');
+
+            $edges = [];
+            foreach (($node['options'] ?? []) as $opt) {
+                $next = $opt['next_node_id'] ?? null;
+                if ($next !== null && $next !== '') {
+                    $edges[] = (string) $next;
+                }
+            }
+            $cfg = $node['config'] ?? [];
+            if (is_array($cfg)) {
+                foreach (['next_node_id', 'no_store_node_id'] as $key) {
+                    if (!empty($cfg[$key])) {
+                        $edges[] = (string) $cfg[$key];
+                    }
+                }
+            }
+            $graph[$id] = $edges;
+        }
+
+        $state = []; // 0 = nao visitado, 1 = na pilha, 2 = concluido
+        $stack = [];
+
+        $visit = function (string $node) use (&$visit, &$state, &$stack, $graph, $types): ?string {
+            $state[$node] = 1;
+            $stack[] = $node;
+
+            foreach ($graph[$node] ?? [] as $next) {
+                if (!isset($graph[$next])) {
+                    continue; // destino fora do grafo
+                }
+
+                $nextState = $state[$next] ?? 0;
+
+                if ($nextState === 1) {
+                    // Ciclo: recorta de $next ate o topo da pilha.
+                    $cycle = [];
+                    $started = false;
+                    foreach ($stack as $n) {
+                        if ($n === $next) {
+                            $started = true;
+                        }
+                        if ($started) {
+                            $cycle[] = $n;
+                        }
+                    }
+                    $cycle[] = $next;
+
+                    $autoAdvance = true;
+                    foreach ($cycle as $n) {
+                        if (!in_array($types[$n] ?? '', self::AUTO_ADVANCE_NODES, true)) {
+                            $autoAdvance = false;
+                            break;
+                        }
+                    }
+                    if (!$autoAdvance) {
+                        continue; // ciclo legitimo (aguarda o cliente)
+                    }
+                    return implode(' -> ', $cycle);
+                }
+
+                if ($nextState === 0) {
+                    $found = $visit($next);
+                    if ($found !== null) {
+                        return $found;
+                    }
+                }
+            }
+
+            array_pop($stack);
+            $state[$node] = 2;
+            return null;
+        };
+
+        foreach (array_keys($graph) as $node) {
+            if (($state[$node] ?? 0) === 0) {
+                $found = $visit($node);
+                if ($found !== null) {
+                    return $found;
+                }
+            }
+        }
+
+        return null;
     }
 
 }

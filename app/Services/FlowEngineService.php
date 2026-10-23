@@ -11,6 +11,16 @@ use App\Models\Department;
 class FlowEngineService
 {
     /**
+     * Profundidade máxima da cadeia de nós numa execução.
+     *
+     * A execução de nós é recursiva (executeNode -> goToNextNode ->
+     * executeNode). Um fluxo publicado com ciclo (A -> B -> A) recursava
+     * sem fim: memória esgotada e worker morto. O limite corta o runaway;
+     * a detecção de ciclo no FlowController impede o fluxo de ser salvo.
+     */
+    public const MAX_DEPTH = 50;
+
+    /**
      * Seam de teste: subclasses podem devolver um GuildService stubado.
      */
     protected function guildService(): GuildService
@@ -567,20 +577,41 @@ class FlowEngineService
         return null;
     }
 
-    public function executeNode(int $conversationId, array $node): void
+    /**
+     * Executa um nó do fluxo.
+     *
+     * @param int   $depth   profundidade da cadeia (0 = primeiro nó)
+     * @param array $visited ids dos nós já executados nesta cadeia
+     */
+    public function executeNode(int $conversationId, array $node, int $depth = 0, array $visited = []): void
     {
+        $nodeId = (int) ($node['id'] ?? 0);
+
+        //proteção contra fluxo cíclico / runaway
+        if ($depth > self::MAX_DEPTH) {
+            $this->stopRunawayFlow($conversationId, $nodeId, 'profundidade maxima de nos (' . self::MAX_DEPTH . ') atingida');
+            return;
+        }
+        if ($nodeId > 0 && isset($visited[$nodeId])) {
+            $this->stopRunawayFlow($conversationId, $nodeId, 'ciclo de nos detectado');
+            return;
+        }
+        if ($nodeId > 0) {
+            $visited[$nodeId] = true;
+        }
+
         $conv = Conversation::find($conversationId);
         if (!$conv) return;
 
         switch ($node['node_type']) {
             case 'start':
-                $this->goToNextNode($conversationId, $node);
+                $this->goToNextNode($conversationId, $node, $depth, $visited);
                 break;
 
             case 'message':
                 $content = $this->processTemplate($node['content'] ?? '', $conv);
                 $this->dispatchOutboundMessage($conversationId, 'text', $content);
-                $this->goToNextNode($conversationId, $node);
+                $this->goToNextNode($conversationId, $node, $depth, $visited);
                 break;
 
             case 'menu':
@@ -619,7 +650,7 @@ class FlowEngineService
                     }
                     $this->dispatchOutboundMessage($conversationId, $node['node_type'], json_encode($meta, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE));
                 }
-                $this->goToNextNode($conversationId, $node);
+                $this->goToNextNode($conversationId, $node, $depth, $visited);
                 break;
 
             case 'send_file':
@@ -636,7 +667,7 @@ class FlowEngineService
                     }
                     $this->dispatchOutboundMessage($conversationId, 'file', json_encode($meta, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE));
                 }
-                $this->goToNextNode($conversationId, $node);
+                $this->goToNextNode($conversationId, $node, $depth, $visited);
                 break;
 
             case 'delay':
@@ -671,7 +702,7 @@ class FlowEngineService
                     'expected' => $expected,
                     'operator' => $operator,
                     'matched' => $matched,
-                ]);
+                ], $depth, $visited);
                 break;
 
             case 'day_of_week':
@@ -683,7 +714,7 @@ class FlowEngineService
                     'current' => $currentDay,
                     'selected' => $selectedDays,
                     'matched' => $matched,
-                ]);
+                ], $depth, $visited);
                 break;
 
             case 'time_range':
@@ -701,7 +732,7 @@ class FlowEngineService
                     'start' => $start,
                     'end' => $end,
                     'matched' => $matched,
-                ]);
+                ], $depth, $visited);
                 break;
 
             case 'assign_department':
@@ -726,7 +757,7 @@ class FlowEngineService
                     }
                     Conversation::addEvent($conversationId, 'department_changed', $msg);
                 }
-                $this->goToNextNode($conversationId, $node);
+                $this->goToNextNode($conversationId, $node, $depth, $visited);
                 break;
 
             case 'assign_user':
@@ -736,7 +767,7 @@ class FlowEngineService
                     Conversation::update($conversationId, ['assigned_user_id' => $userId]);
                     Conversation::addEvent($conversationId, 'assigned', "Atendimento atribuído automaticamente pelo fluxo", $userId);
                 }
-                $this->goToNextNode($conversationId, $node);
+                $this->goToNextNode($conversationId, $node, $depth, $visited);
                 break;
 
             case 'add_tag':
@@ -748,7 +779,7 @@ class FlowEngineService
                     ]);
                     Conversation::addEvent($conversationId, 'tag_added', "Etiqueta adicionada pelo fluxo");
                 }
-                $this->goToNextNode($conversationId, $node);
+                $this->goToNextNode($conversationId, $node, $depth, $visited);
                 break;
 
             case 'notify':
@@ -795,7 +826,7 @@ class FlowEngineService
                             "Notificação enviada para " . count($sent) . " número(s)" . (count($invalid) > 0 ? " (" . count($invalid) . " inválido(s))" : ''));
                     }
                 }
-                $this->goToNextNode($conversationId, $node);
+                $this->goToNextNode($conversationId, $node, $depth, $visited);
                 break;
 
             case 'handoff':
@@ -825,7 +856,7 @@ class FlowEngineService
         }
     }
 
-    private function goToNextNode(int $conversationId, array $node): void
+    private function goToNextNode(int $conversationId, array $node, int $depth = 0, array $visited = []): void
     {
         if (!empty($node['options'])) {
             $nextNodeId = $node['options'][0]['next_node_id'];
@@ -835,7 +866,7 @@ class FlowEngineService
                     foreach ($flow['nodes'] as $n) {
                         if ($n['id'] === $nextNodeId) {
                             Flow::saveFlowState($conversationId, $flow['id'], $nextNodeId);
-                            $this->executeNode($conversationId, $n);
+                            $this->executeNode($conversationId, $n, $depth + 1, $visited);
                             return;
                         }
                     }
@@ -844,6 +875,23 @@ class FlowEngineService
         }
 
         Flow::completeFlowState($conversationId);
+    }
+
+    /**
+     * Interrompe um fluxo que saiu do controle (ciclo ou profundidade).
+     *
+     * Deixa rastro na conversa e encerra o estado do fluxo: sem isso a
+     * conversa ficaria presa num fluxo que não termina.
+     */
+    private function stopRunawayFlow(int $conversationId, int $nodeId, string $reason): void
+    {
+        error_log("[FlowEngine] Fluxo interrompido na conversa #{$conversationId} (no {$nodeId}): {$reason}");
+        try {
+            Conversation::addEvent($conversationId, 'flow_stopped', "Fluxo interrompido: {$reason}");
+            Flow::completeFlowState($conversationId);
+        } catch (\Throwable $e) {
+            error_log('[FlowEngine] nao foi possivel encerrar o fluxo: ' . $e->getMessage());
+        }
     }
 
     /**
@@ -1158,7 +1206,7 @@ class FlowEngineService
      *   (mantém compatibilidade com fluxos antigos de 1 opção só).
      * - Se nenhum próximo nó existir, finaliza o fluxo.
      */
-    private function routeBinaryDecision(int $conversationId, array $node, bool $matched, string $eventType, array $logData): void
+    private function routeBinaryDecision(int $conversationId, array $node, bool $matched, string $eventType, array $logData, int $depth = 0, array $visited = []): void
     {
         $this->logExecution($conversationId, $node['flow_id'], $node['id'], $eventType, $logData);
 
@@ -1183,7 +1231,7 @@ class FlowEngineService
         foreach ($flow['nodes'] as $n) {
             if ($n['id'] === $nextNodeId) {
                 Flow::saveFlowState($conversationId, $flow['id'], $nextNodeId);
-                $this->executeNode($conversationId, $n);
+                $this->executeNode($conversationId, $n, $depth + 1, $visited);
                 return;
             }
         }
