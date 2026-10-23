@@ -20,7 +20,7 @@ $filterBase = url('departments/' . (int) $department['id']);
 ?>
 <div class="department-detail">
     <div class="page-toolbar">
-        <a href="<?= url('departments') ?>" class="btn btn-sm btn-outline">
+        <a href="<?= url('settings/departments') ?>" class="btn btn-sm btn-outline">
             <i class="fas fa-arrow-left"></i> Voltar
         </a>
         <div>
