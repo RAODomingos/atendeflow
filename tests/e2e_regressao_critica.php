@@ -110,6 +110,23 @@ function journalRestore(string $file, int $deptId): void
         $db->execute("DELETE FROM contacts WHERE id IN ({$ph})", $contactIds);
     }
 
+    // Caixa e departamento de teste.
+    $inboxIds = array_map('intval', $state['inboxes'] ?? []);
+    foreach ($inboxIds as $iid) {
+        $db->execute("DELETE FROM inbox_users WHERE inbox_id = ?", [$iid]);
+        $db->execute("DELETE FROM inbox_departments WHERE inbox_id = ?", [$iid]);
+        $db->execute("DELETE FROM conversations WHERE inbox_id = ?", [$iid]);
+        $db->execute("DELETE FROM inboxes WHERE id = ?", [$iid]);
+    }
+    $deptIds = array_map('intval', $state['departments'] ?? []);
+    foreach ($deptIds as $did) {
+        $db->execute("DELETE FROM business_hours WHERE department_id = ?", [$did]);
+        $db->execute("DELETE FROM inbox_departments WHERE department_id = ?", [$did]);
+        $db->execute("DELETE FROM department_users WHERE department_id = ?", [$did]);
+        $db->execute("DELETE FROM conversations WHERE department_id = ?", [$did]);
+        $db->execute("DELETE FROM departments WHERE id = ?", [$did]);
+    }
+
     // Grade de horario comercial do departamento de teste.
     if (isset($state['business_hours']) && is_array($state['business_hours'])) {
         $db->execute("DELETE FROM business_hours WHERE department_id = ?", [$deptId]);
@@ -158,7 +175,14 @@ $slaEventsBackup = $db->fetchAll("SELECT * FROM conversation_events WHERE event_
 $notifBackup = $db->fetchAll("SELECT * FROM notifications");
 $convTagsBackup = $db->fetchAll("SELECT * FROM conversation_tags");
 
-$created = ['users' => [], 'contacts' => [], 'conversations' => [], 'messages' => []];
+$created = [
+    'users' => [],
+    'contacts' => [],
+    'conversations' => [],
+    'messages' => [],
+    'inboxes' => [],
+    'departments' => [],
+];
 
 // Sufixo unico por execucao: duas execucoes simultaneas (ou uma
 // execucao interrompida no meio) nao colidem no email do usuario.
@@ -187,6 +211,30 @@ foreach ($orphanIds as $oid) {
     $db->execute("DELETE FROM notifications WHERE user_id = ?", [$oid]);
 }
 $db->execute("DELETE FROM users WHERE email LIKE 'teste-regressao-%'");
+
+// Mesmo para o departamento e a caixa de teste: uma execucao
+// interrompida pode ter deixado os dois para tras.
+$orphanDepts = array_map(
+    fn($r) => (int) $r['id'],
+    $db->fetchAll("SELECT id FROM departments WHERE name LIKE 'TESTE REGRESSAO%'")
+);
+foreach ($orphanDepts as $did) {
+    $db->execute("DELETE FROM business_hours WHERE department_id = ?", [$did]);
+    $db->execute("DELETE FROM inbox_departments WHERE department_id = ?", [$did]);
+    $db->execute("DELETE FROM department_users WHERE department_id = ?", [$did]);
+    $db->execute("DELETE FROM conversations WHERE department_id = ?", [$did]);
+    $db->execute("DELETE FROM departments WHERE id = ?", [$did]);
+}
+$orphanInboxes = array_map(
+    fn($r) => (int) $r['id'],
+    $db->fetchAll("SELECT id FROM inboxes WHERE name LIKE 'TESTE REGRESSAO%'")
+);
+foreach ($orphanInboxes as $iid) {
+    $db->execute("DELETE FROM inbox_users WHERE inbox_id = ?", [$iid]);
+    $db->execute("DELETE FROM inbox_departments WHERE inbox_id = ?", [$iid]);
+    $db->execute("DELETE FROM conversations WHERE inbox_id = ?", [$iid]);
+    $db->execute("DELETE FROM inboxes WHERE id = ?", [$iid]);
+}
 
 // Grava o journal: a partir de agora, uma interrupcao deixa o arquivo
 // com o estado necessario para a proxima execucao restaurar tudo.
@@ -341,6 +389,8 @@ try {
             'conversations' => $created['conversations'],
             'users' => $created['users'],
             'contacts' => $created['contacts'],
+            'inboxes' => $created['inboxes'],
+            'departments' => $created['departments'],
             'business_hours' => $bhBackup ?? [],
             'department' => $deptBackup ?: null,
         ]);
@@ -629,6 +679,56 @@ try {
     }
     $hoursRestored = true;
 
+    // ── Departamento de teste com expediente 24h ───────────────────
+    // Os cenarios 4 a 7 dependem de a conversa ter espera > 0 no
+    // momento em que o worker roda. Com o departamento real (que fecha
+    // as 22h) o teste so passava durante o expediente: rodando as
+    // 23h, a espera util era zero e nao havia violacao para detectar.
+    //
+    // Um departamento proprio, com a grade 24h, tira a hora do
+    // resultado: o teste mede sempre a mesma coisa.
+    $testDeptId = (int) $db->insert('departments', [
+        'name' => 'TESTE REGRESSAO DEPTO',
+        'business_hours_enabled' => 1,
+        'business_hours_timezone' => 'America/Sao_Paulo',
+        'created_at' => date('Y-m-d H:i:s'),
+        'updated_at' => date('Y-m-d H:i:s'),
+    ]);
+    $created['departments'][] = $testDeptId;
+
+    // Grade 24h (00:00 - 23:59) nos 7 dias.
+    foreach (range(0, 6) as $dow) {
+        $db->insert('business_hours', [
+            'department_id' => $testDeptId,
+            'day_of_week' => $dow,
+            'is_open' => 1,
+            'open_time' => '00:00:00',
+            'close_time' => '23:59:59',
+            'created_at' => date('Y-m-d H:i:s'),
+        ]);
+    }
+
+    // Caixa e vinculos do departamento de teste: o worker mede
+    // conversas por inbox, e o autoassign usa inbox_users.
+    $testInboxId = (int) $db->insert('inboxes', [
+        'name' => 'TESTE REGRESSAO CAIXA',
+        'type' => 'department',
+        'is_active' => 1,
+        'created_at' => date('Y-m-d H:i:s'),
+        'updated_at' => date('Y-m-d H:i:s'),
+    ]);
+    $created['inboxes'][] = $testInboxId;
+    $db->insert('inbox_departments', [
+        'inbox_id' => $testInboxId,
+        'department_id' => $testDeptId,
+    ]);
+    $db->insert('inbox_users', ['inbox_id' => $testInboxId, 'user_id' => $agentId]);
+    $db->insert('department_users', [
+        'department_id' => $testDeptId,
+        'user_id' => $agentId,
+        'is_manager' => 0,
+    ]);
+
     // =================================================================
     // 4) Dois workers em paralelo: a violacao escala uma vez so
     // =================================================================
@@ -638,8 +738,8 @@ try {
         'corrida',
         $contactId,
         $channelId,
-        $inboxId,
-        $deptId,
+        $testInboxId,
+        $testDeptId,
         null, // sem responsavel: assim o autoassign pode agir
         'open',
         date('Y-m-d H:i:s', strtotime('-40 minutes')),
@@ -678,8 +778,8 @@ try {
         'automatica',
         $contactId,
         $channelId,
-        $inboxId,
-        $deptId,
+        $testInboxId,
+        $testDeptId,
         null,
         'open',
         date('Y-m-d H:i:s', strtotime('-40 minutes')),
@@ -740,8 +840,8 @@ try {
         'null',
         $contactId,
         $channelId,
-        $inboxId,
-        $deptId,
+        $testInboxId,
+        $testDeptId,
         $agentId,
         'open',
         date('Y-m-d H:i:s'),
@@ -807,8 +907,8 @@ try {
         'encerrada',
         $contactId,
         $channelId,
-        $inboxId,
-        $deptId,
+        $testInboxId,
+        $testDeptId,
         null,
         'closed',
         date('Y-m-d H:i:s', strtotime('-40 minutes')),
@@ -834,8 +934,8 @@ try {
         'aberta',
         $contactId,
         $channelId,
-        $inboxId,
-        $deptId,
+        $testInboxId,
+        $testDeptId,
         null,
         'open',
         date('Y-m-d H:i:s', strtotime('-40 minutes')),
@@ -903,8 +1003,8 @@ try {
         'relatorio',
         $contactId,
         $channelId,
-        $inboxId,
-        $deptId,
+        $testInboxId,
+        $testDeptId,
         $agentId,
         'closed',
         date('Y-m-d H:i:s', strtotime('-50 minutes')),
@@ -976,8 +1076,8 @@ try {
         'respondida',
         $contactId,
         $channelId,
-        $inboxId,
-        $deptId,
+        $testInboxId,
+        $testDeptId,
         $agentId,
         'open',
         date('Y-m-d H:i:s', strtotime('-20 minutes')),
@@ -1072,6 +1172,21 @@ try {
         $db->execute("DELETE FROM inbox_users WHERE user_id = ?", [$id]);
         $db->execute("DELETE FROM department_users WHERE user_id = ?", [$id]);
         $db->execute("DELETE FROM users WHERE id = ?", [$id]);
+    }
+
+    // Departamento e caixa de teste (expediente 24h).
+    foreach ($created['inboxes'] as $id) {
+        $db->execute("DELETE FROM inbox_users WHERE inbox_id = ?", [$id]);
+        $db->execute("DELETE FROM inbox_departments WHERE inbox_id = ?", [$id]);
+        $db->execute("DELETE FROM conversations WHERE inbox_id = ?", [$id]);
+        $db->execute("DELETE FROM inboxes WHERE id = ?", [$id]);
+    }
+    foreach ($created['departments'] as $id) {
+        $db->execute("DELETE FROM business_hours WHERE department_id = ?", [$id]);
+        $db->execute("DELETE FROM inbox_departments WHERE department_id = ?", [$id]);
+        $db->execute("DELETE FROM department_users WHERE department_id = ?", [$id]);
+        $db->execute("DELETE FROM conversations WHERE department_id = ?", [$id]);
+        $db->execute("DELETE FROM departments WHERE id = ?", [$id]);
     }
 
     // Settings: volta ao valor anterior (ou apaga a chave se nao existia).
