@@ -24,8 +24,11 @@ func (s *Session) SendButtons(ctx context.Context, to, text string, buttons []Op
 	protoButtons := make([]*waE2E.ButtonsMessage_Button, 0, len(buttons))
 	for _, button := range buttons {
 		protoButtons = append(protoButtons, &waE2E.ButtonsMessage_Button{
-			ButtonId:   ptr(button.ID),
-			ButtonText: ptr(button.Label),
+			ButtonID: ptr(button.ID),
+			ButtonText: &waE2E.ButtonsMessage_Button_ButtonText{
+				DisplayText: ptr(button.Label),
+			},
+			Type: waE2E.ButtonsMessage_Button_RESPONSE.Enum(),
 		})
 	}
 
@@ -53,27 +56,29 @@ func (s *Session) SendList(ctx context.Context, to, text, title string, items []
 		return "", false, fmt.Errorf("lista sem opcoes")
 	}
 
-	rows := make([]*waE2E.ListMessage_ListMessage_Section_Row, 0, len(items))
+	rows := make([]*waE2E.ListMessage_Row, 0, len(items))
 	for _, item := range items {
-		rows = append(rows, &waE2E.ListMessage_ListMessage_Section_Row{
+		rows = append(rows, &waE2E.ListMessage_Row{
 			Title: ptr(item.Label),
-			Id:    ptr(item.ID),
+			RowID: ptr(item.ID),
 		})
 	}
 
-	owner := s.Client.Store.GetJID().ToNonAD().String()
+	sectionTitle := title
+	if sectionTitle == "" {
+		sectionTitle = text
+	}
 
 	msg := &waE2E.Message{
 		ListMessage: &waE2E.ListMessage{
-			BusinessOwnerJID: ptr(owner),
-			ListMessage: &waE2E.ListMessage_ListMessage{
-				Title:       ptr(title),
-				Description: ptr(text),
-				Sections: []*waE2E.ListMessage_ListMessage_Section{
-					{
-						Title: ptr(title),
-						Rows:  rows,
-					},
+			Title:       ptr(title),
+			Description: ptr(text),
+			ButtonText:  ptr("Ver opções"),
+			ListType:    waE2E.ListMessage_SINGLE_SELECT.Enum(),
+			Sections: []*waE2E.ListMessage_Section{
+				{
+					Title: ptr(sectionTitle),
+					Rows:  rows,
 				},
 			},
 		},

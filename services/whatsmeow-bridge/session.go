@@ -16,6 +16,9 @@ import (
 	"go.mau.fi/whatsmeow/store/sqlstore"
 	"go.mau.fi/whatsmeow/types"
 	"go.mau.fi/whatsmeow/types/events"
+
+	// Driver SQLite em Go puro: mantem CGO_ENABLED=0 na imagem Docker.
+	_ "modernc.org/sqlite"
 )
 
 // Session é uma sessão do WhatsApp (= um canal do AtendeFlow).
@@ -30,8 +33,17 @@ type Session struct {
 	phoneNumber   string
 	webhookURL    string
 	webhookSecret string
+	lastMessages  map[string]lastMessage
 
 	mediaDir string
+}
+
+// lastMessage identifica a ultima mensagem recebida em um chat. O recibo de
+// leitura do WhatsApp aponta para uma mensagem concreta, entao a sessao
+// precisa se lembrar da ultima de cada chat.
+type lastMessage struct {
+	id     types.MessageID
+	sender types.JID
 }
 
 // SessionManager guarda as sessões em memória; cada uma tem o seu próprio
@@ -83,6 +95,23 @@ func sessionFileName(name string) string {
 	return safe + ".db"
 }
 
+// openSessionStore abre (e migra) o SQLite da sessao.
+//
+// O driver e o modernc.org/sqlite, em Go puro: assim a imagem Docker roda com
+// CGO_ENABLED=0, sem precisar de gcc/build-base. O dialeto "sqlite" e
+// interpretado pelo dbutil do whatsmeow como SQLite; as foreign keys sao
+// obrigatorias (o proprio sqlstore recusa o upgrade sem elas).
+func openSessionStore(dir, name string) (*sqlstore.Container, error) {
+	path := filepath.Join(dir, sessionFileName(name))
+	address := path + "?_pragma=foreign_keys(1)&_pragma=busy_timeout(5000)"
+
+	container, err := sqlstore.New(context.Background(), "sqlite", address, nil)
+	if err != nil {
+		return nil, fmt.Errorf("nao foi possivel abrir o banco da sessao: %w", err)
+	}
+	return container, nil
+}
+
 // Ensure devolve a sessao, criando-a se ainda nao existir.
 func (m *SessionManager) Ensure(name string) (*Session, error) {
 	name = strings.TrimSpace(name)
@@ -108,10 +137,9 @@ func (m *SessionManager) Ensure(name string) (*Session, error) {
 		return nil, fmt.Errorf("nao foi possivel criar o diretorio da sessao: %w", err)
 	}
 
-	address := "file:" + filepath.Join(dir, sessionFileName(name)) + "?_foreign_keys=on"
-	container, err := sqlstore.New(context.Background(), "sqlite3", address, nil)
+	container, err := openSessionStore(dir, name)
 	if err != nil {
-		return nil, fmt.Errorf("nao foi possivel abrir o banco da sessao: %w", err)
+		return nil, err
 	}
 
 	device, err := container.GetFirstDevice(context.Background())
@@ -120,12 +148,20 @@ func (m *SessionManager) Ensure(name string) (*Session, error) {
 		return nil, fmt.Errorf("nao foi possivel carregar o device da sessao: %w", err)
 	}
 
+	// O mapa LID/telefone vive no container (nao no device), entao pode ser
+	// usado mesmo antes do pareamento. O resto dos stores do device so e
+	// inicializado depois que o pareamento acontece.
+	if device.LIDs == nil {
+		device.LIDs = container.LIDMap
+	}
+
 	session = &Session{
-		Name:      name,
-		Container: container,
-		Client:    whatsmeow.NewClient(device, nil),
-		status:    "disconnected",
-		mediaDir:  filepath.Join(dir, "media"),
+		Name:         name,
+		Container:    container,
+		Client:       whatsmeow.NewClient(device, nil),
+		status:       "disconnected",
+		mediaDir:     filepath.Join(dir, "media"),
+		lastMessages: map[string]lastMessage{},
 	}
 	m.sessions[name] = session
 
@@ -273,6 +309,24 @@ func (s *Session) snapshot() (status, phone, qr string) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.status, s.phoneNumber, s.qrDataURL
+}
+
+// rememberMessage guarda a ultima mensagem recebida em um chat.
+func (s *Session) rememberMessage(chat types.JID, id types.MessageID, sender types.JID) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.lastMessages == nil {
+		s.lastMessages = map[string]lastMessage{}
+	}
+	s.lastMessages[chat.String()] = lastMessage{id: id, sender: sender}
+}
+
+// lastMessage devolve a ultima mensagem recebida em um chat.
+func (s *Session) lastMessage(chat types.JID) (lastMessage, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	last, ok := s.lastMessages[chat.String()]
+	return last, ok
 }
 
 // attachEvents registra o handler de eventos da sessao.

@@ -14,14 +14,16 @@ FROM golang:1.26-alpine AS builder
 
 WORKDIR /src
 
-# Dependencias primeiro (cache do Docker).
-COPY go.mod ./
+# Dependencias primeiro (cache do Docker). O go.sum versionado garante que
+# o build use exatamente as mesmas versoes.
+COPY go.mod go.sum ./
 RUN go mod download
 
 COPY . .
 
-# go.sum e gerado no build (a versao do whatsmeow esta fixada no go.mod).
-RUN go mod tidy && CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/bridge .
+# CGO_ENABLED=0: o driver do SQLite e o modernc.org/sqlite (Go puro), entao a
+# imagem final nao precisa de gcc/build-base.
+RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/bridge .
 
 FROM alpine:3.22
 

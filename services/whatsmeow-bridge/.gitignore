@@ -5,3 +5,5 @@ data/
 *.db-wal
 bridge
 bridge.exe
+whatsmeow-bridge
+whatsmeow-bridge.exe

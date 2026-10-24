@@ -1,18 +1,16 @@
 package main
 
 import (
-	"bytes"
 	"context"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
 
+	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/proto/waE2E"
 	"go.mau.fi/whatsmeow/types"
-	"google.golang.org/protobuf/proto"
 )
 
 // ptr evita colisão com o helper genérico `new` do whatsmeow.
@@ -29,7 +27,7 @@ func (s *Session) SendText(ctx context.Context, to, text, quotedID string) (stri
 	if quotedID != "" {
 		msg = &waE2E.Message{
 			ExtendedTextMessage: &waE2E.ExtendedTextMessage{
-				Text:       ptr(text),
+				Text:        ptr(text),
 				ContextInfo: s.contextInfo(quotedID, nil),
 			},
 		}
@@ -52,17 +50,17 @@ func (s *Session) SendGroupText(ctx context.Context, groupJID, text string, ment
 		return "", fmt.Errorf("chat invalido para envio em grupo: %s", jid)
 	}
 
-	var mentioned []*waE2E.MentionedJID
+	var mentioned []string
 	for _, mention := range mentions {
 		if strings.EqualFold(mention, "all") {
-			mentioned = append(mentioned, &waE2E.MentionedJID{JID: ptr("all")})
+			mentioned = append(mentioned, "all")
 			continue
 		}
 		mjid, err := resolveJID(mention)
 		if err != nil {
 			continue
 		}
-		mentioned = append(mentioned, &waE2E.MentionedJID{JID: ptr(mjid.String())})
+		mentioned = append(mentioned, mjid.String())
 	}
 
 	msg := &waE2E.Message{
@@ -79,8 +77,9 @@ func (s *Session) SendGroupText(ctx context.Context, groupJID, text string, ment
 	return string(resp.ID), nil
 }
 
-// SendMedia envia imagem/audio/video/documento/sticker.
-// O upload é feito pela propria biblioteca e o mime do arquivo decide o tipo.
+// SendMedia envia imagem/audio/video/documento.
+// O upload e feito pela propria biblioteca (Client.Upload) e o mime do
+// arquivo decide o tipo da mensagem montada a partir do UploadResponse.
 func (s *Session) SendMedia(ctx context.Context, to string, data []byte, filename, mime, caption, quotedID string, asVoice bool) (string, error) {
 	jid, err := resolveJID(to)
 	if err != nil {
@@ -90,39 +89,164 @@ func (s *Session) SendMedia(ctx context.Context, to string, data []byte, filenam
 		filename = "arquivo"
 	}
 	if mime == "" {
-		mime = "application/octet-stream"
+		mime = detectMime(filename)
 	}
 
-	uploaded, err := s.Client.Upload(ctx, bytes.NewReader(data), filename, mime)
+	kind := detectMediaKind(filename, mime)
+	uploaded, err := s.Client.Upload(ctx, data, mediaTypeFor(kind))
 	if err != nil {
 		return "", err
 	}
 
-	// O Upload devolve a mensagem com o campo de midia preenchido.
-	if asVoice && uploaded.AudioMessage != nil {
-		uploaded.AudioMessage.PTT = true
-	}
-	if caption != "" {
-		switch {
-		case uploaded.ImageMessage != nil:
-			uploaded.ImageMessage.Caption = ptr(caption)
-		case uploaded.VideoMessage != nil:
-			uploaded.VideoMessage.Caption = ptr(caption)
-		case uploaded.AudioMessage != nil:
-			uploaded.AudioMessage.Caption = ptr(caption)
-		case uploaded.DocumentMessage != nil:
-			uploaded.DocumentMessage.Caption = ptr(caption)
-		}
-	}
-	if quotedID != "" {
-		uploaded.MessageContextInfo = s.contextInfo(quotedID, nil)
-	}
+	msg := s.buildMediaMessage(kind, uploaded, filename, mime, caption, quotedID, asVoice)
 
-	resp, err := s.Client.SendMessage(ctx, jid, uploaded)
+	resp, err := s.Client.SendMessage(ctx, jid, msg)
 	if err != nil {
 		return "", err
 	}
 	return string(resp.ID), nil
+}
+
+// mediaKind classifica a midia que vai ser enviada.
+type mediaKind int
+
+const (
+	mediaImage mediaKind = iota
+	mediaVideo
+	mediaAudio
+	mediaDocument
+)
+
+// detectMediaKind decide o tipo a partir do mime e da extensao do arquivo.
+func detectMediaKind(filename, mime string) mediaKind {
+	mime = strings.ToLower(strings.TrimSpace(mime))
+	ext := strings.ToLower(filepath.Ext(filename))
+
+	switch {
+	case strings.HasPrefix(mime, "image/"),
+		ext == ".jpg", ext == ".jpeg", ext == ".png", ext == ".webp":
+		return mediaImage
+	case strings.HasPrefix(mime, "video/"),
+		ext == ".mp4", ext == ".3gp", ext == ".mkv", ext == ".mov":
+		return mediaVideo
+	case strings.HasPrefix(mime, "audio/"),
+		ext == ".ogg", ext == ".opus", ext == ".mp3", ext == ".m4a", ext == ".aac":
+		return mediaAudio
+	default:
+		return mediaDocument
+	}
+}
+
+// mediaTypeFor devolve a chave de criptografia usada no upload.
+func mediaTypeFor(kind mediaKind) whatsmeow.MediaType {
+	switch kind {
+	case mediaImage:
+		return whatsmeow.MediaImage
+	case mediaVideo:
+		return whatsmeow.MediaVideo
+	case mediaAudio:
+		return whatsmeow.MediaAudio
+	default:
+		return whatsmeow.MediaDocument
+	}
+}
+
+// buildMediaMessage monta a mensagem de midia a partir do UploadResponse.
+func (s *Session) buildMediaMessage(kind mediaKind, up whatsmeow.UploadResponse, filename, mime, caption, quotedID string, asVoice bool) *waE2E.Message {
+	var contextInfo *waE2E.ContextInfo
+	if quotedID != "" {
+		contextInfo = s.contextInfo(quotedID, nil)
+	}
+
+	switch kind {
+	case mediaImage:
+		msg := &waE2E.ImageMessage{
+			URL:           ptr(up.URL),
+			DirectPath:    ptr(up.DirectPath),
+			MediaKey:      up.MediaKey,
+			FileEncSHA256: up.FileEncSHA256,
+			FileSHA256:    up.FileSHA256,
+			FileLength:    ptr(up.FileLength),
+			Mimetype:      ptr(mime),
+			ContextInfo:   contextInfo,
+		}
+		if caption != "" {
+			msg.Caption = ptr(caption)
+		}
+		return &waE2E.Message{ImageMessage: msg}
+
+	case mediaVideo:
+		msg := &waE2E.VideoMessage{
+			URL:           ptr(up.URL),
+			DirectPath:    ptr(up.DirectPath),
+			MediaKey:      up.MediaKey,
+			FileEncSHA256: up.FileEncSHA256,
+			FileSHA256:    up.FileSHA256,
+			FileLength:    ptr(up.FileLength),
+			Mimetype:      ptr(mime),
+			ContextInfo:   contextInfo,
+		}
+		if caption != "" {
+			msg.Caption = ptr(caption)
+		}
+		return &waE2E.Message{VideoMessage: msg}
+
+	case mediaAudio:
+		msg := &waE2E.AudioMessage{
+			URL:           ptr(up.URL),
+			DirectPath:    ptr(up.DirectPath),
+			MediaKey:      up.MediaKey,
+			FileEncSHA256: up.FileEncSHA256,
+			FileSHA256:    up.FileSHA256,
+			FileLength:    ptr(up.FileLength),
+			Mimetype:      ptr(mime),
+			ContextInfo:   contextInfo,
+		}
+		if asVoice {
+			msg.PTT = ptr(true)
+		}
+		return &waE2E.Message{AudioMessage: msg}
+
+	default:
+		msg := &waE2E.DocumentMessage{
+			URL:           ptr(up.URL),
+			DirectPath:    ptr(up.DirectPath),
+			MediaKey:      up.MediaKey,
+			FileEncSHA256: up.FileEncSHA256,
+			FileSHA256:    up.FileSHA256,
+			FileLength:    ptr(up.FileLength),
+			Mimetype:      ptr(mime),
+			FileName:      ptr(filename),
+			Title:         ptr(filename),
+			ContextInfo:   contextInfo,
+		}
+		if caption != "" {
+			msg.Caption = ptr(caption)
+		}
+		return &waE2E.Message{DocumentMessage: msg}
+	}
+}
+
+// detectMime adivinha o mime pelo extensao do arquivo.
+func detectMime(filename string) string {
+	switch strings.ToLower(filepath.Ext(filename)) {
+	case ".jpg", ".jpeg":
+		return "image/jpeg"
+	case ".png":
+		return "image/png"
+	case ".webp":
+		return "image/webp"
+	case ".mp4":
+		return "video/mp4"
+	case ".ogg", ".opus":
+		return "audio/ogg"
+	case ".mp3":
+		return "audio/mpeg"
+	case ".pdf":
+		return "application/pdf"
+	default:
+		return "application/octet-stream"
+	}
 }
 
 // SendContact envia o cartao de contato (vCard).
@@ -195,12 +319,29 @@ func (s *Session) ReactMessage(ctx context.Context, chatJID, messageID, emoji st
 }
 
 // MarkSeen marca as mensagens do chat como lidas.
+//
+// O recibo de leitura do WhatsApp aponta para uma mensagem concreta, entao a
+// sessao guarda a ultima mensagem recebida em cada chat. Sem ela nao ha o que
+// marcar — e nao e erro: o app chama isso como melhor esforco.
 func (s *Session) MarkSeen(ctx context.Context, chatJID string) error {
 	jid, err := resolveJID(chatJID)
 	if err != nil {
 		return err
 	}
-	return s.Client.MarkRead(ctx, []types.JID{jid}, nil, types.EmptyJID, types.ReceiptTypeRead)
+
+	last, ok := s.lastMessage(jid)
+	if !ok {
+		return nil
+	}
+
+	return s.Client.MarkRead(
+		ctx,
+		[]types.MessageID{last.id},
+		time.Now(),
+		jid,
+		last.sender,
+		types.ReceiptTypeRead,
+	)
 }
 
 // SetTyping liga/desliga o "digitando...".
@@ -217,12 +358,12 @@ func (s *Session) SetTyping(ctx context.Context, chatJID string, composing bool)
 }
 
 // SetPresence marca a conta como online/offline.
-func (s *Session) SetPresence(available bool) {
+func (s *Session) SetPresence(ctx context.Context, available bool) {
 	if available {
-		s.Client.SendPresence(types.PresenceAvailable)
+		_ = s.Client.SendPresence(ctx, types.PresenceAvailable)
 		return
 	}
-	s.Client.SendPresence(types.PresenceUnavailable)
+	_ = s.Client.SendPresence(ctx, types.PresenceUnavailable)
 }
 
 // GroupParticipants lista os participantes do grupo no shape do AtendeFlow.
@@ -240,8 +381,10 @@ func (s *Session) GroupParticipants(ctx context.Context, groupJID string) ([]Par
 	for _, p := range info.Participants {
 		phone, lid := splitPhoneAndLID(p.JID)
 		name := ""
-		if contact, err := s.Client.Store.Contacts.GetContact(ctx, p.JID); err == nil {
-			name = contact.FullName
+		if s.hasContactStore() {
+			if contact, err := s.Client.Store.Contacts.GetContact(ctx, p.JID); err == nil {
+				name = contact.FullName
+			}
 		}
 		participants = append(participants, Participant{
 			Phone:   phone,
@@ -262,6 +405,9 @@ type Participant struct {
 }
 
 // ResolveContact resolve um identificador (telefone ou LID) no par LID/telefone.
+//
+// Uma sessao que ainda nao foi pareada nao tem mapa LID/telefone: nesse caso
+// devolvemos o que da para saber (o proprio id) em vez de estourar.
 func (s *Session) ResolveContact(ctx context.Context, contact string) (phone string, lid string, err error) {
 	jid, err := resolveJID(contact)
 	if err != nil {
@@ -270,6 +416,9 @@ func (s *Session) ResolveContact(ctx context.Context, contact string) (phone str
 
 	if jid.Server == types.HiddenUserServer {
 		lid = jid.User
+		if !s.hasLIDStore() {
+			return "", lid, nil
+		}
 		pn, err := s.Client.Store.LIDs.GetPNForLID(ctx, jid)
 		if err == nil && !pn.IsEmpty() {
 			phone = pn.User
@@ -279,10 +428,29 @@ func (s *Session) ResolveContact(ctx context.Context, contact string) (phone str
 
 	phone = jid.User
 	// Descobre o LID correspondente (quando o WhatsApp ja conhece o par).
-	if lidJID, err := s.Client.Store.LIDs.GetLIDForPN(ctx, jid); err == nil && !lidJID.IsEmpty() {
-		lid = lidJID.User
+	if s.hasLIDStore() {
+		if lidJID, err := s.Client.Store.LIDs.GetLIDForPN(ctx, jid); err == nil && !lidJID.IsEmpty() {
+			lid = lidJID.User
+		}
 	}
 	return phone, lid, nil
+}
+
+// isPaired indica se a sessao ja foi pareada com o WhatsApp. Sem pareamento
+// as chamadas que vao ate o WhatsApp ficam esperando conexao ate estourar o
+// timeout, entao a API usa isso para responder na hora.
+func (s *Session) isPaired() bool {
+	return s.Client != nil && s.Client.Store != nil && s.Client.Store.ID != nil
+}
+
+// hasLIDStore diz se o store de LID/telefone ja pode ser consultado.
+func (s *Session) hasLIDStore() bool {
+	return s.Client != nil && s.Client.Store != nil && s.Client.Store.LIDs != nil
+}
+
+// hasContactStore diz se o store de contatos ja pode ser consultado.
+func (s *Session) hasContactStore() bool {
+	return s.Client != nil && s.Client.Store != nil && s.Client.Store.Contacts != nil
 }
 
 // splitPhoneAndLID separa telefone e LID de um JID do WhatsApp.
@@ -297,10 +465,10 @@ func splitPhoneAndLID(jid types.JID) (phone string, lid string) {
 }
 
 // contextInfo monta o ContextInfo de citação.
-func (s *Session) contextInfo(quotedID string, mentioned []*waE2E.MentionedJID) *waE2E.ContextInfo {
+func (s *Session) contextInfo(quotedID string, mentioned []string) *waE2E.ContextInfo {
 	info := &waE2E.ContextInfo{MentionedJID: mentioned}
 	if quotedID != "" {
-		info.MessageID = ptr(quotedID)
+		info.StanzaID = ptr(quotedID)
 	}
 	return info
 }
@@ -333,7 +501,13 @@ func (s *Session) MediaFile(messageID string) (string, bool) {
 }
 
 func sanitizeFileName(name string) string {
+	if strings.TrimSpace(name) == "" {
+		return "arquivo"
+	}
 	name = filepath.Base(name)
+	if name == "." || name == string(filepath.Separator) {
+		return "arquivo"
+	}
 	var out strings.Builder
 	for _, r := range name {
 		switch {
@@ -352,12 +526,7 @@ func sanitizeFileName(name string) string {
 
 // downloadMedia baixa a midia de uma mensagem recebida.
 func (s *Session) downloadMedia(ctx context.Context, msg *waE2E.Message) ([]byte, string, error) {
-	reader, err := s.Client.DownloadAny(ctx, msg, "")
-	if err != nil {
-		return nil, "", err
-	}
-	defer reader.Close()
-	data, err := io.ReadAll(reader)
+	data, err := s.Client.DownloadAny(ctx, msg)
 	if err != nil {
 		return nil, "", err
 	}
@@ -387,26 +556,30 @@ func mediaFileName(msg *waE2E.Message) string {
 func mediaMime(msg *waE2E.Message) string {
 	switch {
 	case msg.ImageMessage != nil:
-		return msg.ImageMessage.GetMIMEType()
+		return msg.ImageMessage.GetMimetype()
 	case msg.VideoMessage != nil:
-		return msg.VideoMessage.GetMIMEType()
+		return msg.VideoMessage.GetMimetype()
 	case msg.AudioMessage != nil:
-		return msg.AudioMessage.GetMIMEType()
+		return msg.AudioMessage.GetMimetype()
 	case msg.DocumentMessage != nil:
-		return msg.DocumentMessage.GetMIMEType()
+		return msg.DocumentMessage.GetMimetype()
 	default:
 		return "application/octet-stream"
 	}
 }
 
-// protoString evitaildes de marshalling em debug.
-func protoString(msg *waE2E.Message) string {
-	data, err := proto.Marshal(msg)
-	if err != nil {
-		return ""
+// mediaMessageSize devolve o tamanho declarado da midia (0 quando ausente).
+func mediaMessageSize(msg *waE2E.Message) uint64 {
+	switch {
+	case msg.ImageMessage != nil:
+		return msg.ImageMessage.GetFileLength()
+	case msg.VideoMessage != nil:
+		return msg.VideoMessage.GetFileLength()
+	case msg.AudioMessage != nil:
+		return msg.AudioMessage.GetFileLength()
+	case msg.DocumentMessage != nil:
+		return msg.DocumentMessage.GetFileLength()
+	default:
+		return 0
 	}
-	return fmt.Sprintf("%d bytes", len(data))
 }
-
-var _ = protoString
-var _ = time.Second

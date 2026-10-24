@@ -6,41 +6,42 @@ import (
 	"time"
 
 	"go.mau.fi/whatsmeow/proto/waE2E"
+	"go.mau.fi/whatsmeow/types"
 	"go.mau.fi/whatsmeow/types/events"
 )
 
-// Envelope Ã© o corpo que a bridge envia para o webhook do AtendeFlow.
+// Envelope é o corpo que a bridge envia para o webhook do AtendeFlow.
 type Envelope struct {
-	Provider string           `json:"provider"`
-	Event    string           `json:"event"`
-	Session  string           `json:"session"`
-	Message  *MessagePayload  `json:"message,omitempty"`
-	Error    string           `json:"error,omitempty"`
+	Provider string          `json:"provider"`
+	Event    string          `json:"event"`
+	Session  string          `json:"session"`
+	Message  *MessagePayload `json:"message,omitempty"`
+	Error    string          `json:"error,omitempty"`
 }
 
-// MessagePayload Ã© a mensagem normalizada (mesmo formato do UAZAPI, para o
-// provider PHP nÃ£o precisar de duas traduÃ§Ãµes).
+// MessagePayload é a mensagem normalizada (mesmo formato do UAZAPI, para o
+// provider PHP não precisar de duas traduções).
 type MessagePayload struct {
-	ID              string          `json:"id"`
-	ChatID          string          `json:"chat_id"`
-	From            string          `json:"from"`
-	FromPhone       string          `json:"from_phone"`
-	FromLID         string          `json:"from_lid"`
-	Participant     string          `json:"participant,omitempty"`
-	ParticipantPhone string         `json:"participant_phone,omitempty"`
-	ParticipantLID  string          `json:"participant_lid,omitempty"`
-	IsGroup         bool            `json:"is_group"`
-	FromMe          bool            `json:"from_me"`
-	Type            string          `json:"type"`
-	Body            string          `json:"body,omitempty"`
-	Caption         string          `json:"caption,omitempty"`
-	Timestamp       int64           `json:"timestamp,omitempty"`
-	SenderName      string          `json:"sender_name,omitempty"`
-	Media           *MediaPayload   `json:"media,omitempty"`
-	QuotedID        string          `json:"quoted_id,omitempty"`
-	Reaction        *ReactionPayload `json:"reaction,omitempty"`
-	Contact         *ContactPayload `json:"contact,omitempty"`
-	Interactive     *InteractivePayload `json:"interactive,omitempty"`
+	ID               string              `json:"id"`
+	ChatID           string              `json:"chat_id"`
+	From             string              `json:"from"`
+	FromPhone        string              `json:"from_phone"`
+	FromLID          string              `json:"from_lid"`
+	Participant      string              `json:"participant,omitempty"`
+	ParticipantPhone string              `json:"participant_phone,omitempty"`
+	ParticipantLID   string              `json:"participant_lid,omitempty"`
+	IsGroup          bool                `json:"is_group"`
+	FromMe           bool                `json:"from_me"`
+	Type             string              `json:"type"`
+	Body             string              `json:"body,omitempty"`
+	Caption          string              `json:"caption,omitempty"`
+	Timestamp        int64               `json:"timestamp,omitempty"`
+	SenderName       string              `json:"sender_name,omitempty"`
+	Media            *MediaPayload       `json:"media,omitempty"`
+	QuotedID         string              `json:"quoted_id,omitempty"`
+	Reaction         *ReactionPayload    `json:"reaction,omitempty"`
+	Contact          *ContactPayload     `json:"contact,omitempty"`
+	Interactive      *InteractivePayload `json:"interactive,omitempty"`
 }
 
 type MediaPayload struct {
@@ -80,11 +81,11 @@ func (m *SessionManager) handleMessage(session *Session, evt *events.Message) {
 	}
 
 	payload := &MessagePayload{
-		ID:        string(info.ID),
-		ChatID:    info.Chat.String(),
-		FromMe:    info.IsFromMe,
-		IsGroup:   info.IsGroup,
-		Timestamp: info.Timestamp.Unix(),
+		ID:         string(info.ID),
+		ChatID:     info.Chat.String(),
+		FromMe:     info.IsFromMe,
+		IsGroup:    info.IsGroup,
+		Timestamp:  info.Timestamp.Unix(),
 		SenderName: info.PushName,
 	}
 
@@ -93,6 +94,9 @@ func (m *SessionManager) handleMessage(session *Session, evt *events.Message) {
 		sender = info.Chat
 	}
 	payload.From = sender.String()
+
+	// Guarda a ultima mensagem do chat: e o alvo do recibo de leitura.
+	session.rememberMessage(info.Chat, types.MessageID(info.ID), sender)
 
 	phone, lid, err := session.ResolveContact(ctx, sender.String())
 	if err != nil {
@@ -107,9 +111,9 @@ func (m *SessionManager) handleMessage(session *Session, evt *events.Message) {
 		payload.ParticipantLID = lid
 	}
 
-	// CitaÃ§Ã£o
-	if ctxInfo := extractContextInfo(msg); ctxInfo != nil && ctxInfo.GetMessageID() != "" {
-		payload.QuotedID = ctxInfo.GetMessageID()
+	// Citação
+	if ctxInfo := extractContextInfo(msg); ctxInfo != nil && ctxInfo.GetStanzaID() != "" {
+		payload.QuotedID = ctxInfo.GetStanzaID()
 	}
 
 	switch {
@@ -124,14 +128,14 @@ func (m *SessionManager) handleMessage(session *Session, evt *events.Message) {
 		response := msg.GetButtonsResponseMessage()
 		payload.Type = "button"
 		payload.Interactive = &InteractivePayload{
-			ID:    response.GetSelectedButtonId(),
-			Label: response.GetDisplayText(),
+			ID:    response.GetSelectedButtonID(),
+			Label: response.GetSelectedDisplayText(),
 		}
 	case msg.GetListResponseMessage() != nil:
 		response := msg.GetListResponseMessage()
 		payload.Type = "list"
 		payload.Interactive = &InteractivePayload{
-			ID:    response.GetListItemId(),
+			ID:    response.GetSingleSelectReply().GetSelectedRowID(),
 			Label: response.GetTitle(),
 		}
 	case msg.GetContactMessage() != nil:
@@ -151,7 +155,6 @@ func (m *SessionManager) handleMessage(session *Session, evt *events.Message) {
 		m.storeIncomingMedia(ctx, session, payload, msg)
 	case msg.GetAudioMessage() != nil:
 		payload.Type = "audio"
-		payload.Body = msg.GetAudioMessage().GetCaption()
 		m.storeIncomingMedia(ctx, session, payload, msg)
 	case msg.GetDocumentMessage() != nil:
 		payload.Type = "document"

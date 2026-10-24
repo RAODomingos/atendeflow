@@ -51,11 +51,11 @@ type createSessionRequest struct {
 }
 
 type sendRequest struct {
-	To      string         `json:"to"`
-	Type    string         `json:"type"`
-	Text    string         `json:"text"`
-	Media   *mediaRequest  `json:"media"`
-	Options *sendOptions   `json:"options"`
+	To      string        `json:"to"`
+	Type    string        `json:"type"`
+	Text    string        `json:"text"`
+	Media   *mediaRequest `json:"media"`
+	Options *sendOptions  `json:"options"`
 }
 
 type sendOptions struct {
@@ -76,9 +76,9 @@ type mediaRequest struct {
 }
 
 type interactiveRequest struct {
-	To     string   `json:"to"`
-	Text   string   `json:"text"`
-	Title  string   `json:"title"`
+	To      string   `json:"to"`
+	Text    string   `json:"text"`
+	Title   string   `json:"title"`
 	Buttons []Option `json:"buttons"`
 	Items   []Option `json:"items"`
 }
@@ -102,7 +102,7 @@ type typingRequest struct {
 }
 
 type groupTextRequest struct {
-	Text    string   `json:"text"`
+	Text     string   `json:"text"`
 	Mentions []string `json:"mentions"`
 }
 
@@ -158,10 +158,10 @@ func (m *SessionManager) handleCreateSession(w http.ResponseWriter, r *http.Requ
 	}
 	status, phone, qr := session.snapshot()
 	writeJSON(w, http.StatusOK, map[string]any{
-		"id":          session.Name,
-		"status":      status,
+		"id":           session.Name,
+		"status":       status,
 		"phone_number": phone,
-		"qr_code":     qr,
+		"qr_code":      qr,
 	})
 }
 
@@ -231,6 +231,9 @@ func (m *SessionManager) handleSend(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	if !m.exigePareada(w, session) {
+		return
+	}
 	var body sendRequest
 	if err := decodeJSON(r, &body); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
@@ -280,6 +283,9 @@ func (m *SessionManager) handleInteractiveButtons(w http.ResponseWriter, r *http
 	if !ok {
 		return
 	}
+	if !m.exigePareada(w, session) {
+		return
+	}
 	var body interactiveRequest
 	if err := decodeJSON(r, &body); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
@@ -301,6 +307,9 @@ func (m *SessionManager) handleInteractiveButtons(w http.ResponseWriter, r *http
 func (m *SessionManager) handleInteractiveList(w http.ResponseWriter, r *http.Request) {
 	session, ok := m.session(w, r)
 	if !ok {
+		return
+	}
+	if !m.exigePareada(w, session) {
 		return
 	}
 	var body interactiveRequest
@@ -325,6 +334,9 @@ func (m *SessionManager) handleEditMessage(w http.ResponseWriter, r *http.Reques
 	if !ok {
 		return
 	}
+	if !m.exigePareada(w, session) {
+		return
+	}
 	var body editRequest
 	if err := decodeJSON(r, &body); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
@@ -345,6 +357,9 @@ func (m *SessionManager) handleDeleteMessage(w http.ResponseWriter, r *http.Requ
 	if !ok {
 		return
 	}
+	if !m.exigePareada(w, session) {
+		return
+	}
 	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
 	defer cancel()
 
@@ -358,6 +373,9 @@ func (m *SessionManager) handleDeleteMessage(w http.ResponseWriter, r *http.Requ
 func (m *SessionManager) handleReactMessage(w http.ResponseWriter, r *http.Request) {
 	session, ok := m.session(w, r)
 	if !ok {
+		return
+	}
+	if !m.exigePareada(w, session) {
 		return
 	}
 	var body reactionRequest
@@ -384,6 +402,9 @@ func (m *SessionManager) handleSeen(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	if !m.exigePareada(w, session) {
+		return
+	}
 	var body targetRequest
 	if err := decodeJSON(r, &body); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
@@ -404,6 +425,9 @@ func (m *SessionManager) handleTyping(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	if !m.exigePareada(w, session) {
+		return
+	}
 	var body typingRequest
 	if err := decodeJSON(r, &body); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
@@ -422,6 +446,9 @@ func (m *SessionManager) handleTyping(w http.ResponseWriter, r *http.Request) {
 func (m *SessionManager) handleGroupText(w http.ResponseWriter, r *http.Request) {
 	session, ok := m.session(w, r)
 	if !ok {
+		return
+	}
+	if !m.exigePareada(w, session) {
 		return
 	}
 	var body groupTextRequest
@@ -445,6 +472,9 @@ func (m *SessionManager) handleParticipants(w http.ResponseWriter, r *http.Reque
 	if !ok {
 		return
 	}
+	if !m.exigePareada(w, session) {
+		return
+	}
 	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
 	defer cancel()
 
@@ -459,6 +489,9 @@ func (m *SessionManager) handleParticipants(w http.ResponseWriter, r *http.Reque
 func (m *SessionManager) handleContact(w http.ResponseWriter, r *http.Request) {
 	session, ok := m.session(w, r)
 	if !ok {
+		return
+	}
+	if !m.exigePareada(w, session) {
 		return
 	}
 	var body contactRequest
@@ -526,6 +559,19 @@ func (m *SessionManager) handleMedia(w http.ResponseWriter, r *http.Request) {
 }
 
 // ---------------------------------------------------------------- helpers
+
+// exigePareada devolve false (e responde 409) quando a sessao ainda nao foi
+// pareada com o WhatsApp. Sem isso a chamada fica esperando conexao ate
+// estourar o timeout.
+func (m *SessionManager) exigePareada(w http.ResponseWriter, session *Session) bool {
+	if session.isPaired() {
+		return true
+	}
+	writeJSON(w, http.StatusConflict, map[string]string{
+		"error": "sessao ainda nao pareada com o WhatsApp",
+	})
+	return false
+}
 
 func (m *SessionManager) session(w http.ResponseWriter, r *http.Request) (*Session, bool) {
 	name := r.PathValue("id")

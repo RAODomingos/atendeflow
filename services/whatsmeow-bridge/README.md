@@ -23,6 +23,9 @@ O contrato entre os dois lados é:
 - **Go 1.26+** (o módulo do whatsmeow exige `go 1.26.0`)
 - Docker (recomendado) ou Go local
 
+O SQLite das sessões usa o driver **modernc.org/sqlite** (Go puro), então o
+build sai com `CGO_ENABLED=0` e a imagem final não precisa de `gcc`/`build-base`.
+
 ## Subindo com Docker
 
 ```bash
@@ -38,6 +41,7 @@ curl -s http://127.0.0.1:8090/health
 cd services/whatsmeow-bridge
 go mod tidy      # gera o go.sum
 go build -o bridge .
+go vet ./...
 go test ./...
 ./bridge
 ```
@@ -129,6 +133,18 @@ A bridge responde `native: true` quando o WhatsApp aceitou o interativo e
 texto numerado**, que o motor de fluxos responde por posição (o
 `FlowEngineService::handleMenuResponse()` aceita o número da opção). Nenhum
 fluxo precisa ser reescrito.
+
+## Estados de erro
+
+| Status | Quando acontece | O que o app faz |
+|---|---|---|
+| `401` | header `X-Bridge-Token` ausente ou errado | loga e não envia |
+| `404` | sessão não existe na bridge | erro no painel do canal |
+| `409` | sessão ainda não foi pareada com o WhatsApp | erro no painel do canal |
+| `502` | o WhatsApp recusou a operação | erro no envio da mensagem |
+
+A sessão responde `409` (e não espera) enquanto o QR não foi lido: assim o
+app não fica com requisição pendurada até o timeout.
 
 ## Número do cliente (LID)
 
