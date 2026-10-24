@@ -16,10 +16,14 @@ class WhatsAppManager
 
     /**
      * Mapa provedor => classe. Para adicionar um novo provedor, registre aqui.
+     *
+     * 'waha' continua registrado por compatibilidade: conexões já existentes
+     * seguem funcionando. Ele é ocultado da lista de seleção de novos canais
+     * (ver config/integrations.php -> whatsapp.hidden_providers).
      */
     private static array $registry = [
-        'waha' => WahaProvider::class,
         'uazapi' => UazapiProvider::class,
+        'waha' => WahaProvider::class,
     ];
 
     public static function register(string $name, string $class): void
@@ -30,15 +34,22 @@ class WhatsAppManager
     public static function defaultProviderName(): string
     {
         $integrations = require dirname(__DIR__, 3) . '/config/integrations.php';
-        return $integrations['whatsapp']['provider'] ?? 'waha';
+        return $integrations['whatsapp']['provider'] ?? 'uazapi';
     }
 
+    /**
+     * Provedores que podem ser escolhidos na UI (canal novo).
+     *
+     * Provedores listados em 'hidden_providers' permanecem registrados e
+     * funcionais para conexões existentes, mas não são oferecidos.
+     */
     public static function availableProviders(): array
     {
         $integrations = require dirname(__DIR__, 3) . '/config/integrations.php';
         $configured = $integrations['whatsapp']['providers'] ?? [];
-        $names = array_keys(self::$registry);
-        return array_values(array_unique(array_merge($names, array_keys($configured))));
+        $hidden = $integrations['whatsapp']['hidden_providers'] ?? [];
+        $names = array_unique(array_merge(array_keys(self::$registry), array_keys($configured)));
+        return array_values(array_diff($names, $hidden));
     }
 
     public static function provider(string $name): WhatsAppProviderInterface

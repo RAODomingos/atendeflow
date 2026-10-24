@@ -134,7 +134,7 @@ CREATE TABLE channels (
 CREATE TABLE whatsapp_connections (
     id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
     channel_id BIGINT UNSIGNED NOT NULL,
-    provider VARCHAR(50) NOT NULL DEFAULT 'waha',
+    provider VARCHAR(50) NOT NULL DEFAULT 'uazapi',
     instance_name VARCHAR(100) NULL,
     instance_id VARCHAR(100) NULL,
     instance_token VARCHAR(255) NULL,
