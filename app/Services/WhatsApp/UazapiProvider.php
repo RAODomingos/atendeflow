@@ -1097,64 +1097,14 @@ class UazapiProvider implements WhatsAppProviderInterface
      * Mapeia a lista bruta de participantes do /group/info p/ shape padrão.
      * Aceita entradas só-telefone (sem LID) — antes eram descartadas.
      *
+     * A normalização mora em WhatsAppIds para que todos os provedores
+     * (UAZAPI, WAHA, wwebjs, zapo) produzam exatamente o mesmo shape.
+     *
      * @return array<int, array{phone:string, lid:?string, name:?string, is_admin:bool}>
      */
     public static function mapParticipantList(array $list): array
     {
-        $out = [];
-        foreach ($list as $p) {
-            if (!is_array($p)) {
-                continue;
-            }
-            // Varre o objeto do participante: um valor é o LID (>14 dígitos),
-            // outro é o telefone (8-14 dígitos).
-            $lid = '';
-            $phone = '';
-            $stack = [$p];
-            while ($stack) {
-                $v = array_pop($stack);
-                if (is_array($v)) {
-                    foreach ($v as $sv) {
-                        $stack[] = $sv;
-                    }
-                    continue;
-                }
-                if (!is_string($v) || $v === '') {
-                    continue;
-                }
-                // Ignora JID do grupo (@g.us) se vier aninhado no participante.
-                if (str_contains($v, '@g.us')) {
-                    continue;
-                }
-                $digits = preg_replace('/\D/', '', $v);
-                if ($digits === '') {
-                    continue;
-                }
-                if (strlen($digits) > 14 && $lid === '') {
-                    $lid = $digits;
-                } elseif (strlen($digits) >= 8 && strlen($digits) <= 14 && $phone === '') {
-                    $phone = $digits;
-                }
-            }
-            if (($lid === '' && $phone === '') || $lid === $phone) {
-                continue;
-            }
-            $name = null;
-            foreach (['name', 'pushName', 'pushname', 'notifyName', 'wa_contactName'] as $nk) {
-                if (!empty($p[$nk]) && is_string($p[$nk])) {
-                    $name = $p[$nk];
-                    break;
-                }
-            }
-            $admin = $p['isAdmin'] ?? $p['is_admin'] ?? $p['admin'] ?? false;
-            $out[] = [
-                'phone' => $phone,
-                'lid' => $lid !== '' ? $lid : null,
-                'name' => $name,
-                'is_admin' => (bool) $admin,
-            ];
-        }
-        return $out;
+        return WhatsAppIds::mapParticipants($list);
     }
 
     public function sendReaction(array $connection, string $messageId, string $reaction, ?string $to = null): bool

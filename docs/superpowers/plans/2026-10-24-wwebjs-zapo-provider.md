@@ -65,7 +65,7 @@ Objetivo pedido: *"na lista aparece o WAHA também, pode retirar"*.
 | Arquivo | Mudança |
 |---|---|
 | `config/integrations.php` | `'provider' => env('WHATSAPP_PROVIDER', 'uazapi')`; nova chave `'hidden_providers' => ['waha']`; bloco `waha` mantido e comentado como legado |
-| `app/Services/WhatsApp/WhatsAppManager.php` | `availableProviders()` subtrai `hidden_providers`; `defaultProviderName()` cai para `'uazapi'`; registry注释 de compatibilidade |
+| `app/Services/WhatsApp/WhatsAppManager.php` | `availableProviders()` subtrai `hidden_providers`; `defaultProviderName()` cai para `'uazapi'`; comentário de compatibilidade no registry |
 | `database/migrations/2026_10_24_whatsapp_provider_default_uazapi.sql` | `ALTER TABLE whatsapp_connections MODIFY COLUMN provider VARCHAR(50) NOT NULL DEFAULT 'uazapi'` |
 | `database/schema.sql` | default da coluna `provider` → `'uazapi'` (fresh install) |
 | `env/.env.example` | bloco UAZAPI como principal; WAHA marcado como legado |
@@ -73,6 +73,22 @@ Objetivo pedido: *"na lista aparece o WAHA também, pode retirar"*.
 **Verificação feita:** `availableProviders()` → `["uazapi"]`; `defaultProviderName()` → `"uazapi"`; `provider('waha')` e `provider('uazapi')` continuam instanciando (legado não quebra); migration aplicada e registrada em `schema_migrations`; `php tests/run.php` → 171/171.
 
 **Fora do escopo desta branch:** apagar `WahaProvider.php`. Fica como limpeza futura (tarefa separada), depois que ninguém mais usar WAHA.
+
+### 1.1 Contrato compartilhado (menu/lista + número do cliente)
+
+Preparado nesta branch para que **os dois provedores novos** entreguem as mesmas capacidades do UAZAPI:
+
+| Arquivo | Mudança |
+|---|---|
+| `app/Services/WhatsApp/WhatsAppProviderInterface.php` | `sendButton()` e `sendList()` passam a ser **obrigatórios** no contrato (os dois providers existentes já implementavam com a mesma assinatura) |
+| `app/Services/WhatsApp/WhatsAppInteractive.php` (novo) | rendering única do menu/lista como texto numerado (`renderButtonsAsText`, `renderListAsText`) — mesmo formato do fallback que o `WhatsAppService` já usava |
+| `app/Services/WhatsApp/WhatsAppIds.php` (novo) | normalização compartilhada de identificadores: `digits`, `phone`, `isLid`, `isPhone`, `splitLidAndPhone` (separa o par LID↔telefone) e `mapParticipants` (shape único de participante) |
+| `app/Services/WhatsApp/UazapiProvider.php` | `mapParticipantList()` passa a delegar para `WhatsAppIds::mapParticipants()` — comportamento idêntico, sem duplicar regra |
+| `tests/wa_contract.php` (novo) | 19 verificações do contrato (roda sozinho ou pelo runner) |
+
+**Por que isso é o alicerce do "funcionar nos dois":** menu/lista e número do cliente passam a ser **regra do contrato**, não acidente de implementação. O provider novo que não tem interativo nativo degrada para texto numerado — que o `FlowEngineService::handleMenuResponse()` já responde por posição — e o número do cliente é normalizado igual em qualquer motor, seja ele `getContactLidAndPhone` (wwebjs) ou o par `remoteJid`/`remoteJidAlt` (zapo).
+
+**Verificação feita:** `php tests/wa_contract.php` → 19/19; `php tests/run.php` → **190/190** (171 + 19); `scripts/tests/smoke_group_members.php` → PASS (o `mapParticipantList` continua igual).
 
 ---
 
@@ -119,14 +135,54 @@ Status: **OK** = suporta nativamente · **RESSALVA** = suporta com adaptação �
 | 9 | `downloadMedia` | `message.downloadMedia()` → `MessageMedia` (Buffer base64) | `client.message.download()` / `.downloadToFile()` / `.downloadBytes()` | Bridge baixa e serve em `/media/{id}` |
 | 10 | `editMessage` | `message.edit(content, options)` | `client.message.send(jid, novoTexto, { editKey: event })` — **exige que a original seja `fromMe`** | Bridge guarda o `editKey`/evento por `messageId` para editar depois |
 | 11 | `deleteMessage` | `message.delete(true)` (for everyone) | `client.message.send(jid, { type:'revoke', target: event })` — distingue admin vs próprio por `target.fromMe` | Bridge guarda o `target` por `messageId` |
-| 12 | `resolvePhone` (LID→telefone) | ✅ `client.getContactLidAndPhone(userIds)` → `{lid, pn}[]` | ⚠️ **não existe API LID→PN**; só o inverso `client.profile.getLidsByPhoneNumbers()`; LID→PN sai do evento via `key.participantAlt` / `key.remoteJidAlt` | Bridge (zapo) **mapeia `remoteJid`↔`remoteJidAlt`** no envelope; o app já aprende o mapa (`learnLidMappings`). wwebjs resolve direto. |
+| 12 | `resolvePhone` (LID→telefone) | ✅ `client.getContactLidAndPhone(userIds)` → `{lid, pn}[]` | ⚠️ **não existe API LID→PN**; só o inverso `client.profile.getLidsByPhoneNumbers()`; o par LID↔telefone sai do evento (`key.remoteJid`/`key.remoteJidAlt`, `key.participant`/`key.participantAlt`) | Bridge mapeia o par no envelope (`phone` + `lid`) usando `WhatsAppIds::splitLidAndPhone()`; a bridge guarda o mapa e responde `resolvePhone`. O app já persiste em `whatsapp_lid_map` (`learnLidMappings`). |
 | 13 | `sendReaction` | `message.react(emoji)` / `client.sendReaction(id, emoji)` — **remover reação não confirmado** | `client.message.send(jid, { type:'reaction', emoji, target: event })`; remover = `emoji: ''` | Bridge expõe `POST .../react` com `emoji` vazio = remover |
 | 14 | `sendGroupText` (menções) | `options.mentions[]` + `options.groupMentions[]` (usa `@c.us`) | `options.mentions` (Pn ou LID) | Bridge preserva `@g.us` e digítos |
 | 15 | `fetchGroupParticipants` | `groupChat.participants` → `{id, isAdmin, isSuperAdmin}` | `client.group.queryGroupMetadata(gid)` → `{subject, owner, participants[], flags}` | ⚠️ **ambas não garantem `name`** → cruzar com contatos (`getContactById` / store `contacts`) para montar `{phone, lid, name, is_admin}` |
 | 16 | `sendContact` (vCard) | `options.parseVCards: true` ou `chat.sendMessage(new Contact(...))` | raw proto: `{ contactMessage: { displayName, vcard } }` — **sem builder tipado**; incluir `waid=<dígitos>` no `TEL` | Bridge monta o vCard (o app já tem `IncomingMessage::buildVcard`) |
 | 17 | `getProfilePicture` | `client.getProfilePicUrl(contactId)` → `string\|null` | `client.profile.getProfilePicture(jid, 'preview'\|'image')` → pode vir **sem `url`** (só `directPath`/`id`) | Bridge normaliza: sem `url` → tenta re-download; senão `null` (o app aceita null) |
 | 18 | `sendSeen` / digitando | `client.sendSeen(chatId)` / `chat.sendSeen()`; `chat.sendStateTyping()` (25 s), `chat.clearState()` (parar) | `client.message.sendReceipt(chatJid, [ids], { type:'read' })`; `client.presence.sendChatstate(jid, {state:'composing'\|'recording'\|'paused'})` | Bridge normaliza; `paused`/`clearState` = parar de digitar |
-| — | Botões e listas interativas | ❌ depreciado — `Client.sendMessage` emite `console.warn` e **não envia** | ⚠️ raw proto `buttonsMessage` / `listMessage` / `interactiveMessage`, **sem builder tipado** | **Sem regressão:** `UazapiProvider` não implementa `sendButton`/`sendList` (só o `WahaProvider` tem) e o `WhatsAppService` já degrada para texto. Nenhum botão/lista funciona hoje no UAZAPI. |
+| 19 | `sendButton` — menu de botões (**entra no contrato nesta branch**) | ❌ a biblioteca depreciou: `sendMessage` com botão emite `console.warn` e **não envia** | ⚠️ raw proto `buttonsMessage`, **sem builder tipado** | **Implementado nos dois** (ver §3.1): zapo tenta o nativo e cai para texto numerado; wwebjs vai direto para o texto numerado. O fluxo responde pela **posição** da opção, então o menu funciona igual nos dois. |
+| 20 | `sendList` — lista interativa (**entra no contrato nesta branch**) | ❌ idem | ⚠️ raw proto `listMessage` / `interactiveMessage` | idem |
+
+**Correção importante (validado no código):** o UAZAPI **envia menu e lista nativos** hoje — `UazapiProvider::sendButton()` usa `POST /send/menu` com `type=button` e `sendList()` usa `POST /send/menu` com `type=list`; o `WahaProvider` tem os mesmos dois métodos. O nó de fluxo `button_list`/`list_menu` chega ao provedor por `WhatsAppService::sendOutbound()`, que hoje escolhe o caminho nativo com `method_exists($provider, 'sendButton')`. nesta branch `sendButton`/`sendList` viraram **método obrigatório da interface** — o `method_exists` vira redundante e nenhum provider novo pode "esquecer" o menu.
+
+### 3.1 As duas garantias que os fluxos dependem
+
+Os fluxos do AtendeFlow usam três coisas que não podem quebrar em nenhum provider: **menu/lista**, **número do cliente** e **resposta por posição**.
+
+**a) Menu e lista funcionam nos dois provedores**
+
+O `FlowEngineService::handleMenuResponse()` já resolve a resposta do menu por **label, value ou posição** (`$option['sort_order'] + 1 === (int) $resp`). Ou seja: se as opções forem apresentadas como texto numerado, o cliente responde `2` e o fluxo segue exatamente igual ao botão nativo.
+
+- `UazapiProvider` → mantém o nativo (`/send/menu`), como hoje.
+- `ZapoProvider` → tenta o nativo (protobuf `buttonsMessage`/`listMessage`); se o motor recusar, cai para o texto numerado.
+- `WwebjsProvider` → a biblioteca não envia interativo, então usa direto o texto numerado.
+- **Todos** usam a mesma rendering em `WhatsAppInteractive::renderButtonsAsText()` / `renderListAsText()` — o mesmo formato que o fallback do `WhatsAppService` já produzia.
+
+Resultado: **nenhum fluxo precisa ser reescrito** e o menu funciona nos três providers (UAZAPI, wwebjs, zapo).
+
+**b) O número do cliente é sempre disponível**
+
+`WhatsAppIds` centraliza a normalização (fora dos providers, para que os três falem a mesma língua):
+
+- `splitLidAndPhone($primary, $alt)` — separa o par dos dois JIDs que o WhatsApp entrega; **telefone tem prioridade**, e quando só há LID o número fica `null` em vez de inventar um id.
+- `digits()`, `phone()`, `isLid()`, `isPhone()` — limpeza de `@c.us`, `@s.whatsapp.net`, `@lid`, `@g.us` e sufixo de dispositivo.
+- `mapParticipants()` — shape único de participante (`phone`, `lid`, `name`, `is_admin`) para qualquer provider; o `UazapiProvider::mapParticipantList()` passou a delegar para cá (comportamento idêntico, coberto pelo smoke de grupos).
+
+Por motor:
+
+| | Como o número chega |
+|---|---|
+| UAZAPI | `resolvePhone()` do provedor (já existe) |
+| wwebjs | `client.getContactLidAndPhone()` — resolução autoritativa, direto do WhatsApp Web |
+| zapo | a bridge lê `remoteJid` + `remoteJidAlt` (e `participant`/`participantAlt`) de **todo** evento, separa com `splitLidAndPhone()` e guarda o mapa; `resolvePhone()` consulta esse mapa; o app persiste em `whatsapp_lid_map` |
+
+O envelope do webhook (§6.1) por isso carrega **`phone` e `lid` separados** — a bridge nunca manda um `@lid` no lugar do número.
+
+**c) Resposta por posição**
+
+Como o `handleMenuResponse()` aceita a posição, o fallback em texto numerado é **transparente**: o cliente nem percebe a diferença, e o fluxo grava a mesma resposta (`Flow::saveAnswer`).
 | — | Servidor HTTP/REST pronto | ❌ não existe no pacote | ❌ não existe no pacote (só `@zapo-js/mcp-server` dev-only e `@zapo-js/fake-server` p/ teste) | Bridge é obrigatória nos dois casos |
 
 **Leitura da matriz:** as duas cobrem os 18 pontos. Os gaps são **conhecidos, pequenos e contornáveis**:
@@ -135,7 +191,7 @@ Status: **OK** = suporta nativamente · **RESSALVA** = suporta com adaptação �
 - foto de perfil no zapo pode não vir com `url` → normalizar para `null`.
 - remoção de reação no wwebjs não confirmada → testar na Fase 0.
 
-**Por que os botões/listas não são regressão:** `UazapiProvider` **não implementa** `sendButton`/`sendList` (só o `WahaProvider` tem) e o `WhatsAppService` já degrada para texto quando o método não existe. Nenhum botão/lista funciona hoje no UAZAPI.
+**Menus/listas e número do cliente são requisitos de negócio, não opcionais:** o `FUNCIONALIDADES_SISTEMA.md` lista `Uazapi /send/text|media|menu|contact` como capacidade em produção e os nós de fluxo `button_list`/`list_menu` dependem dela. Por isso `sendButton`/`sendList` entraram no contrato da interface e a normalização de LID/telefone virou camada compartilhada (§3.1) — **sem isso, trocar de provider quebraria menu e a identificação do cliente**.
 
 ---
 
@@ -160,9 +216,9 @@ Status: **OK** = suporta nativamente · **RESSALVA** = suporta com adaptação �
 **A ordem correta é: bridge primeiro (agnóstico de motor), depois o motor. E o motor primário é o `zapo-js`, com o `whatsapp-web.js` como segundo motor.**
 
 1. **Bridge primeiro** — é a peça obrigatória nos dois casos (nenhuma das duas libs é servidor HTTP). Escrever o contrato REST + o envelope de webhook **antes** de escolher o motor evita refazer o PHP quando trocar de lib. A bridge abstrai `SessionManager`, `Sender`, `MediaStore` e `EventForwarder` atrás de uma interface — o motor vira um `require` dinâmico.
-2. **`zapo-js` como motor primário** — sem browser (memória e complexidade menores), multi-sessão no mesmo processo por `sessionId`, store MySQL que o app **já tem**, releases ativos (último commit 23/10/2026), docs em **pt-br**, `@zapo-js/fake-server` para E2E sem conta real e `recoverFromClientTooOld` para o caso de o WhatsApp Older. O gap do LID→telefone é resolvido na bridge pelo mapeamento `remoteJid`↔`remoteJidAlt`.
-3. **`whatsapp-web.js` como segundo motor** — entra se/sem o zapo falhar num requisito, ou se o time já tiver Chrome+ffmpeg provisionados. Vantagem exclusiva: `getContactLidAndPhone()` resolve LID→telefone **sem depender do payload**; `MessageMedia.fromUrl` aceita URL remota direto (útil quando a mídia é pública).
-4. **UAZAPI permanece como padrão de produção e rota de contingência.** Nenhum canal migra sem passar pela matriz de paridade da Task 3.2.
+2. **`zapo-js` como motor primário** — sem browser (memória e complexidade menores), multi-sessão no mesmo processo por `sessionId`, store MySQL que o app **já tem**, releases ativos (último commit 23/10/2026), docs em **pt-br**, `@zapo-js/fake-server` para E2E sem conta real e `recoverFromClientTooOld` para o caso de o WhatsApp Older. O número do cliente chega junto no evento (`remoteJid` + `remoteJidAlt`) e a bridge o separa — resolve para todo contato que já interagiu.
+3. **`whatsapp-web.js` como segundo motor** — entra se/sem o zapo falhar num requisito. Vantagem exclusiva: `getContactLidAndPhone()` resolve LID→telefone **de forma autoritativa, mesmo para contato que nunca escreveu** — se "sempre ter o número" for requisito duro (e não só para quem já interagiu), ele passa na frente. Hiperlinks: `MessageMedia.fromUrl` aceita URL remota direto.
+4. **UAZAPI permanece como padrão de produção e rota de contingência.** Nenhum canal migra sem passar pela matriz de paridade da Task 3.2 (22 cenários, incluindo menu/lista e número do cliente).
 
 **O que não recomendo:** trocar o UAZAPI por self-hosted como padrão agora. O ganho (independência de terceiro, custo por mensagem) é real; o custo (operação, ban, manutenção a cada mudança do WhatsApp) é do tipo que precisa de alguém responsável. Por isso: fases, com UAZAPI sempre no ar como saída.
 
@@ -203,8 +259,11 @@ Status: **OK** = suporta nativamente · **RESSALVA** = suporta com adaptação �
 | POST | `/sessions/{id}/messages/{mid}/delete` | → `{ ok }` |
 | POST | `/sessions/{id}/messages/{mid}/react` | `{ reaction }` → `{ ok }` |
 | POST | `/sessions/{id}/messages/{mid}/seen` | → `{ ok }` |
+| POST | `/sessions/{id}/interactive/buttons` | `{ to, text, buttons:[{id,label}] }` → `{ provider_message_id, native:bool }` (`native:false` = a bridge já mandou o texto numerado) |
+| POST | `/sessions/{id}/interactive/list` | `{ to, text, title, items:[{id,label}] }` → idem |
 | GET | `/sessions/{id}/groups/{jid}/participants` | → `[{ phone, lid, name, is_admin }]` |
 | GET | `/sessions/{id}/contacts/{id}/avatar` | → URL da foto |
+| GET | `/sessions/{id}/resolve/{contactId}` | → `{ phone:?string, lid:?string }` (LID→telefone; wwebjs consulta `getContactLidAndPhone`, zapo consulta o mapa aprendido) |
 | GET | `/sessions/{id}/media/{mid}` | → arquivo (a bridge baixa da origem e serve) |
 | GET | `/health` | → `{ ok, engines }` |
 
@@ -219,6 +278,8 @@ Status: **OK** = suporta nativamente · **RESSALVA** = suporta com adaptação �
   "message": {
     "id": "...",
     "from": "5511999999999@c.us",
+    "from_phone": "5511999999999",
+    "from_lid": "225962742546599",
     "from_me": false,
     "chat_id": "5511999999999@c.us",
     "is_group": false,
@@ -233,17 +294,20 @@ Status: **OK** = suporta nativamente · **RESSALVA** = suporta com adaptação �
 
   - `provider` faz o roteamento existir hoje (`resolveProviderFromPayload`).
   - `session` vira o `providerId` do `IncomingMessage` → casa com `instance_name`.
+  - **`from_phone` e `from_lid` sempre separados** — a bridge aplica a mesma regra do `WhatsAppIds::splitLidAndPhone()` (telefone tem prioridade; se só houver LID, `from_phone` fica vazio e `from_lid` preenchido). O app nunca recebe `@lid` no lugar do número.
   - Eventos: `message`, `message_edit`, `message_revoke`, `message_reaction`, `connection`, `qrcode`.
   - A bridge assina o corpo com HMAC-SHA256 no header `X-Webhook-Signature` (o app já aceita).
-  - **No zapo, a bridge inclui `lid`**: `key.remoteJid` e `key.remoteJidAlt` (e `participant`/`participantAlt`) são mapeados para campos separados — é assim que o app aprende o par LID↔telefone (`learnLidMappings`) já que o zapo não expõe API LID→PN.
+  - **No zapo, a bridge inclui `lid`**: `key.remoteJid` e `key.remoteJidAlt` (e `participant`/`participantAlt`) são mapeados para os campos acima — é assim que o app aprende o par LID↔telefone (`learnLidMappings`) já que o zapo não expõe API LID→PN.
   - **No zapo, `key.fromMe` precisa de filtro**: evento de sync multi-device chega como mensagem — a bridge descarta `fromMe`/`senderDevice` conforme a regra que o app já aplica (`parseWebhook` do UAZAPI já filtra `fromMe`/`wasSentByApi`).
 
 ### 6.2 O provider PHP
 
 - `app/Services/WhatsApp/WwebjsProvider.php` e `app/Services/WhatsApp/ZapoProvider.php` implementam `WhatsAppProviderInterface` **apenas** falando HTTP com a bridge (mesmo estilo do `WhatsAppHttpClient` que já existe).
 - `parseWebhook()` traduz o envelope da bridge → `IncomingMessage` (text/media/contact).
-- `resolvePhone()` pergunta à bridge (que usa `getContactLidAndPhone` no wwebjs; no zapo devolve o par já aprendido no envelope).
+- `resolvePhone()` pergunta à bridge (`GET /sessions/{id}/resolve/{contactId}`) e cai no `WhatsAppIds` para limpar o retorno.
 - `send()` com `options.path` → lê o arquivo local e manda o conteúdo (o servidor do provedor não alcança a URL pública do app — mesmo cuidado que o UAZAPI já tem). No wwebjs a bridge grava o arquivo em disco e usa `MessageMedia.fromFilePath()`; no zapo manda `Uint8Array` + `mimetype` (obrigatório).
+- `sendButton()` / `sendList()` → chamam `/interactive/buttons` e `/interactive/list`. A bridge responde `native:false` quando não tem interativo nativo (wwebjs) — nesse caso o **provider** manda o texto numerado (`WhatsAppInteractive::renderButtonsAsText()` / `renderListAsText()`) e devolve o id da mensagem. Se a chamada nativa falhar no zapo, o mesmo fallback entra.
+- `fetchGroupParticipants()` → normaliza com `WhatsAppIds::mapParticipants()` (mesmo shape do UAZAPI).
 - Registro: `'wwebjs' => WwebjsProvider::class` / `'zapo' => ZapoProvider::class` + bloco em `config/integrations.php` (`base_url` + `bridge_token`).
 - **Nasce em `hidden_providers`** — só aparece no seletor depois da Fase 3.
 
@@ -273,10 +337,11 @@ Status: **OK** = suporta nativamente · **RESSALVA** = suporta com adaptação �
 
 - [ ] **Task 2.1** — `WwebjsProvider` implementando a interface; `config/integrations.php` com `wwebjs` em `hidden_providers`.
 - [ ] **Task 2.2** — `ZapoProvider` idem, com `zapo` em `hidden_providers`.
-- [ ] **Task 2.3** — `parseWebhook` dos dois → `IncomingMessage` (text/media/contact) + `provider`/`session` do envelope.
+- [ ] **Task 2.3** — `parseWebhook` dos dois → `IncomingMessage` (text/media/contact) + `provider`/`session` do envelope, lendo `from_phone`/`from_lid`.
 - [ ] **Task 2.4** — `resolvePhone`, `fetchGroupParticipants`, `getProfilePicture`, `sendReaction`, `editMessage`, `deleteMessage`, `downloadMedia`, `sendContact`.
-- [ ] **Task 2.5** — Testes de fiação em `tests/run.php`: classes existem, implementam a interface, `hidden_providers` contém os novos, `availableProviders()` **não** os expõe.
-- [ ] **Task 2.6** — `scripts/tests/smoke_wa_bridge.php`: sobe a bridge local, manda texto/mídia real, confere o webhook chegando no PHP e a conversa criada.
+- [ ] **Task 2.5** — `sendButton`/`sendList` nos dois providers (obrigatórios pela interface): chamam `/interactive/*`; quando a bridge responde `native:false` ou falha, mandam o texto numerado via `WhatsAppInteractive` e devolvem o id da mensagem.
+- [ ] **Task 2.6** — Testes de fiação em `tests/run.php`: classes existem, implementam a interface (incluindo `sendButton`/`sendList`), `hidden_providers` contém os novos, `availableProviders()` **não** os expõe.
+- [ ] **Task 2.7** — `scripts/tests/smoke_wa_bridge.php`: sobe a bridge local, manda texto/mídia real, manda um menu e confere a resposta por posição, confere o webhook chegando no PHP e a conversa criada.
 
 ### Fase 3 — Canal de teste ponta a ponta (sem tocar no cliente)
 
@@ -303,6 +368,10 @@ Status: **OK** = suporta nativamente · **RESSALVA** = suporta com adaptação �
 | 16 | Foto de perfil | ☐ |
 | 17 | Visto / digitando | ☐ |
 | 18 | Reconexão após queda | ☐ |
+| 19 | **Menu de botões (`button_list`)** — o cliente responde `2` e o fluxo segue | ☐ |
+| 20 | **Lista (`list_menu`)** — idem | ☐ |
+| 21 | **Número do cliente sempre preenchido** (LID → telefone, inclusive em grupo) | ☐ |
+| 22 | **Número preenchido no primeiro contato** (sem histórico prévio) | ☐ |
 
 - [ ] **Task 3.3** — Nenhum item ☐ sem justificativa aceita pelo dono. Item que falhar = **gap declarado** (fallback documentado) ou provider não entra em produção.
 - [ ] **Task 3.4** — Só então: tirar o provedor novo de `hidden_providers` (nova migration, não editando config direto).
@@ -344,7 +413,10 @@ Status: **OK** = suporta nativamente · **RESSALVA** = suporta com adaptação �
 2. **Volume de canais:** quantos números vão rodar self-hosted? Decide `zapo` (recomendado) vs `wwebjs` (Chrome por sessão).
 3. **Aceita o risco de ToS/ban** de self-hosted em parte do tráfego? (Recomendação: começar por tráfego interno/teste.)
 4. **Prazo:** o UAZAPI está com algum problema (custo, instabilidade, limite) que motive urgência? Nenhum foi relatado até agora.
-5. **Escopo dos botões/listas interativas:** o WhatsApp depreciou o modelo antigo; se o negócio precisa de menus rico, avaliar `guides/interactive-messages` do zapo (raw proto) — mas **hoje já não funciona no UAZAPI**, então não é regressão.
+5. **Menus/listas e número do cliente:** já decididos — **têm que funcionar nos dois provedores**. O contrato da interface agora exige `sendButton`/`sendList` e a normalização de LID/telefone é compartilhada (§3.1). O que fica em aberto é só **qual motor entra primeiro**:
+   - `wwebjs` resolve o número de forma autoritativa (`getContactLidAndPhone`), inclusive para contatos que nunca escreveram — é o mais seguro para a identificação do cliente, ao custo de 1 Chromium por sessão e de não enviar interativo nativo (cai para texto numerado).
+   - `zapo` entrega o número junto no evento (`remoteJid` + `remoteJidAlt`), que a bridge separa e o app aprende — na prática resolve para todo contato que já interagiu, que é o caso do fluxo de atendimento; em troca, roda leve, com N sessões num processo e store MySQL. Interativo nativo sai pelo protobuf cru.
+6. **Escopo dos botões/listas interativas:** para o UAZAPI (em produção) e para o zapo, dá para enviar o botão/lista **nativo**. Para o wwebjs, não dá — a biblioteca depreciou o envio. A degradação para texto numerado mantém o fluxo funcionando (o cliente responde `2`), mas se **native importa** (ex.: o cliente precisa tocar no botão), o wwebjs fica atrás.
 
 ---
 

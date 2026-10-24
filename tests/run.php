@@ -607,5 +607,8 @@ check(
     str_contains($panelSrc, 'c.sla_response_at')
 );
 
+// 9) Contrato dos providers de WhatsApp (menu/lista + LID/telefone)
+require_once __DIR__ . '/wa_contract.php';
+
 echo "\n$passes passed, $failures failed\n";
 exit($failures > 0 ? 1 : 0);

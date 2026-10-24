@@ -69,6 +69,37 @@ interface WhatsAppProviderInterface
     public function send(array $connection, string $to, string $type, string $content, array $options = []): array;
 
     /**
+     * Envia um menu de botões interativos (usado pelos nós de fluxo `button_list`).
+     *
+     * Contrato: quando o provedor não consegue enviar botão nativo, ele envia
+     * a apresentação em texto numerado (ver WhatsAppInteractive::renderButtonsAsText)
+     * e devolve o id da mensagem enviada. O fluxo responde pela posição da
+     * opção, então o menu continua funcionando em qualquer provedor.
+     *
+     * @param array  $connection Linha de whatsapp_connections
+     * @param string $to         Número do destinatário (somente dígitos)
+     * @param string $text       Texto introdutório do menu
+     * @param array  $buttons    Opções no formato [{id, label}, ...]
+     * @return array{provider_message_id:?string, raw:mixed}
+     */
+    public function sendButton(array $connection, string $to, string $text, array $buttons): array;
+
+    /**
+     * Envia uma lista interativa (usada pelos nós de fluxo `list_menu`).
+     *
+     * Mesmo contrato de degradação de sendButton: sem suporte nativo, envia a
+     * lista como texto numerado (WhatsAppInteractive::renderListAsText).
+     *
+     * @param array  $connection Linha de whatsapp_connections
+     * @param string $to         Número do destinatário (somente dígitos)
+     * @param string $text       Texto introdutório da lista
+     * @param string $title      Título da lista
+     * @param array  $items      Opções no formato [{id, label}, ...]
+     * @return array{provider_message_id:?string, raw:mixed}
+     */
+    public function sendList(array $connection, string $to, string $text, string $title, array $items): array;
+
+    /**
      * Normaliza o payload bruto do webhook em uma IncomingMessage.
      * Retorna null quando o evento deve ser ignorado (ex.: mensagem enviada pela própria API).
      */
