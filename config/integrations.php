@@ -26,6 +26,13 @@ return [
                 // Token de administrador para criar instâncias
                 'admin_token' => env('UAZAPI_ADMIN_TOKEN', ''),
             ],
+            // Bridge Go sobre a biblioteca whatsmeow (self-hosted, sem browser).
+            // Ver services/whatsmeow-bridge/README.md.
+            'whatsmeow' => [
+                'base_url' => env('WHATSMEOW_BRIDGE_URL', 'http://localhost:8090'),
+                // Token compartilhado entre o AtendeFlow e a bridge
+                'bridge_token' => env('WHATSMEOW_BRIDGE_TOKEN', ''),
+            ],
             // Legado: mantido somente para conexões WAHA já existentes.
             // Para novos canais use UAZAPI.
             'waha' => [

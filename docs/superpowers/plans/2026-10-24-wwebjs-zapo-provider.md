@@ -90,6 +90,26 @@ Preparado nesta branch para que **os dois provedores novos** entreguem as mesmas
 
 **Verificação feita:** `php tests/wa_contract.php` → 19/19; `php tests/run.php` → **190/190** (171 + 19); `scripts/tests/smoke_group_members.php` → PASS (o `mapParticipantList` continua igual).
 
+### 1.2 Provider whatsmeow + bridge Go (implementado nesta branch)
+
+Decisão do dono: implementar o **whatsmeow** junto com o UAZAPI (que segue como padrão de produção). O whatsmeow é **biblioteca Go**, não API HTTP — então a implantação é uma **bridge** (sidecar) que hospeda as sessões e expõe REST para o PHP.
+
+| Peça | Onde | Estado |
+|---|---|---|
+| Provider PHP (20 métodos da interface + `sendSeen`/`startTyping`/`stopTyping`) | `app/Services/WhatsApp/WhatsmeowProvider.php` | **pronto e testado** (36 checks) |
+| Registro no manager | `app/Services/WhatsApp/WhatsAppManager.php` | `whatsmeow` registrado e **visível** na lista |
+| Config + env | `config/integrations.php`, `env/.env.example` | `WHATSMEOW_BRIDGE_URL`, `WHATSMEOW_BRIDGE_TOKEN` |
+| Bridge Go (sessões, QR, envio, eventos, webhook) | `services/whatsmeow-bridge/` | **fonte escrita** — build a verificar (ver abaixo) |
+| Testes do provider | `tests/whatsmeow_provider.php` | 36 checks, wired no runner |
+
+**Contrato entre os dois lados** (mesmo formato do webhook do UAZAPI, para o app não ter duas traduções): o envelope leva `provider: "whatsmeow"` (o `resolveProviderFromPayload()` do app já lê esse campo), `session` (casa com `instance_name`) e `message` com `from_phone`/`from_lid` **sempre separados** — o app nunca recebe `@lid` no lugar do número.
+
+**Menus/listas:** o provider chama `/interactive/buttons` e `/interactive/list`; a bridge responde `native:false` quando o WhatsApp recusa o interativo e o app manda o texto numerado (que o motor de fluxos responde por posição). Nenhum fluxo é reescrito.
+
+**Ponto de atenção (honesto):** a bridge Go foi escrita contra a API do whatsmeow `v0.0.0-20261017175727-b2b1e71d45e2`, mas **não foi compilada** — esta máquina não tem Go (1.26+ exigido pelo módulo). O build (`go build` / `docker build`) é o passo que falta para fechar o "tudo funciona": enquanto isso, o lado PHP está verificado por testes e o lado Go precisa do build como gate.
+
+**Gaps declarados da bridge:** foto de perfil (404 — o app usa o avatar do contato), `go.sum` gerado no primeiro build (a versão do whatsmeow está fixada no `go.mod`).
+
 ---
 
 ## 2. As duas opções, o que elas são

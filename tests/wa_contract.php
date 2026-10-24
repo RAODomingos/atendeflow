@@ -14,12 +14,15 @@
  */
 
 require_once __DIR__ . '/../app/Core/Autoloader.php';
+require_once __DIR__ . '/../app/Core/Helper.php';
 
 use App\Services\WhatsApp\UazapiProvider;
 use App\Services\WhatsApp\WahaProvider;
 use App\Services\WhatsApp\WhatsAppIds;
 use App\Services\WhatsApp\WhatsAppInteractive;
+use App\Services\WhatsApp\WhatsAppManager;
 use App\Services\WhatsApp\WhatsAppProviderInterface;
+use App\Services\WhatsApp\WhatsmeowProvider;
 
 $standalone = !function_exists('check');
 
@@ -51,7 +54,7 @@ check(
 );
 
 // 2) Os providers que já existem atendem ao contrato.
-foreach ([UazapiProvider::class, WahaProvider::class] as $providerClass) {
+foreach ([UazapiProvider::class, WahaProvider::class, WhatsmeowProvider::class] as $providerClass) {
     check(
         "contrato: {$providerClass} implementa a interface",
         in_array(WhatsAppProviderInterface::class, class_implements($providerClass), true)
@@ -65,6 +68,24 @@ foreach ([UazapiProvider::class, WahaProvider::class] as $providerClass) {
         method_exists($providerClass, 'sendList')
     );
 }
+
+// 2.1) O provider self-hosted (whatsmeow) fica registrado e selecionável.
+check(
+    'provider: o whatsmeow esta registrado no manager',
+    in_array('whatsmeow', WhatsAppManager::availableProviders(), true)
+);
+check(
+    'provider: o uazapi continua na lista de provedores',
+    in_array('uazapi', WhatsAppManager::availableProviders(), true)
+);
+check(
+    'provider: o waha continua fora da lista (legado)',
+    !in_array('waha', WhatsAppManager::availableProviders(), true)
+);
+check(
+    'provider: o whatsmeow continua registrado para conexoes antigas',
+    WhatsAppManager::provider('whatsmeow') instanceof WhatsAppProviderInterface
+);
 
 // 3) Menu em texto numerado: é o que segura o fluxo quando o motor
 //    não manda botão nativo (whatsapp-web.js, por exemplo).

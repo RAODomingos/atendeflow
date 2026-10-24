@@ -1,0 +1,7 @@
+# Dados das sessoes (credenciais SQLite por canal) e artefatos de build
+data/
+*.db
+*.db-shm
+*.db-wal
+bridge
+bridge.exe

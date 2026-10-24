@@ -610,5 +610,8 @@ check(
 // 9) Contrato dos providers de WhatsApp (menu/lista + LID/telefone)
 require_once __DIR__ . '/wa_contract.php';
 
+// 10) Provider do whatsmeow (bridge Go)
+require_once __DIR__ . '/whatsmeow_provider.php';
+
 echo "\n$passes passed, $failures failed\n";
 exit($failures > 0 ? 1 : 0);
