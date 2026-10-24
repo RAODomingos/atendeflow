@@ -99,16 +99,25 @@ Decisão do dono: implementar o **whatsmeow** junto com o UAZAPI (que segue como
 | Provider PHP (20 métodos da interface + `sendSeen`/`startTyping`/`stopTyping`) | `app/Services/WhatsApp/WhatsmeowProvider.php` | **pronto e testado** (36 checks) |
 | Registro no manager | `app/Services/WhatsApp/WhatsAppManager.php` | `whatsmeow` registrado e **visível** na lista |
 | Config + env | `config/integrations.php`, `env/.env.example` | `WHATSMEOW_BRIDGE_URL`, `WHATSMEOW_BRIDGE_TOKEN` |
-| Bridge Go (sessões, QR, envio, eventos, webhook) | `services/whatsmeow-bridge/` | **fonte escrita** — build a verificar (ver abaixo) |
+| Bridge Go (sessões, QR, envio, eventos, webhook) | `services/whatsmeow-bridge/` | **compila, veta e passa nos testes** (8 testes Go) + smoke test HTTP |
 | Testes do provider | `tests/whatsmeow_provider.php` | 36 checks, wired no runner |
 
 **Contrato entre os dois lados** (mesmo formato do webhook do UAZAPI, para o app não ter duas traduções): o envelope leva `provider: "whatsmeow"` (o `resolveProviderFromPayload()` do app já lê esse campo), `session` (casa com `instance_name`) e `message` com `from_phone`/`from_lid` **sempre separados** — o app nunca recebe `@lid` no lugar do número.
 
 **Menus/listas:** o provider chama `/interactive/buttons` e `/interactive/list`; a bridge responde `native:false` quando o WhatsApp recusa o interativo e o app manda o texto numerado (que o motor de fluxos responde por posição). Nenhum fluxo é reescrito.
 
-**Ponto de atenção (honesto):** a bridge Go foi escrita contra a API do whatsmeow `v0.0.0-20261017175727-b2b1e71d45e2`, mas **não foi compilada** — esta máquina não tem Go (1.26+ exigido pelo módulo). O build (`go build` / `docker build`) é o passo que falta para fechar o "tudo funciona": enquanto isso, o lado PHP está verificado por testes e o lado Go precisa do build como gate.
+**Gate do build (fechado):** o Go 1.27 foi instalado (winget) e a bridge foi compilada contra a API real do whatsmeow `v0.0.0-20261017175727-b2b1e71d45e2` — as assinaturas foram conferidas com `go doc` no módulo, não de memória. O que o build revelou e o que foi corrigido está no commit `bridge do whatsmeow: compila, veta e passa nos testes`:
 
-**Gaps declarados da bridge:** foto de perfil (404 — o app usa o avatar do contato), `go.sum` gerado no primeiro build (a versão do whatsmeow está fixada no `go.mod`).
+- `ContextInfo.MentionedJID` é `[]string` (não existia `waE2E.MentionedJID`) e a citação é `StanzaID` (não `MessageID`).
+- `Client.Upload` devolve `UploadResponse` — a mensagem de mídia é montada a partir do upload, não mais como se o retorno fosse uma mensagem pronta.
+- `ListMessage` é plano (`Title`/`Description`/`Sections`/`RowID`); `ButtonsMessage_Button` usa `ButtonID` + `ButtonText{DisplayText}` + `Type`.
+- `MarkRead` exige `[]types.MessageID` + timestamp: a sessão guarda a última mensagem de cada chat para emitir o recibo de leitura.
+- SQLite migrou para o driver **modernc.org/sqlite** (Go puro): o build sai com `CGO_ENABLED=0` e a imagem Docker não precisa de `gcc`/`build-base`.
+- Sessão ainda não pareada respondia com pânico (`Store.LIDs`/`Store.Contacts` nulos) — agora responde `409` rápido e sem derrubar a conexão.
+
+Verificação: `go build ./...`, `go vet ./...`, `go test ./...` (8 testes) e um smoke test HTTP real da API (health, criação de sessão, QR, webhook, resolve LID↔telefone, interactive, grupos, delete) — **zero pânico**.
+
+**Gaps declarados da bridge:** foto de perfil (404 — o app usa o avatar do contato).
 
 ---
 
