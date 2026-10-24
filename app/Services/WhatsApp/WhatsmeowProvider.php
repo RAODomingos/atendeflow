@@ -70,7 +70,7 @@ class WhatsmeowProvider implements WhatsAppProviderInterface
             'provider_id' => (string) ($body['id'] ?? $name),
             'token' => isset($body['token']) ? (string) $body['token'] : null,
             'secret' => isset($body['secret']) ? (string) $body['secret'] : null,
-            'extra' => ['status' => $body['status'] ?? 'disconnected'],
+            'extra' => ['status' => $this->mapStatus($body['status'] ?? null)],
         ];
     }
 
@@ -81,7 +81,7 @@ class WhatsmeowProvider implements WhatsAppProviderInterface
 
         return [
             'qr_code' => $this->stringOrNull($body['qr_code'] ?? $body['qr'] ?? null),
-            'status' => (string) ($body['status'] ?? 'disconnected'),
+            'status' => $this->mapStatus($body['status'] ?? null),
         ];
     }
 
@@ -91,10 +91,36 @@ class WhatsmeowProvider implements WhatsAppProviderInterface
         $body = is_array($resp['body'] ?? null) ? $resp['body'] : [];
 
         return [
-            'status' => (string) ($body['status'] ?? 'disconnected'),
+            'status' => $this->mapStatus($body['status'] ?? null),
             'phone_number' => $this->stringOrNull($body['phone_number'] ?? null),
             'qr_code' => $this->stringOrNull($body['qr_code'] ?? null),
         ];
+    }
+
+    /**
+     * Traduz o status bruto da bridge para o vocabulario do app.
+     *
+     * A coluna `whatsapp_connections.status` e um ENUM com quatro valores
+     * (disconnected, waiting_qr, connected, error). A bridge tem um
+     * vocabulario proprio e devolve `connecting` enquanto o QR ainda esta
+     * sendo gerado — se esse valor fosse repassado direto, o MySQL
+     * truncava a coluna ("Data truncated for column 'status'") e a tela
+     * mostrava erro em vez do QR.
+     *
+     * `disconnected` tambem vira `waiting_qr` (igual ao UAZAPI): uma sessao
+     * sem pareamento precisa do QR para ser conectada.
+     */
+    private function mapStatus(mixed $raw): string
+    {
+        $status = strtolower(trim((string) $raw));
+
+        return match (true) {
+            $status === 'connected' => 'connected',
+            $status === 'error' || $status === 'failed' => 'error',
+            $status === 'waiting_qr' || $status === 'connecting' || $status === 'starting' => 'waiting_qr',
+            $status === 'disconnected' || $status === '' => 'waiting_qr',
+            default => 'error',
+        };
     }
 
     public function disconnect(array $connection): void

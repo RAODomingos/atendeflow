@@ -65,15 +65,31 @@ function e(mixed $value): string
  * `e()` sozinho NAO serve para isso: dentro de `onclick="fn('...')"` o
  * navegador decodifica as entidades HTML do atributo ANTES de entregar o
  * codigo ao JS, entao um `'` virava aspa real e quebrava o literal JS
- * (XSS armazenado). Aqui o valor vira um literal JSON com ' " < & escapados
- * como \uXXXX: nao quebra o literal JS nem o atributo.
+ * (XSS armazenado). Aqui o valor e escapado para um literal JS de aspas
+ * simples: `\` `'` `"` e quebras de linha viram sequencias de escape, e
+ * `<` `>` `&` viram \uXXXX.
+ *
+ * IMPORTANTE — o retorno NAO vem com aspas em volta: quem chama fornece
+ * as aspas (`onclick="fn('<?= js($x) ?>')"`).
+ *
+ * Por que `"` precisa ser escapado: o atributo HTML e delimitado por aspas
+ * duplas, entao uma aspa dupla crua no valor cortaria o atributo no meio e o
+ * handler viraria JS invalido (SyntaxError) — o botao "parecia" nao fazer
+ * nada. Como o `json_encode` devolvia um literal JSON com aspas duplas
+ * (`"Suporte"`), qualquer valor passava por isso e quebrava a pagina.
  *
  * Uso: onclick="pickSubject('<?= js($nome) ?>')"
  */
 function js(mixed $value): string
 {
-    return (string) json_encode(
-        (string) $value,
-        JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_TAG | JSON_HEX_AMP | JSON_UNESCAPED_UNICODE
-    );
+    return strtr((string) $value, [
+        '\\' => '\\\\',
+        "'"  => "\\'",
+        '"'  => '\\"',
+        "\n" => '\\n',
+        "\r" => '\\r',
+        '<'  => '\\u003C',
+        '>'  => '\\u003E',
+        '&'  => '\\u0026',
+    ]);
 }

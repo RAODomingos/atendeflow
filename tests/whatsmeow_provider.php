@@ -122,6 +122,54 @@ check(
         && ($client->lastCall()['path'] ?? '') === '/sessions/canal-vendas'
 );
 
+// 1b) O status da bridge precisa caber no ENUM do app.
+//
+// A bridge tem vocabulario proprio ("connecting" enquanto o QR e gerado) e a
+// coluna whatsapp_connections.status e um ENUM de 4 valores. Repassar o
+// status cru truncava a coluna no MySQL e a tela mostrava erro em vez do QR.
+$client = new FakeBridgeClient();
+$provider = providerWith($client);
+$enum = ['disconnected', 'waiting_qr', 'connected', 'error'];
+
+$mapa = [
+    'connected' => 'connected',
+    'waiting_qr' => 'waiting_qr',
+    'connecting' => 'waiting_qr',
+    'disconnected' => 'waiting_qr',
+    'error' => 'error',
+];
+
+foreach ($mapa as $bruto => $esperado) {
+    $client->responses['GET /sessions/canal-vendas/status'] = bridge(
+        'GET',
+        '/sessions/canal-vendas/status',
+        ['status' => $bruto]
+    );
+    $state = $provider->getStatus($connection);
+    check(
+        "status: '{$bruto}' da bridge vira '{$esperado}'",
+        $state['status'] === $esperado
+    );
+    check(
+        "status: '{$bruto}' da bridge cabe no ENUM do banco",
+        in_array($state['status'], $enum, true)
+    );
+}
+
+$client->responses['GET /sessions/canal-vendas/qr'] = bridge('GET', '/sessions/canal-vendas/qr', [
+    'qr_code' => 'data:image/png;base64,AAA',
+    'status' => 'connecting',
+]);
+$connect = $provider->connect($connection);
+check(
+    'status: connect tambem traduz o status da bridge',
+    $connect['status'] === 'waiting_qr'
+);
+check(
+    'status: connect devolve o QR mesmo com status "connecting"',
+    $connect['qr_code'] === 'data:image/png;base64,AAA'
+);
+
 // 2) Envio de texto e mídia.
 $client = new FakeBridgeClient();
 $client->responses['POST /sessions/canal-vendas/send'] = bridge('POST', '/sessions/canal-vendas/send', [
