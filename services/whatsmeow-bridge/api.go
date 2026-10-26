@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/json"
@@ -64,6 +65,37 @@ type sendOptions struct {
 	FileName string `json:"file_name"`
 	MimeType string `json:"mimetype"`
 	AsVoice  bool   `json:"as_voice"`
+}
+
+// UnmarshalJSON aceita objeto (o contrato) e array vazio.
+//
+// Um cliente PHP que monta as opcoes num array associativo vazio serializa
+// como [] e o Go recusaria com 400 — o que derrubaria TODO o envio. Como a
+// falha silenciosa custa caro, a bridge prefere aceitar as duas formas.
+func (o *sendOptions) UnmarshalJSON(data []byte) error {
+	trimmed := bytes.TrimSpace(data)
+	if len(trimmed) == 0 || string(trimmed) == "null" {
+		return nil
+	}
+
+	if trimmed[0] == '[' {
+		var list []json.RawMessage
+		if err := json.Unmarshal(trimmed, &list); err != nil {
+			return err
+		}
+		if len(list) > 0 {
+			return fmt.Errorf("options deve ser um objeto JSON")
+		}
+		return nil
+	}
+
+	type plain sendOptions
+	var decoded plain
+	if err := json.Unmarshal(trimmed, &decoded); err != nil {
+		return err
+	}
+	*o = sendOptions(decoded)
+	return nil
 }
 
 type mediaRequest struct {

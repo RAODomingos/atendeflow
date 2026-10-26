@@ -155,7 +155,11 @@ class WhatsmeowProvider implements WhatsAppProviderInterface
         $payload = [
             'to' => $target,
             'type' => $type,
-            'options' => $this->buildOptions($options),
+            // Objeto, nunca array: a bridge declara `options` como struct. Um
+            // array PHP vazio vira [] no JSON e o Go responde 400
+            // ("cannot unmarshal array into Go struct field"), o que fazia
+            // TODO envio falhar em silêncio.
+            'options' => (object) $this->buildOptions($options),
         ];
 
         if ($type === 'text') {

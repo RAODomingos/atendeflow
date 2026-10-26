@@ -184,7 +184,29 @@ check(
 );
 check(
     'envio: citacao nativa vai em options.quoted_id',
-    ($client->lastCall()['body']['options']['quoted_id'] ?? null) === 'Q1'
+    ($client->lastCall()['body']['options']->quoted_id ?? null) === 'Q1'
+);
+
+// O `options` da bridge e uma struct no Go: um array JSON vazio seria
+// recusado com 400 e TODO o envio falharia em silencio.
+check(
+    'envio: options sem nada e enviado como objeto (nao array)',
+    ($client->lastCall()['body']['options'] ?? null) instanceof \stdClass
+);
+
+$client = new FakeBridgeClient();
+$client->responses['POST /sessions/canal-vendas/send'] = bridge('POST', '/sessions/canal-vendas/send', [
+    'message_id' => 'MSG-2',
+]);
+$provider = providerWith($client);
+$provider->send($connection, '5511999998888', 'text', 'sem opcoes');
+check(
+    'envio: options vazio ainda e objeto (o Go nao aceita array)',
+    ($client->lastCall()['body']['options'] ?? null) instanceof \stdClass
+);
+check(
+    'envio: options vazio nao tem campos',
+    count((array) ($client->lastCall()['body']['options'] ?? new \stdClass())) === 0
 );
 
 $tmp = tempnam(sys_get_temp_dir(), 'wa');
@@ -197,7 +219,7 @@ check(
     ($media['encoding'] ?? null) === 'base64'
         && base64_decode((string) ($media['data'] ?? '')) === 'conteudo-do-arquivo'
 );
-check('envio: legenda vai em options.caption', ($client->lastCall()['body']['options']['caption'] ?? null) === 'olá');
+check('envio: legenda vai em options.caption', ($client->lastCall()['body']['options']->caption ?? null) === 'olá');
 @unlink($tmp);
 
 // 3) Grupo com menções.

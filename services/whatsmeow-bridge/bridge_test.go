@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"testing"
 
 	"go.mau.fi/whatsmeow"
@@ -192,6 +193,59 @@ func TestResolveContactSemPareamento(t *testing.T) {
 	}
 	if lid != "11111111111" {
 		t.Fatalf("lid inesperado: %q", lid)
+	}
+}
+
+// TestSendRequestOptionsAceitaArrayOuObjeto protege o envio.
+//
+// O `options` da bridge e uma struct. Um cliente que monte as opcoes num
+// array associativo vazio serializa como [] e o Go recusaria com 400 — o que
+// derrubaria TODO o envio sem mensagem util.
+func TestSendRequestOptionsAceitaArrayOuObjeto(t *testing.T) {
+	casos := []struct {
+		raw       string
+		esperaNil bool
+		quotedID  string
+		asVoice   bool
+		descricao string
+	}{
+		{`{"to":"5511999998888","type":"text","text":"oi","options":{}}`, false, "", false, "objeto vazio"},
+		{`{"to":"5511999998888","type":"text","text":"oi","options":[]}`, false, "", false, "array vazio"},
+		{`{"to":"5511999998888","type":"text","text":"oi"}`, true, "", false, "sem options"},
+		{`{"to":"5511999998888","type":"text","text":"oi","options":null}`, true, "", false, "options nulo"},
+		{`{"to":"5511999998888","type":"text","text":"oi","options":{"quoted_id":"Q1","as_voice":true}}`, false, "Q1", true, "objeto preenchido"},
+	}
+
+	for _, c := range casos {
+		var req sendRequest
+		if err := json.Unmarshal([]byte(c.raw), &req); err != nil {
+			t.Fatalf("%s: json.Unmarshal falhou: %v", c.descricao, err)
+		}
+		if c.esperaNil {
+			if req.Options != nil {
+				t.Fatalf("%s: options deveria ficar nil", c.descricao)
+			}
+			continue
+		}
+		if req.Options == nil {
+			t.Fatalf("%s: options deveria vir preenchido", c.descricao)
+		}
+		if req.Options.QuotedID != c.quotedID {
+			t.Fatalf("%s: quoted_id = %q, esperava %q", c.descricao, req.Options.QuotedID, c.quotedID)
+		}
+		if req.Options.AsVoice != c.asVoice {
+			t.Fatalf("%s: as_voice = %v, esperava %v", c.descricao, req.Options.AsVoice, c.asVoice)
+		}
+	}
+}
+
+// TestSendRequestOptionsRejeitaArrayComConteudo: um array com itens nao tem
+// equivalente no contrato, entao precisa ser erro explicito.
+func TestSendRequestOptionsRejeitaArrayComConteudo(t *testing.T) {
+	var req sendRequest
+	err := json.Unmarshal([]byte(`{"to":"1","type":"text","options":["x"]}`), &req)
+	if err == nil {
+		t.Fatal("esperava erro para options com array preenchido")
 	}
 }
 
