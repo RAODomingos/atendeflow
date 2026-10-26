@@ -138,6 +138,109 @@ if ($row !== null) {
     check('sla fila: a conversa entra no estado estourado', false);
 }
 
+// ── Nota interna e mensagem de sistema NAO sao resposta humana ──────────
+// A ancora do relogio (Conversation::slaAnchorsSql) so conta como resposta
+// humana a mensagem outbound de um atendente que NAO e nota interna nem
+// mensagem de sistema. Sem essa clausula, uma nota interna escrita pelo
+// proprio atendente pararia o relogio do cliente que ainda espera resposta.
+if ($conversationId > 0) {
+    Conversation::addMessage($conversationId, [
+        'direction'  => 'outbound',
+        'type'       => 'internal_note',
+        'content'    => 'Nota interna: o cliente ainda espera resposta',
+        'user_id'    => 1,
+        'created_at' => date('Y-m-d H:i:s', time() - 5400),
+        'is_read'    => 1,
+    ]);
+
+    $rows = Conversation::getConversationsForSets(
+        Inbox::membershipSets([$inboxId]),
+        null,
+        ['status' => 'waiting']
+    );
+    $row = null;
+    foreach ($rows as $r) {
+        if ((int) ($r['id'] ?? 0) === $conversationId) {
+            $row = $r;
+            break;
+        }
+    }
+    check('sla fila: a nota interna nao tira a conversa da aba Aguardando', $row !== null);
+
+    if ($row !== null) {
+        $waiting = (int) ($row['waiting_seconds'] ?? 0);
+        check(
+            'sla fila: nota interna nao conta como resposta humana (o relogio corre)',
+            $waiting > 3600,
+            'waiting=' . $waiting
+        );
+        check(
+            'sla fila: nota interna nao congela o relogio',
+            (int) ($row['sla_frozen'] ?? 1) === 0,
+            'frozen=' . ($row['sla_frozen'] ?? '-') . ' motivo=' . ($row['sla_paused_reason'] ?? '-')
+        );
+        check(
+            'sla fila: nota interna nao marca a pausa por cliente',
+            ($row['sla_paused_reason'] ?? '') !== 'customer',
+            'motivo=' . ($row['sla_paused_reason'] ?? '-')
+        );
+    } else {
+        check('sla fila: nota interna nao conta como resposta humana (o relogio corre)', false);
+        check('sla fila: nota interna nao congela o relogio', false);
+        check('sla fila: nota interna nao marca a pausa por cliente', false);
+    }
+}
+
+// ── Mensagem de sistema tambem NAO e resposta humana ────────────────────
+// Mesma regra para o outro tipo excluido pela ancora.
+if ($conversationId > 0) {
+    Conversation::addMessage($conversationId, [
+        'direction'  => 'outbound',
+        'type'       => 'system',
+        'content'    => 'Mensagem de sistema',
+        'user_id'    => 1,
+        'created_at' => date('Y-m-d H:i:s', time() - 4500),
+        'is_read'    => 1,
+    ]);
+
+    $rows = Conversation::getConversationsForSets(
+        Inbox::membershipSets([$inboxId]),
+        null,
+        ['status' => 'waiting']
+    );
+    $row = null;
+    foreach ($rows as $r) {
+        if ((int) ($r['id'] ?? 0) === $conversationId) {
+            $row = $r;
+            break;
+        }
+    }
+    check('sla fila: a mensagem de sistema nao tira a conversa da aba Aguardando', $row !== null);
+
+    if ($row !== null) {
+        $waiting = (int) ($row['waiting_seconds'] ?? 0);
+        check(
+            'sla fila: mensagem de sistema nao conta como resposta humana (o relogio corre)',
+            $waiting > 3600,
+            'waiting=' . $waiting
+        );
+        check(
+            'sla fila: mensagem de sistema nao congela o relogio',
+            (int) ($row['sla_frozen'] ?? 1) === 0,
+            'frozen=' . ($row['sla_frozen'] ?? '-') . ' motivo=' . ($row['sla_paused_reason'] ?? '-')
+        );
+        check(
+            'sla fila: mensagem de sistema nao marca a pausa por cliente',
+            ($row['sla_paused_reason'] ?? '') !== 'customer',
+            'motivo=' . ($row['sla_paused_reason'] ?? '-')
+        );
+    } else {
+        check('sla fila: mensagem de sistema nao conta como resposta humana (o relogio corre)', false);
+        check('sla fila: mensagem de sistema nao congela o relogio', false);
+        check('sla fila: mensagem de sistema nao marca a pausa por cliente', false);
+    }
+}
+
 // ── Quando um HUMANO responde, a bola volta para o cliente: congela ──────
 if ($conversationId > 0) {
     Conversation::addMessage($conversationId, [

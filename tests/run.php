@@ -679,6 +679,10 @@ check(
     str_contains($convModelSrc, 'function slaAnchorsSql')
         && str_contains($convModelSrc, 'self::slaAnchorsSql()')
 );
+check(
+    'dashboard sla: a ancora exclui nota interna e mensagem de sistema',
+    str_contains($convModelSrc, "type NOT IN ('internal_note','system')")
+);
 
 echo "\n$passes passed, $failures failed\n";
 exit($failures > 0 ? 1 : 0);
