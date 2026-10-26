@@ -684,5 +684,8 @@ check(
     str_contains($convModelSrc, "type NOT IN ('internal_note','system')")
 );
 
+// 15) Dashboard com SLA: fila em risco, compliance, violacoes e permissao
+require_once __DIR__ . '/e2e_dashboard_sla.php';
+
 echo "\n$passes passed, $failures failed\n";
 exit($failures > 0 ? 1 : 0);

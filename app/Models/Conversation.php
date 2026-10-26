@@ -253,6 +253,41 @@ class Conversation
     }
 
     /**
+     * Conversas abertas cuja bola está com a gente, com as âncoras do
+     * relógio do SLA.
+     *
+     * Só o que o relógio precisa: status, caixa, departamento e as
+     * âncoras (última inbound / última resposta humana). Sem os JOINs
+     * pesados da listagem — o dashboard quer o relógio, não a lista.
+     *
+     * Filtros no SQL (o cálculo em PHP fica barato):
+     *  - status ativo, mas sem `waiting_internal`: esse status congela o
+     *    relógio (a bola está com outro setor);
+     *  - `last_human_id <= last_inbound_id`: o atendente ainda não
+     *    respondeu depois do cliente. Conversa sem inbound usa a criação
+     *    como âncora (mesma regra de SlaService::clockState).
+     *
+     * @return array<int, array>
+     */
+    public static function openConversationsAwaitingReply(): array
+    {
+        return Database::getInstance()->fetchAll(
+            "SELECT c.id, c.status, c.inbox_id, c.department_id, c.created_at,
+                    last_in.last_inbound_at as sla_last_inbound_at,
+                    last_in.last_inbound_id as sla_last_inbound_id,
+                    last_in.last_human_id as sla_last_human_id
+             FROM conversations c
+             LEFT JOIN " . self::slaAnchorsSql() . " last_in ON last_in.conversation_id = c.id
+             WHERE c.status IN ('new','open','waiting_customer')
+               AND (
+                    last_in.last_inbound_id IS NULL
+                    OR last_in.last_human_id IS NULL
+                    OR last_in.last_human_id <= last_in.last_inbound_id
+               )"
+        );
+    }
+
+    /**
      * Fragmento WHERE dos filtros da listagem (status/busca/adiadas).
      * $c é o prefixo da conversa; $contactName/$contactEmail apontam as
      * colunas de contato (na UNION externa são aliases u.*).
