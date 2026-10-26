@@ -160,7 +160,7 @@ que a faixa "Equipe e caixas" trazia, agora junto do SLA em vez de numa faixa à
 descendente), com protocolo (link para `/inbox?conv={id}`), contato, responsável,
 departamento, caixa, 1ª resposta e resolução — reaproveitando
 `ConversationSla::violatedConversations($p, 8)`. Botão "Ver relatório completo" →
-`/reports/sla?sla={periodo}`.
+`/reports/sla?period={periodo}`.
 
 ### 2.6 Permissões
 
@@ -183,7 +183,9 @@ departamento, caixa, 1ª resposta e resolução — reaproveitando
 
 ### 2.7 Período
 
-- `?sla=7|30|90`, default `30`. Valor inválido cai no default.
+- `?period=7|30|90`, default `30`. Valor inválido cai no default. O nome do parâmetro
+  é `period` — o mesmo de `/reports/sla` e dos demais relatórios —, para que o link
+  "Ver relatório completo"/carregue o mesmo período sem tradução.
 - Seletor no cabeçalho da faixa "SLA em detalhe", no mesmo padrão do `/reports/sla`
   (`<select>` que submete GET).
 - Só a faixa de SLA responde ao período. O resto do dashboard é fixo.
@@ -286,7 +288,7 @@ e serve a lista; o total da ficha precisa de uma contagem.
 - Chave atual: `dashboard:{userId}:{admin|user}`.
 - Chave nova: `dashboard:{userId}:{admin|user}:sla{period}`.
 - TTL 30s, inalterado.
-- `/api/dashboard-stats` passa a ler o mesmo parâmetro `?sla=` e a devolver os campos
+- `/api/dashboard-stats` passa a ler o mesmo parâmetro `?period=` e a devolver os campos
   novos. Sem isso, o auto-refresh de 20s manteria o SLA antigo na tela.
 
 ### 3.7 Degradação
@@ -316,13 +318,13 @@ O JS inline da view passa a atualizar as 6 fichas de SLA. Os ids:
   uma casa decimal em `pt-BR`.
 - O estado vazio "—" é preservado: `data-empty="1"` impede a animação de sobrescrever.
 - O período vive em `data-sla-period` no container `#dashboardApp`; o JS envia
-  `?sla={periodo}` para `/api/dashboard-stats`.
+  `?period={periodo}` para `/api/dashboard-stats`.
 
 ### 4.2 Links
 
 - "Em risco agora" → `/inbox` (a fila). **Sem filtro novo de SLA** — não existe na inbox.
 - Linhas da tabela de violações → `/inbox?conv={id}` (mesmo padrão do `/reports/sla`).
-- "Ver relatório completo" → `/reports/sla?sla={periodo}`.
+- "Ver relatório completo" → `/reports/sla?period={periodo}`.
 
 ### 4.3 Header
 
