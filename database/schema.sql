@@ -40,7 +40,7 @@ CREATE TABLE departments (
     description TEXT NULL,
     color VARCHAR(7) NULL DEFAULT '#4A90D9',
     is_active TINYINT(1) NOT NULL DEFAULT 1,
-    sla_escalation_phone VARCHAR(20) NULL DEFAULT NULL,
+    sla_escalation_phone VARCHAR(255) NULL DEFAULT NULL,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 );
@@ -354,6 +354,15 @@ CREATE TABLE IF NOT EXISTS conversation_slas (
     resolution_breached TINYINT(1) NOT NULL DEFAULT 0,
     resolution_threshold INT NULL,
     period_started_at DATETIME NULL,
+    -- Ciclo de resposta pendente: a mensagem do cliente que está sem
+    -- resposta (pending_message_id) e a mensagem pela qual o alerta já
+    -- disparou (pending_alerted_message_id). O SLA passa a alertar a cada
+    -- nova mensagem sem resposta, não só uma vez por conversa.
+    pending_message_id BIGINT UNSIGNED NULL,
+    pending_alerted_message_id BIGINT UNSIGNED NULL,
+    pending_seconds INT NULL,
+    pending_breached TINYINT(1) NOT NULL DEFAULT 0,
+    pending_threshold INT NULL,
     metadata JSON NULL,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,

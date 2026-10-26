@@ -17,6 +17,7 @@ class ConversationSla
 {
     /** Colunas graváveis por save(). */
     private const COLUMNS = [
+        'sla_kind',
         'response_seconds',
         'response_at',
         'response_breached',
@@ -25,6 +26,11 @@ class ConversationSla
         'resolution_breached',
         'resolution_threshold',
         'period_started_at',
+        'pending_message_id',
+        'pending_alerted_message_id',
+        'pending_seconds',
+        'pending_breached',
+        'pending_threshold',
         'metadata',
     ];
 
@@ -166,6 +172,85 @@ class ConversationSla
             $db->insert('conversation_slas', [
                 'conversation_id' => $conversationId,
                 'response_breached' => 1,
+                'created_at' => $now,
+                'updated_at' => $now,
+            ]);
+            return true;
+        } catch (\Throwable $e) {
+            // Corrida com outro worker: ele criou a linha primeiro.
+            return false;
+        }
+    }
+
+    /**
+     * Conversas de GRUPO que já receberam menção: são medidas pelo SLA da
+     * menção (da marcação até a 1ª resposta).
+     *
+     * @return array<int, int> ids de conversa
+     */
+    public static function groupsWithMentions(int $limit = 50): array
+    {
+        $rows = Database::getInstance()->fetchAll(
+            "SELECT c.id, MAX(m.id) AS last_mention
+             FROM conversations c
+             JOIN messages m ON m.conversation_id = c.id AND m.is_mention = 1
+             WHERE c.group_id IS NOT NULL
+               AND c.status IN ('new','open','waiting_customer','waiting_internal')
+             GROUP BY c.id
+             ORDER BY last_mention DESC
+             LIMIT " . (int) $limit
+        );
+        return array_map(fn($r) => (int) $r['id'], $rows);
+    }
+
+    /**
+     * Reserva (de forma atomica) o alerta de "cliente sem resposta".
+     *
+     * Diferente da violacao de 1a resposta — que dispara uma vez por
+     * conversa — este alerta e por MENSAGEM: cada mensagem do cliente que
+     * fica sem resposta tem o seu proprio alerta. A reserva acontece num
+     * UPDATE condicional: com dois workers sobrepostos, so quem altera a
+     * linha escala, entao a mesma mensagem nunca gera duas notificacoes.
+     *
+     * No grupo o mesmo mecanismo serve para a MENÇÃO: cada marcação tem o
+     * seu próprio alerta.
+     *
+     * @param int $conversationId
+     * @param int $pendingMessageId id da mensagem do cliente sem resposta
+     * @return bool true se ESTE processo foi o dono do alerta
+     */
+    public static function claimPendingBreach(int $conversationId, int $pendingMessageId): bool
+    {
+        if ($pendingMessageId <= 0) {
+            return false;
+        }
+
+        $db = Database::getInstance();
+        $now = date('Y-m-d H:i:s');
+
+        $affected = $db->execute(
+            "UPDATE conversation_slas
+                SET pending_alerted_message_id = ?, pending_breached = 1, updated_at = ?
+              WHERE conversation_id = ?
+                AND (pending_alerted_message_id IS NULL OR pending_alerted_message_id <> ?)",
+            [$pendingMessageId, $now, $conversationId, $pendingMessageId]
+        );
+        if ($affected > 0) {
+            return true;
+        }
+
+        // Sem linha ainda: cria ja marcada (a medicao completa vem
+        // logo depois, no saveMeasurement).
+        $row = $db->fetch("SELECT id FROM conversation_slas WHERE conversation_id = ?", [$conversationId]);
+        if ($row) {
+            return false; // ja existia e ja estava marcada
+        }
+
+        try {
+            $db->insert('conversation_slas', [
+                'conversation_id' => $conversationId,
+                'pending_alerted_message_id' => $pendingMessageId,
+                'pending_breached' => 1,
                 'created_at' => $now,
                 'updated_at' => $now,
             ]);
@@ -352,7 +437,7 @@ class ConversationSla
                     SUM(CASE WHEN c.closed_at IS NOT NULL AND s.resolution_seconds > 0 AND s.resolution_breached = 1 THEN 1 ELSE 0 END) as breached_res
              FROM conversation_slas s
              JOIN conversations c ON c.id = s.conversation_id
-             WHERE {$where}",
+             WHERE {$where} AND s.sla_kind = 'standard'",
             $params
         ) ?: [];
 
@@ -401,6 +486,7 @@ class ConversationSla
              JOIN conversations c ON c.id = s.conversation_id
              {$join}
              WHERE c.created_at >= DATE_SUB(NOW(), INTERVAL ? DAY)
+               AND s.sla_kind = 'standard'
              GROUP BY label
              ORDER BY total DESC",
             [max(1, $days)]
@@ -461,6 +547,7 @@ class ConversationSla
              LEFT JOIN inboxes i ON i.id = c.inbox_id
              WHERE c.created_at >= DATE_SUB(NOW(), INTERVAL ? DAY)
                AND (s.response_breached = 1 OR s.resolution_breached = 1)
+               AND s.sla_kind = 'standard'
              ORDER BY c.created_at DESC
              LIMIT " . (int) $limit,
             [max(1, $days)]
