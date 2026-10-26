@@ -51,6 +51,7 @@ class Conversation
                        d.name as department_name, d.color as department_color,
                        u.name as assigned_user_name,
                         ct.name as contact_name, ct.email as contact_email, ct.phone as contact_phone, ct.avatar as contact_avatar, COALESCE((SELECT network_name FROM contact_stores WHERE contact_id = ct.id ORDER BY network_name LIMIT 1), ct.company) as contact_company,
+                        (SELECT g.avatar_url FROM whatsapp_groups g WHERE g.id = c.group_id LIMIT 1) as group_avatar,
                         (SELECT content FROM messages WHERE conversation_id = c.id ORDER BY created_at DESC LIMIT 1) as last_message,
                         (SELECT type FROM messages WHERE conversation_id = c.id ORDER BY created_at DESC LIMIT 1) as last_message_type,
                         (SELECT created_at FROM messages WHERE conversation_id = c.id ORDER BY created_at DESC LIMIT 1) as last_message_at,
@@ -137,27 +138,40 @@ class Conversation
 
     /**
      * Conversas de uma caixa específica, respeitando o tipo da caixa:
-     * - department: conversas cujo inbox_id = caixa OU canal vinculado à caixa
-     * - personal: conversas atribuídas aos donos OU canal vinculado à caixa
+     * - department: conversas do departamento coberto OU do canal vinculado
+     * - personal: conversas atribuídas aos donos OU do canal vinculado
      */
     public static function getConversationsForInbox(int $inboxId, ?int $userId = null, array $filters = []): array
     {
-        $sql = self::listBaseSql($userId) . " WHERE 1=1";
-        $params = [];
+        $sets = \App\Models\Inbox::membershipSets([$inboxId]);
+        return self::getConversationsForSets($sets, $userId, $filters);
+    }
 
-        $sql .= self::inboxMembershipFragment($inboxId, $params);
-        $sql .= self::listFilterSql($filters, $params, $userId);
-
-        $sql .= " ORDER BY COALESCE(c.last_message_at, c.created_at) DESC";
-
-        // Teto opcional de linhas (o endpoint JSON de atualizacao periodica
-        // nao precisa da fila inteira a cada refresh).
-        if (!empty($filters['limit'])) {
-            $sql .= " LIMIT " . (int) $filters['limit'];
-        }
-
-        $rows = Database::getInstance()->fetchAll($sql, $params);
-        return SlaService::applyClock(self::attachTagsJson($rows));
+    /**
+     * Derived table da âncora do relógio do SLA.
+     *
+     * Última mensagem do cliente e última resposta HUMANA nossa.
+     *
+     * 'Humana' = outbound com user_id preenchido (a mensagem de bot/fluxo
+     * ou de automação tem user_id nulo e NÃO conta como resposta): é a
+     * mesma regra do motor de medição (SlaMeasurement::isHumanReply).
+     *
+     * Fragmento público porque a inbox (listBaseSql) e o dashboard
+     * (openConversationsAwaitingReply) precisam da MESMA âncora: se
+     * divergirem, o número do dashboard e a cor da fila contam coisas
+     * diferentes.
+     */
+    public static function slaAnchorsSql(): string
+    {
+        return "(
+                SELECT conversation_id,
+                       MAX(CASE WHEN direction = 'inbound' THEN created_at END) as last_inbound_at,
+                       MAX(CASE WHEN direction = 'inbound' THEN id END) as last_inbound_id,
+                       MAX(CASE WHEN direction = 'outbound' AND user_id IS NOT NULL
+                             AND type NOT IN ('internal_note','system') THEN id END) as last_human_id
+                FROM messages
+                GROUP BY conversation_id
+            )";
     }
 
     /**
@@ -175,6 +189,9 @@ class Conversation
                         d.name as department_name, d.color as department_color,
                         u.name as assigned_user_name,
                         ct.name as contact_name, ct.email as contact_email, ct.phone as contact_phone, ct.avatar as contact_avatar, COALESCE((SELECT network_name FROM contact_stores WHERE contact_id = ct.id ORDER BY network_name LIMIT 1), ct.company) as contact_company,
+                        -- Foto do grupo (a conversa de grupo tem contato sintético,
+                        -- sem avatar: quem mostra a foto do grupo é ele).
+                        (SELECT g.avatar_url FROM whatsapp_groups g WHERE g.id = c.group_id LIMIT 1) as group_avatar,
                         latest_msg.content as last_message,
                         latest_msg.type as last_message_type,
                         latest_msg.created_at as last_msg_at,
@@ -186,11 +203,16 @@ class Conversation
                             WHERE fs.conversation_id = c.id AND fs.is_active = 1
                         ) THEN 1 ELSE 0 END as has_active_flow,
                         -- Âncoras do relógio do SLA: última mensagem do cliente
-                        -- e última mensagem pública nossa. SlaService::applyClock()
+                        -- e última resposta HUMANA nossa. SlaService::applyClock()
                         -- reescreve `waiting_seconds` em segundos úteis.
+                        --
+                        -- 'Humana' = outbound com user_id preenchido (a mensagem
+                        -- de bot/fluxo ou de automação tem user_id nulo e NÃO
+                        -- conta como resposta): é a mesma regra do motor de
+                        -- medição (SlaMeasurement::isHumanReply).
                         last_in.last_inbound_at as sla_last_inbound_at,
                         last_in.last_inbound_id as sla_last_inbound_id,
-                        last_in.last_public_id as sla_last_public_id,
+                        last_in.last_human_id as sla_last_human_id,
                         -- Fallback em tempo de relógio: as listagens que alimentam a
                         -- tela de conversas sobrescrevem este valor com
                         -- SlaService::applyClock(), que conta apenas segundos úteis
@@ -202,7 +224,7 @@ class Conversation
                                 WHEN last_in.last_inbound_id IS NULL
                                 THEN TIMESTAMPDIFF(SECOND, c.created_at, NOW())
                                 -- Atendente já respondeu depois da última msg do cliente: zerado
-                                WHEN last_in.last_public_id > last_in.last_inbound_id THEN 0
+                                WHEN last_in.last_human_id > last_in.last_inbound_id THEN 0
                                 -- Cliente aguardando resposta: conta desde a última msg dele
                                 ELSE TIMESTAMPDIFF(SECOND, last_in.last_inbound_at, NOW())
                             END
@@ -220,14 +242,7 @@ class Conversation
                         SELECT MAX(m2.id) FROM messages m2 WHERE m2.conversation_id = m1.conversation_id
                     )
                 ) latest_msg ON latest_msg.conversation_id = c.id
-                LEFT JOIN (
-                    SELECT conversation_id,
-                           MAX(CASE WHEN direction = 'inbound' THEN created_at END) as last_inbound_at,
-                           MAX(CASE WHEN direction = 'inbound' THEN id END) as last_inbound_id,
-                           MAX(CASE WHEN type <> 'internal_note' THEN id END) as last_public_id
-                    FROM messages
-                    GROUP BY conversation_id
-                ) last_in ON last_in.conversation_id = c.id
+                LEFT JOIN " . self::slaAnchorsSql() . " last_in ON last_in.conversation_id = c.id
                 LEFT JOIN (
                     SELECT conversation_id,
                            COUNT(*) as message_count,
@@ -252,10 +267,51 @@ class Conversation
             $sql .= " AND {$c}assigned_user_id = ?";
             $params[] = $userId;
         }
+        // Responsável: id do atendente, "me" ou "unassigned".
+        if (!empty($filters['assignee'])) {
+            $assignee = (string) $filters['assignee'];
+            if ($assignee === 'unassigned') {
+                $sql .= " AND {$c}assigned_user_id IS NULL";
+            } elseif ($assignee === 'me') {
+                if ($userId) {
+                    $sql .= " AND {$c}assigned_user_id = ?";
+                    $params[] = $userId;
+                }
+            } elseif (ctype_digit($assignee) && (int) $assignee > 0) {
+                $sql .= " AND {$c}assigned_user_id = ?";
+                $params[] = (int) $assignee;
+            }
+        }
+        if (!empty($filters['channel_id'])) {
+            $sql .= " AND {$c}channel_id = ?";
+            $params[] = (int) $filters['channel_id'];
+        }
+        if (!empty($filters['channel'])) {
+            $sql .= " AND ch.type = ?";
+            $params[] = (string) $filters['channel'];
+        }
+        if (!empty($filters['priority'])) {
+            $sql .= " AND {$c}priority = ?";
+            $params[] = (string) $filters['priority'];
+        }
+        // Só não lidas: existe mensagem do cliente ainda não vista por mim.
+        if (!empty($filters['unread'])) {
+            $unread = "SELECT 1 FROM messages m WHERE m.conversation_id = {$c}id AND m.direction = 'inbound' AND m.is_read = 0";
+            if ($userId) {
+                $unread .= " AND (m.user_id != ? OR m.user_id IS NULL)";
+                $params[] = $userId;
+            }
+            $sql .= " AND EXISTS ({$unread})";
+        }
         if (!empty($filters['status'])) {
             if ($filters['status'] === 'active') {
-                // Conversas com fluxo ativo também entram em "Em atendimento".
-                $sql .= " AND {$c}status IN ('new', 'open', 'waiting_customer', 'waiting_internal')";
+                // "Em atendimento": a bola está com a equipe — conversa
+                // aberta, aguardando o cliente ou aguardando outro setor.
+                $sql .= " AND {$c}status IN ('open', 'waiting_customer', 'waiting_internal')";
+            } elseif ($filters['status'] === 'waiting') {
+                // "Aguardando": fila de chegada do setor — conversas novas,
+                // as que saíram do bot e as transferidas de setor.
+                $sql .= " AND {$c}status IN ('new')";
             } elseif ($filters['status'] === 'open') {
                 $sql .= " AND {$c}status IN ('open', 'waiting_customer', 'waiting_internal')";
             } elseif ($filters['status'] === 'resolved_closed') {
@@ -329,66 +385,269 @@ class Conversation
     }
 
     /**
-     * Fragmento SQL de pertinência de uma conversa à caixa informada
-     * (mesmo critério usado em getConversationsForInbox).
+     * Predicado SQL de pertinência.
+     *
+     * A conversa pertence a um conjunto de caixas quando casa com um dos
+     * eixos: departamento coberto, canal vinculado, dono de caixa pessoal
+     * ou grupo de WhatsApp ligado à caixa. Devolve só a expressão (sem "AND")
+     * para poder ser reaproveitada dentro de CASE WHEN, nas contagens por
+     * caixa.
+     *
+     * A natureza da conversa é o filtro final: cada caixa declara quais
+     * conversas quer (inboxes.conversation_scope) e a conversa é de grupo
+     * (group_id preenchido) ou mensagem geral. Os três baldes — qualquer
+     * natureza, grupo e mensagem geral — continuam num predicado só.
      */
-    private static function inboxMembershipFragment(int $inboxId, array &$params): string
+    private static function membershipPredicate(array $sets, string $c, array &$params): string
     {
-        $inbox = \App\Models\Inbox::find($inboxId);
-        if ($inbox && $inbox['type'] === 'personal') {
-            $owners = \App\Models\Inbox::getUsers($inboxId);
-            $ownerIds = array_column($owners, 'id');
-            if ($ownerIds) {
-                $ph = rtrim(str_repeat('?,', count($ownerIds)), ',');
-                $fragment = " AND (c.assigned_user_id IN ({$ph}) OR c.channel_id IN (SELECT channel_id FROM inbox_channels WHERE inbox_id = ?))";
-                foreach ($ownerIds as $oid) {
-                    $params[] = $oid;
-                }
-                $params[] = $inboxId;
-                return $fragment;
-            }
-            $params[] = $inboxId;
-            return " AND c.channel_id IN (SELECT channel_id FROM inbox_channels WHERE inbox_id = ?)";
+        if (!empty($sets['all'])) {
+            return '1=1';
         }
+        $clauses = [];
+        $any = self::axesClause($sets['any'] ?? [], $c, $params, null);
+        if ($any !== '') {
+            $clauses[] = $any;
+        }
+        $groups = self::axesClause($sets['groups'] ?? [], $c, $params, 'groups');
+        if ($groups !== '') {
+            $clauses[] = $groups;
+        }
+        $nonGroups = self::axesClause($sets['nonGroups'] ?? [], $c, $params, 'nonGroups');
+        if ($nonGroups !== '') {
+            $clauses[] = $nonGroups;
+        }
+        if (empty($clauses)) {
+            return '1=0';
+        }
+        return '(' . implode(' OR ', $clauses) . ')';
+    }
 
-        $params[] = $inboxId;
-        $params[] = $inboxId;
-        // inbox_id é autoritativo: o fallback por canal só vale para
-        // conversas legadas sem caixa definida. Assim, ao transferir de
-        // setor (que move a inbox junto), a conversa sai da caixa de origem
-        // em vez de aparecer nas duas.
-        return " AND (c.inbox_id = ? OR (c.inbox_id IS NULL AND c.channel_id IN (SELECT channel_id FROM inbox_channels WHERE inbox_id = ?)))";
+    /**
+     * Eixos de pertinência de um balde (departamento / canal / dono / grupo).
+     *
+     * $natureza restringe o balde: 'groups' só conversa de grupo,
+     * 'nonGroups' só mensagem geral, null = qualquer natureza.
+     */
+    private static function axesClause(array $bucket, string $c, array &$params, ?string $natureza): string
+    {
+        $axes = [];
+        if (!empty($bucket['departments'])) {
+            $ph = rtrim(str_repeat('?,', count($bucket['departments'])), ',');
+            $axes[] = "{$c}department_id IN ({$ph})";
+            foreach ($bucket['departments'] as $id) {
+                $params[] = $id;
+            }
+        }
+        if (!empty($bucket['channels'])) {
+            $ph = rtrim(str_repeat('?,', count($bucket['channels'])), ',');
+            $axes[] = "{$c}channel_id IN ({$ph})";
+            foreach ($bucket['channels'] as $id) {
+                $params[] = $id;
+            }
+        }
+        if (!empty($bucket['users'])) {
+            $ph = rtrim(str_repeat('?,', count($bucket['users'])), ',');
+            $axes[] = "{$c}assigned_user_id IN ({$ph})";
+            foreach ($bucket['users'] as $id) {
+                $params[] = $id;
+            }
+        }
+        if (!empty($bucket['groups'])) {
+            $ph = rtrim(str_repeat('?,', count($bucket['groups'])), ',');
+            $axes[] = "{$c}group_id IN ({$ph})";
+            foreach ($bucket['groups'] as $id) {
+                $params[] = $id;
+            }
+        }
+        if (empty($axes)) {
+            return '';
+        }
+        $clause = '(' . implode(' OR ', $axes) . ')';
+        if ($natureza === 'groups') {
+            $clause .= " AND {$c}group_id IS NOT NULL";
+        } elseif ($natureza === 'nonGroups') {
+            $clause .= " AND {$c}group_id IS NULL";
+        }
+        return $clause;
+    }
+
+    /**
+     * Escopo de conversas de um usuário: a visão unificada da caixa de
+     * entrada. Junta as caixas às quais ele tem acesso, os próprios
+     * departamentos e as conversas atribuídas a ele.
+     *
+     * @return array{all:bool, any:array, groups:array, nonGroups:array}
+     */
+    public static function scopeSetsForUser(int $userId): array
+    {
+        $row = Database::getInstance()->fetch("SELECT role FROM users WHERE id = ?", [$userId]);
+        if ($row && ($row['role'] ?? '') === 'admin') {
+            // Admin enxerga tudo: não adianta restringi-lo por caixa.
+            $sets = \App\Models\Inbox::emptySets();
+            $sets['all'] = true;
+            return $sets;
+        }
+        $inboxes = \App\Models\Inbox::getUserInboxes($userId);
+        $sets = \App\Models\Inbox::membershipSets(array_column($inboxes, 'id'));
+        // Os próprios departamentos entram no escopo mesmo sem caixa
+        // vinculada: o atendente precisa ver a fila do seu time — tanto as
+        // mensagens gerais quanto as conversas de grupo.
+        $sets['any']['departments'] = array_values(array_unique(array_merge(
+            $sets['any']['departments'],
+            array_map('intval', \App\Models\User::getDepartmentIds($userId))
+        )));
+        $sets['all'] = false;
+        return $sets;
     }
 
     /**
      * Quantidade por caixa para o badge vermelho do menu lateral.
-     * - Conversas normais: conta quando em aberto (novo/aberto/aguardando).
-     * - Conversas de grupo WhatsApp (sempre abertas, sem encerramento):
-     *   contam SOMENTE quando há menção ao número ainda não vista
-     *   (mensagem inbound não-lida). Mensagem comum de grupo é histórico
-     *   lido e não acende o badge.
+     *
+     * - Caixas de mensagens gerais: contam as conversas em aberto (novo,
+     *   aberto, aguardando).
+     * - Caixas de grupo (conversation_scope = 'groups'): contam SÓ as
+     *   conversas em que o número foi mencionado no grupo e a menção ainda
+     *   não foi lida. Mensagem comum de grupo é histórico do grupo, não é
+     *   atendimento: a bolinha acende quando alguém chama o bot.
+     *
+     * Uma única query: cada caixa vira um CASE sobre o mesmo conjunto de
+     * conversas. Antes eram N branches de UNION somados no PHP, o que
+     * contava duas vezes a conversa que estava em duas caixas.
+     *
      * Retorna um mapa [inbox_id => total].
      */
     public static function openCountsByInbox(array $inboxIds): array
     {
-        $result = array_fill_keys($inboxIds, 0);
-        $parts = [];
-        $allParams = [];
-        foreach (array_filter($inboxIds) as $inboxId) {
-            $params = [];
-            $where = self::inboxMembershipFragment((int) $inboxId, $params);
-            $parts[] = "SELECT ? AS inbox_id, COUNT(*) AS c FROM conversations c WHERE 1=1 {$where} AND c.status IN ('new', 'open', 'waiting_customer', 'waiting_internal')"
-                . " AND (c.group_id IS NULL OR EXISTS (SELECT 1 FROM messages m WHERE m.conversation_id = c.id AND m.direction = 'inbound' AND m.is_read = 0))";
-            array_unshift($params, (int) $inboxId);
-            $allParams = array_merge($allParams, $params);
+        $ids = array_values(array_unique(array_filter(array_map('intval', $inboxIds))));
+        $result = array_fill_keys($ids, 0);
+        if (empty($ids)) {
+            return $result;
         }
-        if ($parts) {
-            $rows = Database::getInstance()->fetchAll(implode(' UNION ALL ', $parts), $allParams);
-            foreach ($rows as $row) {
-                $result[(int) $row['inbox_id']] = (int) $row['c'];
-            }
+
+        $map = \App\Models\Inbox::loadMembershipMap($ids);
+        $params = [];
+        $selects = [];
+        foreach ($ids as $i => $id) {
+            $entry = $map[(int) $id] ?? null;
+            $sets = \App\Models\Inbox::setsFromMap($map, [$id]);
+            $pred = self::membershipPredicate($sets, 'c.', $params);
+            // Caixa de grupo: só conta conversa com menção não lida.
+            $isGroupBox = $entry
+                && ($entry['type'] ?? 'department') !== 'personal'
+                && \App\Models\Inbox::normalizeScope($entry['scope'] ?? 'all') === 'groups';
+            $gate = $isGroupBox
+                ? " AND EXISTS (SELECT 1 FROM messages m WHERE m.conversation_id = c.id"
+                    . " AND m.is_mention = 1 AND m.is_read = 0)"
+                : '';
+            $selects[] = "COUNT(DISTINCT CASE WHEN {$pred}{$gate} THEN c.id END) AS c{$i}";
+        }
+
+        $sql = "SELECT " . implode(', ', $selects) . "
+                FROM conversations c
+                WHERE c.status IN ('new', 'open', 'waiting_customer', 'waiting_internal')";
+
+        $rows = Database::getInstance()->fetchAll($sql, $params);
+        $row = $rows[0] ?? [];
+        foreach ($ids as $i => $id) {
+            $result[$id] = (int) ($row['c' . $i] ?? 0);
         }
         return $result;
+    }
+
+    /**
+     * Conversas em aberto atribuídas a mim (badge da "Minha Caixa").
+     *
+     * Conta o mesmo que a aba "Em atendimento" da Minha Caixa: aqui o
+     * badge precisa bater com a lista, senão o menu mente sobre o que há
+     * para o atendente fazer.
+     */
+    public static function openCountForMine(int $userId): int
+    {
+        $row = Database::getInstance()->fetch(
+            "SELECT COUNT(*) as total FROM conversations c
+             WHERE c.assigned_user_id = ?
+               AND c.status IN ('new', 'open', 'waiting_customer', 'waiting_internal')",
+            [$userId]
+        );
+        return (int) ($row['total'] ?? 0);
+    }
+
+    /**
+     * Total de conversas em aberto de um escopo (visão unificada).
+     *
+     * O total NÃO é a soma dos badges por caixa: as caixas se sobrepõem
+     * (uma conversa pode estar em duas), então somar contaria duas vezes.
+     * Aqui a contagem é feita direto sobre o escopo.
+     *
+     * Conta o mesmo que a aba "Em atendimento" da caixa de entrada — o
+     * badge do menu precisa bater com a lista que o usuário abre. (A regra
+     * de "menção não vista" fica só nos badges por caixa, onde o grupo do
+     * WhatsApp é que não pode ficar aceso para sempre.)
+     */
+    public static function openCountForSets(array $sets): int
+    {
+        $params = [];
+        $pred = self::membershipPredicate($sets, 'c.', $params);
+
+        $row = Database::getInstance()->fetch(
+            "SELECT COUNT(DISTINCT c.id) as total
+             FROM conversations c
+             WHERE c.status IN ('new', 'open', 'waiting_customer', 'waiting_internal')
+               AND ({$pred})",
+            $params
+        );
+        return (int) ($row['total'] ?? 0);
+    }
+
+    /**
+     * Contagem por aba da caixa (badges "Em atendimento" / "Aguardando").
+     *
+     * Mesmo critério de pertinência e os mesmos filtros da listagem, mas
+     * numa query leve (sem as junções de mensagens/tags). O filtro de
+     * status NÃO entra: contamos todos os status e distribuímos nas abas:
+     *   - active  = open + waiting_customer + waiting_internal
+     *   - waiting = new
+     *
+     * @return array{active:int, waiting:int}
+     */
+    public static function countsByTabForInboxes(array $inboxIds, ?int $userId = null, array $filters = []): array
+    {
+        $ids = array_values(array_unique(array_filter(array_map('intval', $inboxIds))));
+        return self::countsByTabForSets(\App\Models\Inbox::membershipSets($ids), $userId, $filters);
+    }
+
+    /**
+     * Contagem por aba sobre um escopo de conversas.
+     *
+     * @return array{active:int, waiting:int}
+     */
+    public static function countsByTabForSets(array $sets, ?int $userId = null, array $filters = []): array
+    {
+        $counts = ['active' => 0, 'waiting' => 0];
+        unset($filters['status']);
+
+        $params = [];
+        $pred = self::membershipPredicate($sets, 'c.', $params);
+
+        $sql = "SELECT c.status, COUNT(DISTINCT c.id) as total
+                FROM conversations c
+                JOIN contacts ct ON ct.id = c.contact_id
+                LEFT JOIN channels ch ON ch.id = c.channel_id
+                WHERE ({$pred})";
+        $sql .= self::listFilterSql($filters, $params, $userId);
+        $sql .= " GROUP BY c.status";
+
+        $rows = Database::getInstance()->fetchAll($sql, $params);
+        $byStatus = [];
+        foreach ($rows as $r) {
+            $byStatus[(string) $r['status']] = (int) $r['total'];
+        }
+        $counts['active'] = ($byStatus['open'] ?? 0)
+            + ($byStatus['waiting_customer'] ?? 0)
+            + ($byStatus['waiting_internal'] ?? 0);
+        $counts['waiting'] = $byStatus['new'] ?? 0;
+
+        return $counts;
     }
 
     /**
@@ -396,9 +655,12 @@ class Conversation
      * ordenadas pela mais recente. Usada na visão "Caixa de Entrada".
      */
     /**
-     * Conversas combinadas de várias caixas em UMA query (UNION ALL por
-     * caixa + filtros aplicados uma vez na camada externa). Antes: N
-     * queries em série (uma por caixa) + sort em PHP.
+     * Conversas combinadas de várias caixas numa única query.
+     *
+     * As caixas são achatadas em conjuntos (departamento / canal / dono) e
+     * aplicadas como um predicado só. Antes: uma UNION ALL por caixa, com
+     * a base pesada (subqueries de mensagens) repetida N vezes, e dedup em
+     * PHP no final.
      */
     public static function getConversationsForInboxes(array $inboxIds, ?int $userId = null, array $filters = []): array
     {
@@ -406,39 +668,27 @@ class Conversation
         if (empty($ids)) {
             return [];
         }
-        if (count($ids) === 1) {
-            return self::getConversationsForInbox($ids[0], $userId, $filters);
-        }
+        return self::getConversationsForSets(\App\Models\Inbox::membershipSets($ids), $userId, $filters);
+    }
 
-        $base = self::listBaseSql($userId);
-        $branches = [];
+    /**
+     * Conversas de um escopo (conjuntos de pertinência já resolvidos).
+     */
+    public static function getConversationsForSets(array $sets, ?int $userId = null, array $filters = []): array
+    {
         $params = [];
-        foreach ($ids as $id) {
-            $bp = [];
-            $branches[] = $base . " WHERE 1=1" . self::inboxMembershipFragment($id, $bp);
-            $params = array_merge($params, $bp);
-        }
+        $pred = self::membershipPredicate($sets, 'c.', $params);
 
-        // Filtros uma vez só, sobre os aliases da UNION (u.*).
-        // contact_name/contact_email/subject/protocol/status existem no SELECT.
-        $sql = "SELECT u.* FROM (" . implode(' UNION ALL ', $branches) . ") u WHERE 1=1";
-        $sql .= self::listFilterSql($filters, $params, $userId, 'u.', 'u.contact_name', 'u.contact_email');
-        $sql .= " ORDER BY COALESCE(u.last_msg_at, u.created_at) DESC";
+        $sql = self::listBaseSql($userId) . " WHERE ({$pred})";
+        $sql .= self::listFilterSql($filters, $params, $userId);
+        $sql .= " ORDER BY COALESCE(c.last_message_at, c.created_at) DESC";
 
         if (!empty($filters['limit'])) {
             $sql .= " LIMIT " . (int) $filters['limit'];
         }
 
         $rows = Database::getInstance()->fetchAll($sql, $params);
-
-        // Deduplica (conversa pode estar em 2 caixas): mantém a mais recente.
-        $map = [];
-        foreach ($rows as $c) {
-            if (!isset($map[$c['id']])) {
-                $map[$c['id']] = $c;
-            }
-        }
-        return SlaService::applyClock(self::attachTagsJson(array_values($map)));
+        return SlaService::applyClock(self::attachTagsJson($rows));
     }
 
 
@@ -469,14 +719,19 @@ class Conversation
         return Database::getInstance()->fetchAll($sql, $params);
     }
 
-    public static function getUnassigned(int $departmentId = null): array
+    /**
+     * Conversas sem responsável.
+     *
+     * $sets limita ao escopo do usuário (a fila sem dono que ele enxerga).
+     */
+    public static function getUnassigned(int $departmentId = null, ?array $sets = null): array
     {
         $sql = "SELECT c.*, ch.type as channel_type, ct.name as contact_name, ct.phone as contact_phone,
                        ct.avatar as contact_avatar, d.name as department_name, d.color as department_color,
                        u.name as assigned_user_name,
                        last_in.last_inbound_at as sla_last_inbound_at,
                        last_in.last_inbound_id as sla_last_inbound_id,
-                       last_in.last_public_id as sla_last_public_id
+                       last_in.last_human_id as sla_last_human_id
                 FROM conversations c
                 JOIN contacts ct ON ct.id = c.contact_id
                 LEFT JOIN channels ch ON ch.id = c.channel_id
@@ -486,7 +741,8 @@ class Conversation
                     SELECT conversation_id,
                            MAX(CASE WHEN direction = 'inbound' THEN created_at END) as last_inbound_at,
                            MAX(CASE WHEN direction = 'inbound' THEN id END) as last_inbound_id,
-                           MAX(CASE WHEN type <> 'internal_note' THEN id END) as last_public_id
+                           MAX(CASE WHEN direction = 'outbound' AND user_id IS NOT NULL
+                                     AND type NOT IN ('internal_note','system') THEN id END) as last_human_id
                     FROM messages
                     GROUP BY conversation_id
                 ) last_in ON last_in.conversation_id = c.id
@@ -497,6 +753,13 @@ class Conversation
         if ($departmentId) {
             $sql .= " AND c.department_id = ?";
             $params[] = $departmentId;
+        }
+
+        if ($sets !== null) {
+            $scopeParams = [];
+            $pred = self::membershipPredicate($sets, 'c.', $scopeParams);
+            $sql .= " AND ({$pred})";
+            $params = array_merge($params, $scopeParams);
         }
 
         $sql .= " ORDER BY c.created_at ASC";
@@ -546,6 +809,48 @@ class Conversation
         }
 
         return $counts;
+    }
+
+    /**
+     * Mapa id => status de todas as conversas das caixas informadas.
+     *
+     * O LiveFeed (atualização incremental da lista) precisa saber o status
+     * real de uma conversa que sumiu da lista filtrada: com as três abas,
+     * sair de "Em atendimento" pode ser o atendimento indo para
+     * "Aguardando" — não é a mesma coisa que ser finalizada. Sem esse mapa
+     * o cliente announces "Conversa finalizada" para um simples
+     * "aguardando cliente".
+     *
+     * @param array<int> $inboxIds
+     * @return array<int, string> [conversation_id => status]
+     */
+    public static function statusMapForInboxes(array $inboxIds): array
+    {
+        $ids = array_values(array_unique(array_filter(array_map('intval', $inboxIds))));
+        if (!$ids) {
+            return [];
+        }
+        return self::statusMapForSets(\App\Models\Inbox::membershipSets($ids));
+    }
+
+    /**
+     * Mapa id => status das conversas de um escopo.
+     *
+     * @return array<int, string> [conversation_id => status]
+     */
+    public static function statusMapForSets(array $sets): array
+    {
+        $params = [];
+        $pred = self::membershipPredicate($sets, 'c.', $params);
+        $rows = Database::getInstance()->fetchAll(
+            "SELECT c.id, c.status FROM conversations c WHERE ({$pred})",
+            $params
+        );
+        $map = [];
+        foreach ($rows as $r) {
+            $map[(int) $r['id']] = (string) $r['status'];
+        }
+        return $map;
     }
 
     private static ?bool $groupColCache = null;
@@ -1107,6 +1412,64 @@ class Conversation
         self::addEvent($conversationId, 'tag_removed', 'Etiqueta removida', Auth::id());
     }
 
+    /**
+     * Fragmento SQL das conversas visíveis a um usuário (não-admin).
+     *
+     * Espelha userCanSee(): responsável pela conversa, membro do
+     * departamento, ou conversa de uma caixa pessoal do usuário (atribuída
+     * a um dos donos ou vinda de um canal que ele trata sozinho).
+     */
+    public static function visibilitySql(int $userId, string $c = 'c.', array &$params = []): string
+    {
+        $params[] = $userId;
+        $params[] = $userId;
+        $params[] = $userId;
+        return "(
+                    {$c}assigned_user_id = ?
+                    OR {$c}department_id IN (SELECT department_id FROM department_users WHERE user_id = ?)
+                    OR EXISTS (
+                        SELECT 1
+                        FROM inbox_users iu
+                        JOIN inboxes i ON i.id = iu.inbox_id
+                        WHERE iu.user_id = ?
+                          AND i.type = 'personal'
+                          AND i.is_active = 1
+                          AND (
+                              iu.user_id = {$c}assigned_user_id
+                              OR EXISTS (SELECT 1 FROM inbox_channels ic WHERE ic.inbox_id = i.id AND ic.channel_id = {$c}channel_id)
+                          )
+                    )
+                )";
+    }
+
+    /**
+     * O usuário tem acesso a esta conversa?
+     *
+     * Regras (uma só, usada pela listagem e pela checagem de acesso):
+     * - admin: enxerga tudo
+     * - responsável pela conversa
+     * - membro do departamento da conversa
+     * - conversa atribuída a um dono de uma caixa pessoal do usuário
+     * - conversa de um canal de uma caixa pessoal do usuário
+     */
+    public static function userCanSee(int $conversationId, int $userId): bool
+    {
+        $role = Database::getInstance()->fetch("SELECT role FROM users WHERE id = ?", [$userId]);
+        if ($role && ($role['role'] ?? '') === 'admin') {
+            return Database::getInstance()->fetch(
+                "SELECT 1 FROM conversations WHERE id = ? LIMIT 1",
+                [$conversationId]
+            ) !== null;
+        }
+        $params = [];
+        $row = Database::getInstance()->fetch(
+            "SELECT 1 FROM conversations c
+             WHERE c.id = ? AND " . self::visibilitySql($userId, 'c.', $params),
+            array_merge([$conversationId], $params)
+        );
+        return (bool) $row;
+    }
+
     public static function getUnreadCount(int $userId): int
     {
         $row = Database::getInstance()->fetch(
@@ -1124,34 +1487,9 @@ class Conversation
 
     public static function getUnreadConversationsCount(int $userId): int
     {
-        $inboxes = \App\Models\Inbox::getUserInboxes($userId);
-        $inboxIds = array_column($inboxes, 'id');
-        if (empty($inboxIds)) return 0;
-
-        $inboxConditions = [];
-        $params = [$userId];
-        foreach ($inboxIds as $iid) {
-            $inbox = \App\Models\Inbox::find($iid);
-            if ($inbox && ($inbox['type'] ?? '') === 'personal') {
-                $owners = \App\Models\Inbox::getUsers($iid);
-                $ownerIds = array_column($owners, 'id');
-                if ($ownerIds) {
-                    $phs = rtrim(str_repeat('?,', count($ownerIds)), ',');
-                    $inboxConditions[] = "(c.assigned_user_id IN ({$phs}) OR c.channel_id IN (SELECT channel_id FROM inbox_channels WHERE inbox_id = ?))";
-                    foreach ($ownerIds as $oid) { $params[] = $oid; }
-                    $params[] = $iid;
-                } else {
-                    $inboxConditions[] = "c.channel_id IN (SELECT channel_id FROM inbox_channels WHERE inbox_id = ?)";
-                    $params[] = $iid;
-                }
-            } else {
-                $inboxConditions[] = "(c.inbox_id = ? OR (c.inbox_id IS NULL AND c.channel_id IN (SELECT channel_id FROM inbox_channels WHERE inbox_id = ?)))";
-                $params[] = $iid;
-                $params[] = $iid;
-            }
-        }
-
-        $inboxWhere = '(' . implode(' OR ', $inboxConditions) . ')';
+        $sets = self::scopeSetsForUser($userId);
+        $params = [];
+        $pred = self::membershipPredicate($sets, 'c.', $params);
 
         $row = Database::getInstance()->fetch(
             "SELECT COUNT(DISTINCT c.id) as total
@@ -1159,48 +1497,24 @@ class Conversation
              JOIN messages m ON m.conversation_id = c.id
              WHERE m.direction = 'inbound' AND m.is_read = 0
                AND (m.user_id != ? OR m.user_id IS NULL)
-               AND {$inboxWhere}",
-            $params
+               AND ({$pred})",
+            array_merge([$userId], $params)
         );
         return (int) ($row['total'] ?? 0);
     }
 
     public static function markAllMessagesAsRead(int $userId): int
     {
-        $inboxes = \App\Models\Inbox::getUserInboxes($userId);
-        $inboxIds = array_column($inboxes, 'id');
-        if (empty($inboxIds)) return 0;
-
-        $inboxConditions = [];
-        $params = [$userId];
-        foreach ($inboxIds as $iid) {
-            $inbox = \App\Models\Inbox::find($iid);
-            if ($inbox && ($inbox['type'] ?? '') === 'personal') {
-                $owners = \App\Models\Inbox::getUsers($iid);
-                $ownerIds = array_column($owners, 'id');
-                if ($ownerIds) {
-                    $phs = rtrim(str_repeat('?,', count($ownerIds)), ',');
-                    $inboxConditions[] = "(c.assigned_user_id IN ({$phs}) OR c.channel_id IN (SELECT channel_id FROM inbox_channels WHERE inbox_id = ?))";
-                    foreach ($ownerIds as $oid) { $params[] = $oid; }
-                    $params[] = $iid;
-                } else {
-                    $inboxConditions[] = "c.channel_id IN (SELECT channel_id FROM inbox_channels WHERE inbox_id = ?)";
-                    $params[] = $iid;
-                }
-            } else {
-                $inboxConditions[] = "(c.inbox_id = ? OR (c.inbox_id IS NULL AND c.channel_id IN (SELECT channel_id FROM inbox_channels WHERE inbox_id = ?)))";
-                $params[] = $iid;
-                $params[] = $iid;
-            }
-        }
-        $inboxWhere = '(' . implode(' OR ', $inboxConditions) . ')';
+        $sets = self::scopeSetsForUser($userId);
+        $params = [];
+        $pred = self::membershipPredicate($sets, 'c.', $params);
 
         $sql = "UPDATE messages m JOIN conversations c ON c.id = m.conversation_id "
              . "SET m.is_read = 1 "
              . "WHERE m.direction = 'inbound' AND m.is_read = 0 "
-             . "AND (m.user_id != ? OR m.user_id IS NULL) AND {$inboxWhere}";
+             . "AND (m.user_id != ? OR m.user_id IS NULL) AND ({$pred})";
 
-        $stmt = Database::getInstance()->query($sql, $params);
+        $stmt = Database::getInstance()->query($sql, array_merge([$userId], $params));
         return $stmt->rowCount();
     }
 }

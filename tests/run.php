@@ -166,7 +166,7 @@ $row = [
     'created_at' => '2026-10-19 09:00:00',
     'last_inbound_at' => '2026-10-19 11:00:00',
     'last_inbound_id' => 10,
-    'last_public_id' => 5,
+    'last_human_id' => 5,
     'department_id' => 1,
 ];
 
@@ -177,11 +177,25 @@ check('sla: sem motivo de pausa quando o relogio corre', ($st['paused_reason'] ?
 check('sla: limite do dia e a proxima virada', ($st['next_boundary'] ?? null) === '2026-10-19 18:00:00');
 
 $replied = $row;
-$replied['last_public_id'] = 20;
+$replied['last_human_id'] = 20;
 $st = slaState([$replied, $office, 'UTC', '2026-10-19 12:00:00', 'UTC']);
 check('sla: atendente falou por ultimo congela o relogio', ($st['waiting_seconds'] ?? null) === 0);
 check('sla: bola com o cliente marca pausa por cliente', ($st['paused_reason'] ?? null) === 'customer');
 check('sla: bola com o cliente congela', ($st['frozen'] ?? null) === true);
+
+// Mensagem de bot/fluxo NAO conta como resposta humana: o relogio
+// continua correndo (a fila de chegada nao pode ficar verde para
+// sempre so porque o bot falou por ultimo).
+$botReplied = $row;
+$botReplied['last_human_id'] = 5;   // o bot nao tem user_id
+$st = slaState([$botReplied, $office, 'UTC', '2026-10-19 12:00:00', 'UTC']);
+check('sla: bot falando por ultimo nao congela o relogio', ($st['waiting_seconds'] ?? null) === 3600);
+check('sla: bot falando por ultimo nao pausa o relogio', ($st['paused_reason'] ?? null) === null);
+
+$newInQueue = $row;
+$newInQueue['status'] = 'new';
+$st = slaState([$newInQueue, $office, 'UTC', '2026-10-19 12:00:00', 'UTC']);
+check('sla: fila de chegada (new) mantem o relogio correndo', ($st['waiting_seconds'] ?? null) === 3600);
 
 $internal = $row;
 $internal['status'] = 'waiting_internal';
@@ -387,16 +401,52 @@ $st = slaMeasure([$convSla, [
 ], [], $office, 'UTC', '2026-10-20 01:00:00', $optsSla]);
 check('sla: a noite nao conta', ($st['resolution_seconds'] ?? null) === 0, 'got ' . json_encode($st['resolution_seconds'] ?? null));
 
-// 10) conversa de grupo nao tem sla
+// 10) grupo: o SLA é da MENÇÃO (não da 1ª mensagem)
 $groupConv = $convSla;
 $groupConv['group_id'] = 7;
+$mention = ['id' => 5, 'direction' => 'inbound', 'type' => 'text', 'user_id' => null, 'created_at' => '2026-10-19 09:00:00', 'is_mention' => 1];
+$groupOpts = $optsSla + ['mention_threshold' => 3600];
+
+// Sem menção: sem objeto de SLA (o tráfego do grupo não é SLA).
 $groupSt = slaMeasure([$groupConv, [
     $msgSla(1, 'inbound', 'text', null, '2026-10-19 09:00:00'),
-], [], $office, 'UTC', '2026-10-19 10:00:00', $optsSla]);
+], [], $office, 'UTC', '2026-10-19 10:00:00', $groupOpts]);
 $normalSt = slaMeasure([$convSla, [
     $msgSla(1, 'inbound', 'text', null, '2026-10-19 09:00:00'),
 ], [], $office, 'UTC', '2026-10-19 10:00:00', $optsSla]);
-check('sla: conversa de grupo nao tem sla', $groupSt === [] && $normalSt !== [], 'grupo=' . json_encode($groupSt) . ' normal=' . json_encode($normalSt));
+check('sla: grupo sem mencao nao tem objeto de sla', $groupSt === [] && $normalSt !== [], 'grupo=' . json_encode($groupSt) . ' normal=' . json_encode($normalSt));
+
+// Com menção: o relógio corre da menção até a 1ª resposta.
+$groupSt = slaMeasure([$groupConv, [
+    $msgSla(1, 'inbound', 'text', null, '2026-10-19 08:50:00'),
+    $mention,
+    $msgSla(6, 'outbound', 'text', 7, '2026-10-19 09:20:00'),
+], [], $office, 'UTC', '2026-10-19 09:20:00', $groupOpts]);
+check('sla: a mencao em grupo mede ate a 1a resposta', ($groupSt['pending_seconds'] ?? null) === 1200, json_encode($groupSt));
+check('sla: a mencao em grupo guarda a mensagem ancorada', ($groupSt['pending_message_id'] ?? null) === 5);
+check('sla: a mencao em grupo nao usa o sla de 1a resposta', ($groupSt['response_seconds'] ?? null) === null && ($groupSt['sla_kind'] ?? '') === 'group_mention', json_encode($groupSt));
+
+// Menção sem resposta: o relógio continua e viola o limite.
+$groupSt = slaMeasure([$groupConv, [
+    $mention,
+], [], $office, 'UTC', '2026-10-19 10:30:00', $groupOpts]);
+check('sla: mencao sem resposta continua correndo', ($groupSt['pending_seconds'] ?? null) === 5400, json_encode($groupSt));
+check('sla: mencao sem resposta viola o limite', !empty($groupSt['pending_breached']));
+
+// Menção respondida dentro do limite: não viola.
+$groupSt = slaMeasure([$groupConv, [
+    $mention,
+    $msgSla(6, 'outbound', 'text', 7, '2026-10-19 09:10:00'),
+], [], $office, 'UTC', '2026-10-19 10:30:00', $groupOpts]);
+check('sla: mencao respondida no tempo nao viola', empty($groupSt['pending_breached']) && ($groupSt['pending_seconds'] ?? null) === 600, json_encode($groupSt));
+
+// Uma menção nova depois da resposta reinicia o relógio.
+$groupSt = slaMeasure([$groupConv, [
+    $mention,
+    $msgSla(6, 'outbound', 'text', 7, '2026-10-19 09:10:00'),
+    ['id' => 9, 'direction' => 'inbound', 'type' => 'text', 'user_id' => null, 'created_at' => '2026-10-19 09:30:00', 'is_mention' => 1],
+], [], $office, 'UTC', '2026-10-19 10:30:00', $groupOpts]);
+check('sla: mencao nova reinicia o relogio', ($groupSt['pending_message_id'] ?? null) === 9 && ($groupSt['pending_seconds'] ?? null) === 3600, json_encode($groupSt));
 
 // 11) mensagem apagada entra na medicao
 $st = slaMeasure([$convSla, [
@@ -610,8 +660,25 @@ check(
 // 9) Contrato dos providers de WhatsApp (menu/lista + LID/telefone)
 require_once __DIR__ . '/wa_contract.php';
 
-// 10) Provider do whatsmeow (bridge Go)
+// 10) Caixa de entrada unificada (setor/canal/responsavel + filtros)
+require_once __DIR__ . '/inbox_unified.php';
+
+// 11) Provider do whatsmeow (bridge Go)
 require_once __DIR__ . '/whatsmeow_provider.php';
+
+// 12) Conversa de grupo: sem atendente, sempre em aberto, avisa na mencao
+require_once __DIR__ . '/grupo_sem_atendente.php';
+
+// 13) SLA da fila de chegada (aba Aguardando): o bot nao congela o relogio
+require_once __DIR__ . '/sla_fila_chegada.php';
+
+// 14) Dashboard com SLA: ancora do relogio compartilhada
+$convModelSrc = file_get_contents(__DIR__ . '/../app/Models/Conversation.php');
+check(
+    'dashboard sla: a ancora do relogio e um fragmento compartilhado',
+    str_contains($convModelSrc, 'function slaAnchorsSql')
+        && str_contains($convModelSrc, 'self::slaAnchorsSql()')
+);
 
 echo "\n$passes passed, $failures failed\n";
 exit($failures > 0 ? 1 : 0);
