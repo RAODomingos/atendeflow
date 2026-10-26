@@ -138,6 +138,26 @@ func (m *SessionManager) handleMessage(session *Session, evt *events.Message) {
 			ID:    response.GetSingleSelectReply().GetSelectedRowID(),
 			Label: response.GetTitle(),
 		}
+	case msg.GetInteractiveResponseMessage() != nil:
+		// Resposta do fluxo nativo (quick_reply / single_select).
+		native := msg.GetInteractiveResponseMessage().GetNativeFlowResponseMessage()
+		payload.Type = "button"
+		if native != nil && native.GetName() == nativeFlowSingleSelect {
+			payload.Type = "list"
+		}
+		if native == nil {
+			break
+		}
+		parsed, raw := parseNativeFlowResponse(native.GetParamsJSON())
+		label := parsed.Label
+		if label == "" {
+			label = raw
+		}
+		payload.Body = label
+		payload.Interactive = &InteractivePayload{
+			ID:    parsed.ID,
+			Label: label,
+		}
 	case msg.GetContactMessage() != nil:
 		contact := msg.GetContactMessage()
 		payload.Type = "contact"

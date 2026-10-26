@@ -134,6 +134,28 @@ texto numerado**, que o motor de fluxos responde por posição (o
 `FlowEngineService::handleMenuResponse()` aceita o número da opção). Nenhum
 fluxo precisa ser reescrito.
 
+### Formato "native flow"
+
+O WhatsApp recusa com **405 (not-allowed)** as mensagens interativas legadas
+(`ButtonsMessage` e `ListMessage`). O formato aceito hoje é o *native flow*:
+
+- o menu vira uma `InteractiveMessage` cujo `NativeFlowMessage` carrega os
+  botões `quick_reply` (`{display_text, id}`);
+- a lista vira um botão `single_select`, com as seções e linhas dentro dos
+  parâmetros do botão;
+- a mensagem viaja acompanhada do nó `<biz>` que o servidor exige
+  (`<interactive type=native_flow v=1><native_flow v=9 name=mixed/>`), que é
+  enviado como `AdditionalNodes` do `SendMessage`.
+
+O `whatsmeow` só injeria `<biz>` sozinho para os formatos legados — justamente
+os recusados —, então o nó é montado em `nativeflow.go`. É o mesmo formato que
+o `evolution-api` (Baileys) injeta.
+
+A resposta a um toque chega como `InteractiveResponseMessage` com
+`NativeFlowResponseMessage`; o `paramsJSON` traz o `id` e o rótulo da opção
+escolhida, que a bridge repassa no envelope do webhook (`interactive.id` e
+`interactive.label`).
+
 ## Estados de erro
 
 | Status | Quando acontece | O que o app faz |
