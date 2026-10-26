@@ -79,7 +79,12 @@ if (!$fixture) {
 
 $inboxId = (int) ($fixture['inbox_id'] ?? 0);
 $departmentId = (int) ($fixture['department_id'] ?? 0);
-$contactId = (int) ($db->fetch("SELECT id FROM contacts WHERE is_group = 0 ORDER BY id LIMIT 1")['id'] ?? 0);
+// Estado anterior do contato: o fixture usa um contato COMPARTILHADO e o
+// addMessage() inbound dispara Contact::touchActivity(), que sobrescreve o
+// contacts.last_activity_at sem restaurar. O teste devolve o valor no fim,
+// para o fixture não deixar drift no banco.
+$contactBefore = $db->fetch("SELECT id, last_activity_at FROM contacts WHERE is_group = 0 ORDER BY id LIMIT 1");
+$contactId = (int) ($contactBefore['id'] ?? 0);
 $channelId = (int) ($db->fetch("SELECT id FROM channels ORDER BY id LIMIT 1")['id'] ?? 0);
 // Atendente para a resposta humana: sem um user_id válido a "resposta do
 // atendente" seria indistinguível da fala do bot.
@@ -329,6 +334,16 @@ try {
         'dashboard sla: a conversa que o cliente retomou depois da resposta entra na fila em risco (convF=' . $convF . ')',
         $convF > 0 && isset($byId[$convF])
     );
+
+    // ── Asserções: a contagem de violações ─────────────────────────────────
+    // A lista é um PREFIXO da mesma população, truncada no teto de 200: com
+    // mais de 200 violações no período a lista vem com exatamente 200 linhas.
+    $violatedList = \App\Models\ConversationSla::violatedConversations(30, 200);
+    $violatedCount = \App\Models\ConversationSla::violatedCount(30);
+    check(
+        'dashboard sla: a contagem de violacoes bate com a lista (count=' . $violatedCount . ' lista=' . count($violatedList) . ')',
+        $violatedCount === count($violatedList) || count($violatedList) === 200
+    );
 } finally {
     // ── Limpeza ─────────────────────────────────────────────────────────────
     // No finally: um check que falha no meio não pode deixar a caixa com
@@ -349,6 +364,12 @@ try {
             'sla_alert_minutes' => $inboxBefore['sla_alert_minutes'],
         ], 'id = ?', [$inboxId]);
         SlaService::forgetConfig();
+    }
+    // O addMessage() inbound tocou a atividade do contato compartilhado:
+    // devolve o valor de antes, para o fixture não mexer em estado que
+    // não é dele.
+    if ($contactId > 0 && $contactBefore !== null) {
+        $db->update('contacts', ['last_activity_at' => $contactBefore['last_activity_at']], 'id = ?', [$contactId]);
     }
 }
 

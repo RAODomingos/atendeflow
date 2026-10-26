@@ -525,6 +525,25 @@ class ConversationSla
     }
 
     /**
+     * Conversas com qualquer SLA furado no período.
+     *
+     * Mesma população de violatedConversations(), mas em contagem: a
+     * ficha do dashboard precisa do total, a lista devolve linhas.
+     */
+    public static function violatedCount(int $days): int
+    {
+        $row = Database::getInstance()->fetch(
+            "SELECT COUNT(*) c FROM conversation_slas s
+             JOIN conversations c ON c.id = s.conversation_id
+             WHERE c.created_at >= DATE_SUB(NOW(), INTERVAL ? DAY)
+               AND (s.response_breached = 1 OR s.resolution_breached = 1)
+               AND s.sla_kind = 'standard'",
+            [max(1, $days)]
+        );
+        return (int) ($row['c'] ?? 0);
+    }
+
+    /**
      * Conversas que furaram algum dos SLAs no período.
      *
      * @return array<int, array>
