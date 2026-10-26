@@ -346,6 +346,11 @@ CREATE TABLE conversation_events (
 CREATE TABLE IF NOT EXISTS conversation_slas (
     id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
     conversation_id BIGINT UNSIGNED NOT NULL,
+    -- Linha de SLA distingue a conversa 1:1 (standard) da conversa de
+    -- grupo, que é medida pelo SLA da MENÇÃO (group): o relógio do grupo
+    -- começa quando alguém marca o número e para na 1ª resposta humana
+    -- depois da marcação.
+    sla_kind VARCHAR(20) NOT NULL DEFAULT 'standard',
     response_seconds INT NULL,
     response_at DATETIME NULL,
     response_breached TINYINT(1) NOT NULL DEFAULT 0,
@@ -368,6 +373,7 @@ CREATE TABLE IF NOT EXISTS conversation_slas (
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     UNIQUE KEY uq_slas_conversation (conversation_id),
     INDEX idx_slas_breached (response_breached, resolution_breached),
+    INDEX idx_sla_kind (sla_kind),
     INDEX idx_slas_updated (updated_at),
     INDEX idx_slas_period (period_started_at),
     FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE

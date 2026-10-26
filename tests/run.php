@@ -279,6 +279,16 @@ check('sla: a migration cria o telefone de escalonamento', str_contains($migSrc,
 check('sla: a migration adiciona sla_breached no enum de eventos', str_contains($migSrc, 'sla_breached'));
 $schemaSrc = (string) file_get_contents(__DIR__ . '/../database/schema.sql');
 check('sla: o schema.sql traz a tabela conversation_slas', str_contains($schemaSrc, 'CREATE TABLE IF NOT EXISTS conversation_slas'));
+// A linha de SLA distingue a conversa 1:1 (standard) da conversa de grupo
+// com mencao (group). O schema.sql precisa trazer a coluna E a migration
+// precisa criar: se faltar uma das duas, uma instalacao nova fica sem a
+// coluna e o filtro `sla_kind = 'standard'` quebra em runtime.
+$migGruposPath = __DIR__ . '/../database/migrations/2026_10_24_grupos_melhorias.sql';
+$migGruposSrc = is_file($migGruposPath) ? (string) file_get_contents($migGruposPath) : '';
+check('sla: o schema.sql traz a coluna sla_kind', str_contains($schemaSrc, "sla_kind VARCHAR(20) NOT NULL DEFAULT 'standard'"));
+check('sla: o schema.sql traz o indice de sla_kind', str_contains($schemaSrc, 'idx_sla_kind (sla_kind)'));
+check('sla: a migration cria a coluna sla_kind', str_contains($migGruposSrc, 'ADD COLUMN sla_kind'));
+check('sla: a migration cria o indice de sla_kind', str_contains($migGruposSrc, 'ADD INDEX idx_sla_kind'));
 
 // ─────────────────────────────────────────────────────────────
 // SLA mensurável: motor de medição puro
