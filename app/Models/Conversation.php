@@ -737,15 +737,7 @@ class Conversation
                 LEFT JOIN channels ch ON ch.id = c.channel_id
                 LEFT JOIN departments d ON d.id = c.department_id
                 LEFT JOIN users u ON u.id = c.assigned_user_id
-                LEFT JOIN (
-                    SELECT conversation_id,
-                           MAX(CASE WHEN direction = 'inbound' THEN created_at END) as last_inbound_at,
-                           MAX(CASE WHEN direction = 'inbound' THEN id END) as last_inbound_id,
-                           MAX(CASE WHEN direction = 'outbound' AND user_id IS NOT NULL
-                                     AND type NOT IN ('internal_note','system') THEN id END) as last_human_id
-                    FROM messages
-                    GROUP BY conversation_id
-                ) last_in ON last_in.conversation_id = c.id
+                LEFT JOIN " . self::slaAnchorsSql() . " last_in ON last_in.conversation_id = c.id
                 WHERE c.assigned_user_id IS NULL AND c.status IN ('new', 'open')
                   AND (c.snoozed_until IS NULL OR c.snoozed_until <= NOW())";
         $params = [];
