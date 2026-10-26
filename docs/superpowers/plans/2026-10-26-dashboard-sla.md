@@ -1117,12 +1117,14 @@ por:
 <div class="dashboard" id="dashboardApp" data-sla-period="<?= (int) ($slaPeriod ?? 30) ?>">
     <!-- Header -->
     <div class="dash-header">
-        <div class="dash-title-block">
+        <div>
             <div class="dash-title"><?= e($greeting) ?><?= $greetName !== '' ? ', ' . e($greetName) : '' ?></div>
             <div class="dash-subtitle"><?= e($todayName) ?>, <?= e($todayPt) ?></div>
         </div>
         <div class="dash-header-actions">
 ```
+
+`dash-title` e `dash-subtitle` já existem no CSS da view (linhas 688-689); o wrapper é um `div` sem classe porque não há `.dash-title-block` definido — não invente classe que não tem regra.
 
 - [ ] **Step 2: Crie a faixa "SLA agora"**
 
@@ -1482,11 +1484,42 @@ por:
 
 - [ ] **Step 2: Remova o donut "abertos normal × grupos"**
 
-Dentro dessa faixa, **remova** o `<div class="card">` que contém o donut de "Normal × Grupos" (o card com `id="donutNGTotal"`). O card que fica ao lado é a lista de grupos (`id="dashGroupList"`), que deve passar a ocupar a coluna estreita.
+A faixa "Grupos de WhatsApp" tem **três** cards hoje: o gráfico de barras "Novas por dia" e o donut "Abertos" dentro de um `dashboard-grid` 2fr/1fr, e o card "Grupos WhatsApp" (`id="dashGroupList"`) full-width **abaixo** da grade.
 
-Mantenha o gráfico de barras de 7 dias (normal × grupos) e a lista de grupos.
+Remova **apenas** o card do donut — o `<div class="card chart-card">` que começa em
+`<h3><i class="fas fa-chart-pie" ...></i> Abertos <small class="card-header-sub">normal × grupos</small></h3>` e termina no `</div>` do `card-body` com `class="donut-body"` (ele contém `id="donutNGTotal"`, `id="gCountNormalOpen"` e `id="gCountGroupOpen"`).
 
-- [ ] **Step 3: Remova a faixa "Equipe e caixas"**
+**Remova também as variáveis que só existiam para ele.** No topo da view, o bloco de cálculo do donut normal × grupos (de `$ngOpenTotal = ...` até o fechamento de `$ngDonutSegs`) fica sem uso — apague. **Não** apague `$donutR` e `$donutC`: o donut de status (faixa "Tendência e distribuição") usa os dois.
+
+**Ajuste a grade** para não sobrar coluna vazia: troque
+
+```php
+    <div class="dashboard-grid" style="grid-template-columns:2fr 1fr;margin-top:0">
+```
+
+por
+
+```php
+    <div class="dashboard-grid" style="grid-template-columns:1fr;margin-top:0">
+```
+
+na **faixa de grupos** (a outra ocorrência de `2fr 1fr`, na faixa "Tendência e distribuição", fica como está).
+
+- [ ] **Step 3: Renomeie o card da lista de grupos**
+
+O card "Grupos WhatsApp" full-width fica com um título que não repete o título da faixa. Em `app/Views/dashboard/index.php`, troque:
+
+```php
+                <h3><i class="fas fa-users" style="color:var(--primary)"></i> Grupos WhatsApp <small class="card-header-sub"><?= $totalGroups ?> grupos · <?= $groupMentionsUnread ?> menções não lidas</small></h3>
+```
+
+por:
+
+```php
+                <h3><i class="fas fa-users" style="color:var(--primary)"></i> Top grupos por atividade <small class="card-header-sub"><?= $totalGroups ?> grupos · <?= $groupMentionsUnread ?> menções não lidas</small></h3>
+```
+
+- [ ] **Step 4: Remova da faixa "Equipe e caixas"**
 
 Em `app/Views/dashboard/index.php`, **remova** o bloco inteiro da faixa "Equipe e caixas": do
 
@@ -1499,16 +1532,17 @@ até o `</div>` final que fecha o `dashboard-grid` com os dois cards (`Por depar
 
 O volume de conversas ativas por departamento e por caixa não se perde: virou a coluna "ativas" das linhas da faixa "SLA em detalhe" (Task 8).
 
-**Consequência no JS:** os ids `gCountNormalOpen`, `gCountGroupOpen` e `donutNGTotal` não existem mais. Remova do `refreshDashboard()` as linhas que os atualizam (serão inócuas — `getElementById` devolve `null` e o código já checa —, mas saia limpo).
+**Consequência no JS:** os ids `gCountNormalOpen`, `gCountGroupOpen` e `donutNGTotal` não existem mais. Remova do `refreshDashboard()` as três linhas que os atualizam (o código já checa `if (el)`, então deixá-las seria inofensivo — mas saia limpo).
 
-- [ ] **Step 4: Verifique no navegador**
+- [ ] **Step 5: Verifique no navegador**
 
 Abra o dashboard e confirme:
-- a faixa "Grupos de WhatsApp" mostra o gráfico de barras + a lista;
+- a faixa "Grupos de WhatsApp" mostra o gráfico de barras em largura total e a lista de grupos abaixo, sem coluna vazia;
 - a faixa "Equipe e caixas" sumiu;
-- a faixa "SLA em detalhe" mostra a coluna "N ativas" com os mesmos números que a faixa removida mostrava.
+- a faixa "SLA em detalhe" mostra a coluna "N ativas" com os mesmos números que a faixa removida mostrava;
+- o donut de status da faixa "Tendência e distribuição" continua desenhado.
 
-- [ ] **Step 5: Commite**
+- [ ] **Step 6: Commite**
 
 ```bash
 git add app/Views/dashboard/index.php
