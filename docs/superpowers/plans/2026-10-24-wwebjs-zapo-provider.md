@@ -90,44 +90,6 @@ Preparado nesta branch para que **os dois provedores novos** entreguem as mesmas
 
 **Verificação feita:** `php tests/wa_contract.php` → 19/19; `php tests/run.php` → **190/190** (171 + 19); `scripts/tests/smoke_group_members.php` → PASS (o `mapParticipantList` continua igual).
 
-### 1.2 Provider whatsmeow + bridge Go (implementado nesta branch)
-
-Decisão do dono: implementar o **whatsmeow** junto com o UAZAPI (que segue como padrão de produção). O whatsmeow é **biblioteca Go**, não API HTTP — então a implantação é uma **bridge** (sidecar) que hospeda as sessões e expõe REST para o PHP.
-
-| Peça | Onde | Estado |
-|---|---|---|
-| Provider PHP (20 métodos da interface + `sendSeen`/`startTyping`/`stopTyping`) | `app/Services/WhatsApp/WhatsmeowProvider.php` | **pronto e testado** (36 checks) |
-| Registro no manager | `app/Services/WhatsApp/WhatsAppManager.php` | `whatsmeow` registrado e **visível** na lista |
-| Config + env | `config/integrations.php`, `env/.env.example` | `WHATSMEOW_BRIDGE_URL`, `WHATSMEOW_BRIDGE_TOKEN` |
-| Bridge Go (sessões, QR, envio, eventos, webhook) | `services/whatsmeow-bridge/` | **compila, veta e passa nos testes** (17 testes Go) + smoke test HTTP |
-| Testes do provider | `tests/whatsmeow_provider.php` | 36 checks, wired no runner |
-
-**Contrato entre os dois lados** (mesmo formato do webhook do UAZAPI, para o app não ter duas traduções): o envelope leva `provider: "whatsmeow"` (o `resolveProviderFromPayload()` do app já lê esse campo), `session` (casa com `instance_name`) e `message` com `from_phone`/`from_lid` **sempre separados** — o app nunca recebe `@lid` no lugar do número.
-
-**Menus/listas:** o provider chama `/interactive/buttons` e `/interactive/list`; a bridge responde `native:false` quando o WhatsApp recusa o interativo e o app manda o texto numerado (que o motor de fluxos responde por posição). Nenhum fluxo é reescrito.
-
-**Gate do interativo nativo (fechado):** o WhatsApp recusava com **405 (not-allowed)** as mensagens interativas legadas — `ButtonsMessage` e `ListMessage` —, então o canal só conseguia mandar o menu como texto numerado. O formato aceito hoje é o **native flow**: uma `InteractiveMessage` cujo `NativeFlowMessage` carrega os botões, viagem com o nó `<biz>` que o servidor exige.
-
-- o menu vira botões `quick_reply` (`{display_text, id}`);
-- a lista vira um botão `single_select`, com seções e linhas dentro dos parâmetros do botão;
-- o nó `<biz>` (`<interactive type=native_flow v=1><native_flow v=9 name=mixed/>`) é montado em `services/whatsmeow-bridge/nativeflow.go` e enviado como `AdditionalNodes` do `SendMessage` — o `whatsmeow` só o injeria sozinho para os formatos legados, justamente os recusados. É o mesmo formato que o `evolution-api` (Baileys) injeta;
-- a resposta ao toque chega como `InteractiveResponseMessage`/`NativeFlowResponseMessage` e vira `interactive.id`/`interactive.label` no envelope do webhook.
-
-Verificado contra o WhatsApp real: menu e lista voltaram `native:true`, sem 405 — antes pelo provider PHP, depois pelo caminho completo app → bridge → WhatsApp. Detalhes no commit `feat(whatsmeow): envia menu e lista no formato nativo que o WhatsApp aceita`.
-
-**Gate do build (fechado):** o Go 1.27 foi instalado (winget) e a bridge foi compilada contra a API real do whatsmeow `v0.0.0-20261017175727-b2b1e71d45e2` — as assinaturas foram conferidas com `go doc` no módulo, não de memória. O que o build revelou e o que foi corrigido está no commit `bridge do whatsmeow: compila, veta e passa nos testes`:
-
-- `ContextInfo.MentionedJID` é `[]string` (não existia `waE2E.MentionedJID`) e a citação é `StanzaID` (não `MessageID`).
-- `Client.Upload` devolve `UploadResponse` — a mensagem de mídia é montada a partir do upload, não mais como se o retorno fosse uma mensagem pronta.
-- `ListMessage` é plano (`Title`/`Description`/`Sections`/`RowID`); `ButtonsMessage_Button` usa `ButtonID` + `ButtonText{DisplayText}` + `Type`.
-- `MarkRead` exige `[]types.MessageID` + timestamp: a sessão guarda a última mensagem de cada chat para emitir o recibo de leitura.
-- SQLite migrou para o driver **modernc.org/sqlite** (Go puro): o build sai com `CGO_ENABLED=0` e a imagem Docker não precisa de `gcc`/`build-base`.
-- Sessão ainda não pareada respondia com pânico (`Store.LIDs`/`Store.Contacts` nulos) — agora responde `409` rápido e sem derrubar a conexão.
-
-Verificação: `go build ./...`, `go vet ./...`, `go test ./...` (17 testes) e um smoke test HTTP real da API (health, criação de sessão, QR, webhook, resolve LID↔telefone, interactive, grupos, delete) — **zero pânico**.
-
-**Gaps declarados da bridge:** foto de perfil (404 — o app usa o avatar do contato).
-
 ---
 
 ## 2. As duas opções, o que elas são
@@ -141,7 +103,7 @@ Verificação: `go build ./...`, `go vet ./...`, `go test ./...` (17 testes) e u
 
 ### 2.2 zapo-js 1.10.0
 
-- Biblioteca TypeScript que implementa **o protocolo do WhatsApp Web direto** (sem browser), da mesma família do Baileys/Whatsmeow. MIT, Node >= 20.9.
+- Biblioteca TypeScript que implementa **o protocolo do WhatsApp Web direto** (sem browser), da mesma família do Baileys. MIT, Node >= 20.9.
 - `npm i zapo-js @zapo-js/store-sqlite better-sqlite3 pino` (store é peer opcional: SQLite, Postgres, MySQL, Redis, MongoDB).
 - API "coordinator-first": `client.message`, `client.group`, `client.privacy`, `client.newsletter`; cada operação escopada por `sessionId`.
 - Eventos: `auth_qr`, `auth_paired`, `connection`, `message`.
@@ -194,12 +156,11 @@ Os fluxos do AtendeFlow usam três coisas que não podem quebrar em nenhum provi
 O `FlowEngineService::handleMenuResponse()` já resolve a resposta do menu por **label, value ou posição** (`$option['sort_order'] + 1 === (int) $resp`). Ou seja: se as opções forem apresentadas como texto numerado, o cliente responde `2` e o fluxo segue exatamente igual ao botão nativo.
 
 - `UazapiProvider` → mantém o nativo (`/send/menu`), como hoje.
-- `WhatsmeowProvider` → envia o nativo no formato **native flow** (menu em `quick_reply`, lista em `single_select`, com o nó `<biz>`); se a bridge recusar, cai para o texto numerado.
 - `ZapoProvider` → tenta o nativo (protobuf `buttonsMessage`/`listMessage`); se o motor recusar, cai para o texto numerado.
 - `WwebjsProvider` → a biblioteca não envia interativo, então usa direto o texto numerado.
 - **Todos** usam a mesma rendering em `WhatsAppInteractive::renderButtonsAsText()` / `renderListAsText()` — o mesmo formato que o fallback do `WhatsAppService` já produzia.
 
-Resultado: **nenhum fluxo precisa ser reescrito** e o menu funciona nos providers (UAZAPI, whatsmeow, wwebjs, zapo).
+Resultado: **nenhum fluxo precisa ser reescrito** e o menu funciona nos três providers (UAZAPI, wwebjs, zapo).
 
 **b) O número do cliente é sempre disponível**
 

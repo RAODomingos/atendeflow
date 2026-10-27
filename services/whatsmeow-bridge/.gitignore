@@ -1,9 +1,0 @@
-# Dados das sessoes (credenciais SQLite por canal) e artefatos de build
-data/
-*.db
-*.db-shm
-*.db-wal
-bridge
-bridge.exe
-whatsmeow-bridge
-whatsmeow-bridge.exe

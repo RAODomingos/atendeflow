@@ -673,16 +673,13 @@ require_once __DIR__ . '/wa_contract.php';
 // 10) Caixa de entrada unificada (setor/canal/responsavel + filtros)
 require_once __DIR__ . '/inbox_unified.php';
 
-// 11) Provider do whatsmeow (bridge Go)
-require_once __DIR__ . '/whatsmeow_provider.php';
-
-// 12) Conversa de grupo: sem atendente, sempre em aberto, avisa na mencao
+// 11) Conversa de grupo: sem atendente, sempre em aberto, avisa na mencao
 require_once __DIR__ . '/grupo_sem_atendente.php';
 
-// 13) SLA da fila de chegada (aba Aguardando): o bot nao congela o relogio
+// 12) SLA da fila de chegada (aba Aguardando): o bot nao congela o relogio
 require_once __DIR__ . '/sla_fila_chegada.php';
 
-// 14) Dashboard com SLA: ancora do relogio compartilhada
+// 13) Dashboard com SLA: ancora do relogio compartilhada
 $convModelSrc = file_get_contents(__DIR__ . '/../app/Models/Conversation.php');
 check(
     'dashboard sla: a ancora do relogio e um fragmento compartilhado',
@@ -694,7 +691,7 @@ check(
     str_contains($convModelSrc, "type NOT IN ('internal_note','system')")
 );
 
-// 15) Dashboard com SLA: fila em risco, compliance, violacoes e permissao
+// 14) Dashboard com SLA: fila em risco, compliance, violacoes e permissao
 require_once __DIR__ . '/e2e_dashboard_sla.php';
 
 echo "\n$passes passed, $failures failed\n";

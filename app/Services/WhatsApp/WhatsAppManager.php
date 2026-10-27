@@ -20,12 +20,9 @@ class WhatsAppManager
      * 'waha' continua registrado por compatibilidade: conexões já existentes
      * seguem funcionando. Ele é ocultado da lista de seleção de novos canais
      * (ver config/integrations.php -> whatsapp.hidden_providers).
-     *
-     * 'whatsmeow' é o bridge Go sobre a biblioteca whatsmeow (self-hosted).
      */
     private static array $registry = [
         'uazapi' => UazapiProvider::class,
-        'whatsmeow' => WhatsmeowProvider::class,
         'waha' => WahaProvider::class,
     ];
 
