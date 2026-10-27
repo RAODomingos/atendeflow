@@ -218,19 +218,28 @@ class Database
         return $stmt->rowCount();
     }
 
-    public function execute(string $sql, array $params = []): void
+    /**
+     * Executa um statement e devolve o número de linhas afetadas.
+     *
+     * O retorno importa: o SLA usa UPDATE condicional para reservar o
+     * escalonamento de forma atômica ("UPDATE ... WHERE response_breached = 0").
+     * Com o retorno ausente, a reserva nunca confirmava e o alerta dos
+     * gerentes nunca saía para as conversas que já tinham linha de SLA.
+     */
+    public function execute(string $sql, array $params = []): int
     {
         $this->ensureConnection();
 
         try {
             $stmt = $this->connection->prepare($sql);
             $stmt->execute($params);
+            return $stmt->rowCount();
         } catch (PDOException $e) {
             if ($this->shouldReconnect($e)) {
                 $this->reconnect();
                 $stmt = $this->connection->prepare($sql);
                 $stmt->execute($params);
-                return;
+                return $stmt->rowCount();
             }
             throw $e;
         }

@@ -189,7 +189,7 @@ class Contact
                         WHERE cv.contact_id = c.id) as last_message_at
                 FROM contacts c
                 LEFT JOIN contact_stores csf ON csf.contact_id = c.id
-                WHERE 1=1";
+                WHERE c.is_group = 0";
 
         $params = [];
 
@@ -219,7 +219,7 @@ class Contact
     {
         $sql = "SELECT COUNT(DISTINCT c.id) as t FROM contacts c
                 LEFT JOIN contact_stores csf ON csf.contact_id = c.id
-                WHERE 1=1";
+                WHERE c.is_group = 0";
         $params = [];
 
         if (!empty($filters['search'])) {
@@ -349,8 +349,9 @@ class Contact
             "SELECT DISTINCT c.* FROM contacts c
              LEFT JOIN contact_phones cp ON cp.contact_id = c.id
              LEFT JOIN contact_stores cs ON cs.contact_id = c.id
-             WHERE c.name LIKE ? OR c.email LIKE ? OR c.phone LIKE ? OR cp.phone LIKE ?
-                OR cs.network_name LIKE ?
+             WHERE c.is_group = 0
+               AND (c.name LIKE ? OR c.email LIKE ? OR c.phone LIKE ? OR cp.phone LIKE ?
+                OR cs.network_name LIKE ?)
              ORDER BY c.name LIMIT 20",
             [$search, $search, $search, $search, $search]
         );

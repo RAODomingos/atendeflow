@@ -100,6 +100,11 @@ class SettingsController
             'business_hours' => $request->post('sla_business_hours') ? '1' : '0',
             'response_minutes' => max(1, (int) $request->post('sla_response_minutes')),
             'resolution_minutes' => max(1, (int) $request->post('sla_resolution_minutes')),
+            // 0 = o alerta de "cliente sem resposta" usa o limite da 1ª
+            // resposta (mesma semântica, sem knob extra).
+            'pending_response_minutes' => max(0, (int) $request->post('sla_pending_response_minutes')),
+            // 0 = o SLA da menção em grupo usa o limite da 1ª resposta.
+            'group_mention_minutes' => max(0, (int) $request->post('sla_group_mention_minutes')),
             'escalate_managers' => $request->post('sla_escalate_managers') ? '1' : '0',
             'escalate_tag' => $request->post('sla_escalate_tag') ? '1' : '0',
             'escalate_autoassign' => $request->post('sla_escalate_autoassign') ? '1' : '0',
@@ -396,6 +401,12 @@ class SettingsController
             'type' => $type,
             'is_active' => 1,
         ];
+        // Natureza das conversas (grupo do WhatsApp x mensagem geral).
+        if (Inbox::hasScopeColumn()) {
+            $data['conversation_scope'] = $type === 'personal'
+                ? 'all'
+                : self::inboxScope($request, 'all');
+        }
         $data = array_merge($data, $this->collectInboxSla($request));
         $inboxId = Inbox::create($data);
         \App\Services\SlaService::forgetConfig();
@@ -403,7 +414,13 @@ class SettingsController
         $this->syncInboxLinks($inboxId, $request);
 
         if ($type === 'personal') {
-            Inbox::setUsers($inboxId, [Auth::id()]);
+            // O criador é sempre dono da caixa pessoal.
+            $selected = $request->post('users');
+            $owners = array_merge(
+                [(int) Auth::id()],
+                is_array($selected) ? array_map('intval', $selected) : []
+            );
+            Inbox::setUsers($inboxId, array_values(array_unique($owners)));
         }
 
         Session::setFlash('success', 'Caixa criada com sucesso.');
@@ -429,10 +446,17 @@ class SettingsController
             $type = $inbox['type'];
         }
 
-        $data = array_merge(
-            ['name' => $name, 'type' => $type],
-            $this->collectInboxSla($request)
-        );
+        $data = [
+            'name' => $name,
+            'type' => $type,
+        ];
+        // Natureza das conversas (grupo do WhatsApp x mensagem geral).
+        if (Inbox::hasScopeColumn()) {
+            $data['conversation_scope'] = $type === 'personal'
+                ? 'all'
+                : self::inboxScope($request, (string) ($inbox['conversation_scope'] ?? 'all'));
+        }
+        $data = array_merge($data, $this->collectInboxSla($request));
         Inbox::update($id, $data);
         \App\Services\SlaService::forgetConfig();
         $this->syncInboxLinks($id, $request);
@@ -454,6 +478,19 @@ class SettingsController
         View::redirect('/inboxes');
     }
 
+    /**
+     * Natureza das conversas da caixa: 'all', 'groups' ou 'non_groups'.
+     * Valor desconhecido cai no padrão (não grava besteira na base).
+     */
+    private static function inboxScope(Request $request, string $fallback = 'all'): string
+    {
+        $scope = strtolower(trim((string) $request->post('conversation_scope', '')));
+        if (in_array($scope, Inbox::SCOPES, true)) {
+            return $scope;
+        }
+        return Inbox::normalizeScope($fallback);
+    }
+
     private function syncInboxLinks(int $inboxId, Request $request): void
     {
         $channels = $request->post('channels') ?: [];
@@ -466,12 +503,21 @@ class SettingsController
         if (!is_array($departments)) {
             $departments = [];
         }
-        Inbox::setDepartments($inboxId, array_map('intval', $departments));
-
         $users = $request->post('users') ?: [];
         if (!is_array($users)) {
             $users = [];
         }
+
+        $inbox = Inbox::find($inboxId);
+        $type = (string) ($inbox['type'] ?? 'department');
+
+        if ($type === 'personal') {
+            // Caixa pessoal: a pertinência é por dono (a conversa atribuída)
+            // e por canal. Setor não entra — quem responde é o responsável.
+            $departments = [];
+        }
+
+        Inbox::setDepartments($inboxId, array_map('intval', $departments));
         Inbox::setUsers($inboxId, array_map('intval', $users));
     }
 
@@ -488,6 +534,7 @@ class SettingsController
             'sla_color_normal_text', 'sla_color_attention_text', 'sla_color_alert_text',
             'sla_sound_attention', 'sla_sound_alert',
             'sla_response_minutes', 'sla_resolution_minutes', 'sla_business_hours',
+            'sla_pending_response_minutes', 'sla_group_mention_minutes',
             'sla_escalate_managers', 'sla_escalate_tag',
             'sla_escalate_autoassign', 'sla_escalate_whatsapp',
         ];
@@ -509,6 +556,12 @@ class SettingsController
             : null;
         $data['sla_resolution_minutes'] = $request->post('sla_resolution_minutes') !== ''
             ? max(1, (int) $request->post('sla_resolution_minutes'))
+            : null;
+        $data['sla_pending_response_minutes'] = $request->post('sla_pending_response_minutes') !== ''
+            ? max(0, (int) $request->post('sla_pending_response_minutes'))
+            : null;
+        $data['sla_group_mention_minutes'] = $request->post('sla_group_mention_minutes') !== ''
+            ? max(0, (int) $request->post('sla_group_mention_minutes'))
             : null;
         foreach (['sla_business_hours', 'sla_escalate_managers', 'sla_escalate_tag',
                   'sla_escalate_autoassign', 'sla_escalate_whatsapp'] as $flag) {
@@ -564,6 +617,8 @@ class SettingsController
             'sound_alert' => $hasOverride ? ($inbox['sla_sound_alert'] ?? $cfg['sound_alert']) : $cfg['sound_alert'],
             'response_minutes' => $hasOverride ? (int) ($inbox['sla_response_minutes'] ?? $cfg['response_minutes']) : (int) $cfg['response_minutes'],
             'resolution_minutes' => $hasOverride ? (int) ($inbox['sla_resolution_minutes'] ?? $cfg['resolution_minutes']) : (int) $cfg['resolution_minutes'],
+            'pending_response_minutes' => $hasOverride ? (int) ($inbox['sla_pending_response_minutes'] ?? $cfg['pending_response_minutes']) : (int) $cfg['pending_response_minutes'],
+            'group_mention_minutes' => $hasOverride ? (int) ($inbox['sla_group_mention_minutes'] ?? $cfg['group_mention_minutes']) : (int) $cfg['group_mention_minutes'],
             'business_hours' => $hasOverride ? (int) ($inbox['sla_business_hours'] ?? ($cfg['business_hours'] === '1' ? 1 : 0)) : ($cfg['business_hours'] === '1' ? 1 : 0),
             'escalate_managers' => $hasOverride ? (int) ($inbox['sla_escalate_managers'] ?? ($cfg['escalate_managers'] === '1' ? 1 : 0)) : ($cfg['escalate_managers'] === '1' ? 1 : 0),
             'escalate_tag' => $hasOverride ? (int) ($inbox['sla_escalate_tag'] ?? ($cfg['escalate_tag'] === '1' ? 1 : 0)) : ($cfg['escalate_tag'] === '1' ? 1 : 0),

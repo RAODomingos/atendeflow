@@ -25,14 +25,21 @@ $useGlobal = $sf['use_global'];
                 <div class="form-group">
                     <label><i class="fas fa-cog"></i> Tipo de caixa</label>
                     <select name="type" class="form-control" id="inboxType">
-                        <option value="department" <?= ($inbox['type'] ?? 'department') === 'department' ? 'selected' : '' ?>>Departamento (membros do departamento)</option>
-                        <option value="personal" <?= ($inbox['type'] ?? '') === 'personal' ? 'selected' : '' ?>>Pessoal (só o dono + admin)</option>
+                        <option value="department" <?= ($inbox['type'] ?? 'department') === 'department' ? 'selected' : '' ?>>Time (conversas de setores e canais)</option>
+                        <option value="personal" <?= ($inbox['type'] ?? '') === 'personal' ? 'selected' : '' ?>>Pessoal (conversas de quem é dono)</option>
                     </select>
+                    <p class="form-hint">
+                        A caixa de entrada é única: o recorte vem dos filtros da listagem.
+                        A caixa é uma visão salva — e, nos tipos de time, o perfil de SLA do setor.
+                    </p>
                 </div>
 
                 <div class="form-group">
                     <label><i class="fas fa-network-wired"></i> Canais vinculados</label>
-                    <p class="form-hint">As conversas que chegarem por estes canais entram nesta caixa.</p>
+                    <p class="form-hint">
+                        As conversas destes canais aparecem nesta caixa.
+                        Quem decide o time que atende é o <strong>setor</strong> do canal, não a caixa.
+                    </p>
                     <div class="inbox-check-grid">
                         <?php foreach ($channels as $ch): ?>
                             <label class="inbox-check-item">
@@ -52,7 +59,25 @@ $useGlobal = $sf['use_global'];
                 </div>
 
                 <div class="form-group">
-                    <label><i class="fas fa-layer-group"></i> Departamentos com acesso</label>
+                    <label><i class="fas fa-layer-group"></i> Natureza das conversas</label>
+                    <select name="conversation_scope" class="form-control">
+                        <option value="all" <?= (string) ($inbox['conversation_scope'] ?? 'all') === 'all' ? 'selected' : '' ?>>Todas (mensagens gerais e grupos)</option>
+                        <option value="groups" <?= (string) ($inbox['conversation_scope'] ?? 'all') === 'groups' ? 'selected' : '' ?>>Somente grupos do WhatsApp</option>
+                        <option value="non_groups" <?= (string) ($inbox['conversation_scope'] ?? 'all') === 'non_groups' ? 'selected' : '' ?>>Somente mensagens gerais</option>
+                    </select>
+                    <p class="form-hint">
+                        Define o que a caixa recebe: a caixa de grupos do WhatsApp e a caixa de
+                        mensagens gerais podem cobrir os mesmos setores sem mostrar o mesmo
+                        atendimento. O padrão (<strong>Todas</strong>) não muda nada.
+                    </p>
+                </div>
+
+                <div class="form-group" id="inboxDepartmentsGroup">
+                    <label><i class="fas fa-layer-group"></i> Setores nesta caixa</label>
+                    <p class="form-hint">
+                        Conversas destes setores aparecem nesta caixa. Também valem como acesso:
+                        quem é do setor enxerga a caixa.
+                    </p>
                     <div class="inbox-check-grid">
                         <?php foreach ($departments as $d): ?>
                             <label class="inbox-check-item">
@@ -64,8 +89,11 @@ $useGlobal = $sf['use_global'];
                     </div>
                 </div>
 
-                <div class="form-group">
-                    <label><i class="fas fa-users"></i> Usuários com acesso</label>
+                <div class="form-group" id="inboxUsersGroup">
+                    <label id="inboxUsersLabel"><i class="fas fa-users"></i> Usuários com acesso</label>
+                    <p class="form-hint" id="inboxUsersHint">
+                        Atendentes que enxergam esta caixa além dos membros dos setores.
+                    </p>
                     <div class="inbox-check-grid">
                         <?php foreach ($users as $u): ?>
                             <label class="inbox-check-item">
@@ -202,6 +230,17 @@ $useGlobal = $sf['use_global'];
                             <h4 style="margin:14px 0 10px;font-size:13px;font-weight:700;display:flex;align-items:center;gap:6px">
                                 <i class="fas fa-bell" style="color:var(--primary)"></i> Escalonamento na violação
                             </h4>
+                            <div class="form-group" style="margin-bottom:12px">
+                                <label>Alerta de cliente sem resposta</label>
+                                <div style="display:flex;align-items:center;gap:8px">
+                                    <input type="number" min="0" max="10080" name="sla_pending_response_minutes" class="form-control"
+                                           value="<?= e($sv['pending_response_minutes']) ?>" style="width:100px">
+                                    <span style="color:var(--text-muted)">minutos</span>
+                                </div>
+                                <small class="text-muted" style="display:block;margin-top:4px;font-size:12px">
+                                    0 = usa o limite da 1ª resposta.
+                                </small>
+                            </div>
                             <div style="display:flex;flex-direction:column;gap:10px;margin-bottom:14px">
                                 <div class="form-check" style="display:flex;align-items:center;gap:10px">
                                     <input type="checkbox" name="sla_business_hours" value="1" id="slaBoxBusinessHours" <?= !empty($sv['business_hours']) ? 'checked' : '' ?> style="width:16px;height:16px;accent-color:var(--primary)">
@@ -261,6 +300,32 @@ $useGlobal = $sf['use_global'];
         if (hint) hint.style.display = on ? '' : 'none';
     }
     toggle.addEventListener('change', apply);
+    apply();
+})();
+
+/* Caixa pessoal: a pertinência é por dono (conversa atribuída) e por canal.
+   Setor não entra — quem responde é o responsável. */
+(function() {
+    var type = document.getElementById('inboxType');
+    var deptGroup = document.getElementById('inboxDepartmentsGroup');
+    var usersLabel = document.getElementById('inboxUsersLabel');
+    var usersHint = document.getElementById('inboxUsersHint');
+    if (!type) return;
+    function apply() {
+        var personal = type.value === 'personal';
+        if (deptGroup) deptGroup.style.display = personal ? 'none' : '';
+        if (usersLabel) {
+            usersLabel.innerHTML = personal
+                ? '<i class="fas fa-user-check"></i> Donos desta caixa'
+                : '<i class="fas fa-users"></i> Usuários com acesso';
+        }
+        if (usersHint) {
+            usersHint.textContent = personal
+                ? 'As conversas atribuídas a estes donos aparecem nesta caixa.'
+                : 'Atendentes que enxergam esta caixa além dos membros dos setores.';
+        }
+    }
+    type.addEventListener('change', apply);
     apply();
 })();
 </script>

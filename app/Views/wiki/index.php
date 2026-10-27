@@ -13,26 +13,39 @@
         <a href="<?= url('wiki/settings') ?>" class="btn btn-outline"><i class="fas fa-plug"></i> Integração</a>
     </div>
 
-    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin-bottom:16px">
-        <div class="card"><div class="card-body" style="text-align:center">
-            <div style="font-size:28px;font-weight:800"><?= count($categories) ?></div>
-            <div style="font-size:12px;color:var(--text-muted)">categorias</div>
-        </div></div>
-        <div class="card"><div class="card-body" style="text-align:center">
-            <div style="font-size:28px;font-weight:800"><?= $totalArticles ?></div>
-            <div style="font-size:12px;color:var(--text-muted)">artigos</div>
-        </div></div>
-        <div class="card"><div class="card-body" style="text-align:center">
-            <div style="font-size:28px;font-weight:800"><?= count(array_filter($articles, fn($a) => !empty($a['featured']))) ?></div>
-            <div style="font-size:12px;color:var(--text-muted)">em destaque</div>
-        </div></div>
+    <?php
+    $nCategories = count($categories);
+    $nFeatured  = count(array_filter($articles, fn($a) => !empty($a['featured'])));
+    ?>
+    <div class="kpi-grid">
+        <div class="kpi-card">
+            <div class="kpi-icon" style="background:var(--brand-soft);color:var(--brand)"><i class="fas fa-folder"></i></div>
+            <div class="kpi-body">
+                <div class="kpi-value"><?= $nCategories ?></div>
+                <div class="kpi-label"><?= $nCategories === 1 ? 'Categoria' : 'Categorias' ?></div>
+            </div>
+        </div>
+        <div class="kpi-card">
+            <div class="kpi-icon" style="background:var(--success-soft);color:var(--success)"><i class="fas fa-file-lines"></i></div>
+            <div class="kpi-body">
+                <div class="kpi-value"><?= $totalArticles ?></div>
+                <div class="kpi-label"><?= $totalArticles === 1 ? 'Artigo' : 'Artigos' ?></div>
+            </div>
+        </div>
+        <div class="kpi-card">
+            <div class="kpi-icon" style="background:var(--warning-soft);color:var(--warning-text)"><i class="fas fa-star"></i></div>
+            <div class="kpi-body">
+                <div class="kpi-value"><?= $nFeatured ?></div>
+                <div class="kpi-label">Em destaque</div>
+            </div>
+        </div>
     </div>
 
     <div class="card" style="margin-bottom:16px">
         <div class="card-header"><h3><i class="fas fa-globe" style="color:var(--primary)"></i> Portal do cliente — onde a Wiki está hospedada</h3>
             <a href="<?= url('wiki/settings') ?>" class="btn btn-sm btn-outline">Alterar</a></div>
         <div class="card-body">
-            <div style="display:flex;gap:8px">
+            <div style="display:flex;gap:8px;max-width:820px">
                 <input class="form-control" readonly value="<?= e($portalUrl) ?>" onclick="this.select()" style="font-family:monospace;font-size:12px">
                 <button class="btn btn-outline" onclick="navigator.clipboard.writeText('<?= js($portalUrl) ?>');this.innerHTML='<i class=&quot;fas fa-check&quot;></i>'" title="Copiar link do portal"><i class="fas fa-copy"></i></button>
                 <a class="btn btn-outline" href="<?= e($portalUrl) ?>" target="_blank" title="Abrir portal"><i class="fas fa-external-link-alt"></i></a>

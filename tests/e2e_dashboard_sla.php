@@ -342,7 +342,54 @@ try {
     $violatedCount = \App\Models\ConversationSla::violatedCount(30);
     check(
         'dashboard sla: a contagem de violacoes bate com a lista (count=' . $violatedCount . ' lista=' . count($violatedList) . ')',
-        $violatedCount === count($violatedList) || count($violatedList) === 200
+        count($violatedList) === 200 ? $violatedCount >= 200 : $violatedCount === count($violatedList)
+    );
+
+    // ── Asserções: os buckets do relogio vivo ──────────────────────────────
+    $risk = \App\Services\DashboardSlaService::liveRisk();
+    check(
+        'dashboard sla: o relogio vivo devolve os tres buckets (' . json_encode($risk) . ')',
+        isset($risk['now'], $risk['alert'], $risk['attention'], $risk['normal'], $risk['total'])
+    );
+    check(
+        'dashboard sla: a conversa estourada cai no bucket de alerta (alert=' . ($risk['alert'] ?? '-') . ')',
+        ($risk['alert'] ?? 0) >= 1
+    );
+    check(
+        'dashboard sla: a conversa dentro do limite nao entra em risco (now=' . ($risk['now'] ?? '-') . ' total=' . ($risk['total'] ?? '-') . ')',
+        ($risk['now'] ?? 0) <= ($risk['total'] ?? 0)
+    );
+
+    // ── Asserções: o payload ────────────────────────────────────────────────
+    $payload = \App\Services\DashboardSlaService::payload(30, true);
+    check(
+        'dashboard sla: o payload traz o contrato de degradacao',
+        array_key_exists('visible', $payload) && array_key_exists('reason', $payload)
+    );
+    check(
+        'dashboard sla: o payload admin traz a quebra por atendente',
+        is_array($payload['byAgent'] ?? null)
+    );
+    check(
+        'dashboard sla: o payload traz as quebras por departamento e caixa',
+        is_array($payload['byDepartment'] ?? null) && is_array($payload['byInbox'] ?? null)
+    );
+    check(
+        'dashboard sla: o payload traz as violacoes do periodo',
+        is_array($payload['violations'] ?? null)
+    );
+
+    $payloadUser = \App\Services\DashboardSlaService::payload(30, false);
+    check(
+        'dashboard sla: o payload de nao-admin NAO traz a quebra por atendente',
+        ($payloadUser['byAgent'] ?? null) === []
+    );
+
+    check(
+        'dashboard sla: o periodo invalido cai no default de 30 dias',
+        \App\Services\DashboardSlaService::normalizePeriod(45) === 30
+            && \App\Services\DashboardSlaService::normalizePeriod(7) === 7
+            && \App\Services\DashboardSlaService::normalizePeriod(90) === 90
     );
 } finally {
     // ── Limpeza ─────────────────────────────────────────────────────────────

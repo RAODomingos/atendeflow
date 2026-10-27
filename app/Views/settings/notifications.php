@@ -299,6 +299,32 @@
                 <h4 style="margin:18px 0 10px;font-size:14px;font-weight:700;display:flex;align-items:center;gap:6px">
                     <i class="fas fa-bell" style="color:var(--primary)"></i> Escalonamento na violação
                 </h4>
+                <div class="form-group" style="margin-bottom:14px">
+                    <label><i class="fas fa-user-clock" style="color:#f59e0b"></i> Alerta de cliente sem resposta</label>
+                    <div style="display:flex;align-items:center;gap:8px">
+                        <input type="number" min="0" max="10080" name="sla_pending_response_minutes" class="form-control"
+                               value="<?= e($sla['pending_response_minutes'] ?? '0') ?>" style="width:100px">
+                        <span style="color:var(--text-muted)">minutos</span>
+                    </div>
+                    <small class="text-muted" style="display:block;margin-top:4px;font-size:12px">
+                        Tempo que o cliente pode ficar esperando <strong>depois de a conversa já ter sido
+                        atendida</strong> antes de o sistema alertar os gerentes. <strong>0</strong> usa o
+                        mesmo limite da 1ª resposta.
+                    </small>
+                </div>
+                <div class="form-group" style="margin-bottom:14px">
+                    <label><i class="fas fa-users" style="color:#7c3aed"></i> SLA de menção em grupo</label>
+                    <div style="display:flex;align-items:center;gap:8px">
+                        <input type="number" min="0" max="10080" name="sla_group_mention_minutes" class="form-control"
+                               value="<?= e($sla['group_mention_minutes'] ?? '0') ?>" style="width:100px">
+                        <span style="color:var(--text-muted)">minutos</span>
+                    </div>
+                    <small class="text-muted" style="display:block;margin-top:4px;font-size:12px">
+                        Tempo que uma <strong>menção em grupo de WhatsApp</strong> pode ficar sem resposta antes
+                        de o sistema alertar os gerentes. Cada menção tem o seu próprio alerta.
+                        <strong>0</strong> usa o mesmo limite da 1ª resposta.
+                    </small>
+                </div>
                 <div style="display:flex;flex-direction:column;gap:10px;margin-bottom:16px">
                     <div class="form-check" style="display:flex;align-items:center;gap:10px;padding:10px 14px;background:var(--bg-content);border-radius:8px">
                         <input type="checkbox" name="sla_escalate_tag" value="1" id="slaEscalateTag" <?= (($sla['escalate_tag'] ?? '1') === '1') ? 'checked' : '' ?> style="width:16px;height:16px;accent-color:var(--primary)">

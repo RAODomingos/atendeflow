@@ -88,6 +88,7 @@ class DepartmentController
             'bhAbsence' => $department['absence_message'] ?? '',
             'bhSchedule' => $bh::scheduleFor($id),
             'bhIsOpen' => $bh::isOpen($id),
+            'alertPhones' => Department::normalizeAlertPhones($department['sla_escalation_phone'] ?? ''),
         ]);
     }
 
@@ -99,10 +100,16 @@ class DepartmentController
             View::back();
         }
 
+        $phones = $this->parseAlertPhones($request);
+        if ($phones === null) {
+            View::back();
+        }
+
         Department::create([
             'name' => $name,
             'description' => $request->post('description'),
             'color' => $request->post('color', '#4A90D9'),
+            'sla_escalation_phone' => $phones,
         ]);
 
         Session::setFlash('success', 'Departamento criado com sucesso.');
@@ -117,14 +124,81 @@ class DepartmentController
             View::back();
         }
 
-        Department::update($id, [
+        $data = [
             'name' => $name,
             'description' => $request->post('description'),
             'color' => $request->post('color', '#4A90D9'),
-        ]);
+        ];
+
+        // Os telefones de alerta são editados em outro formulário (card
+        // "Alertas de SLA"). Só sobrescreve quando o campo veio no POST,
+        // senão o salvar do nome/apagaria a lista.
+        if ($request->post('sla_escalation_phone') !== null) {
+            $phones = $this->parseAlertPhones($request);
+            if ($phones === null) {
+                View::back();
+            }
+            $data['sla_escalation_phone'] = $phones;
+        }
+
+        Department::update($id, $data);
 
         Session::setFlash('success', 'Departamento atualizado.');
         View::redirect('/settings/departments');
+    }
+
+    /**
+     * Salva os telefones de alerta de SLA do departamento.
+     *
+     * Os números ficam no departamento (`sla_escalation_phone`) e são
+     * avisados por WhatsApp quando o SLA é violado — a lista pode ter
+     * quantos números o usuário quiser (um por linha).
+     */
+    public function saveAlertPhones(Request $request, int $id): void
+    {
+        $department = Department::find($id);
+        if (!$department) {
+            Session::setFlash('error', 'Departamento não encontrado.');
+            View::redirect('/settings/departments');
+        }
+
+        $phones = $this->parseAlertPhones($request);
+        if ($phones === null) {
+            View::back();
+        }
+
+        Department::update($id, ['sla_escalation_phone' => $phones]);
+
+        $count = count(Department::normalizeAlertPhones($phones));
+        Session::setFlash(
+            'success',
+            $count > 0
+                ? "{$count} telefone(s) de alerta salvo(s)."
+                : 'Telefones de alerta removidos.'
+        );
+        View::redirect("/departments/{$id}");
+    }
+
+    /**
+     * Lê e valida a lista de telefones enviada no formulário.
+     *
+     * @return string|null lista normalizada (vazia = sem telefone) ou
+     *         null quando há algum número inválido (já grava o aviso)
+     */
+    private function parseAlertPhones(Request $request): ?string
+    {
+        $raw = (string) ($request->post('sla_escalation_phone') ?? '');
+        $invalid = Department::invalidAlertPhones($raw);
+        if ($invalid) {
+            Session::setFlash(
+                'error',
+                'Telefone inválido: ' . implode(', ', $invalid) . '. Use DDI + DDD + número (mínimo 10 dígitos).'
+            );
+            return null;
+        }
+
+        $phones = Department::normalizeAlertPhones($raw);
+        return $phones ? implode(', ', $phones) : null;
     }
 
     /**

@@ -1,63 +1,71 @@
 ---
 name: Atendeflow
-description: Self-hosted Fluent-style omnichannel service desk with separate green wiki portal
+description: Self-hosted omnichannel service desk with separate green wiki portal
 colors:
-  primary: "#0078d4"
-  primary-deep: "#106ebe"
-  primary-ink: "#005a9e"
-  primary-soft: "#deecf9"
-  app-bg: "#f5f5f5"
+  primary: "#4f46e5"
+  primary-deep: "#4338ca"
+  primary-ink: "#3730a3"
+  primary-soft: "#eef0ff"
+  app-bg: "#f6f7f9"
   panel: "#ffffff"
-  panel-alt: "#faf9f8"
-  border-soft: "#edebe9"
-  border-strong: "#d2d0ce"
-  ink-primary: "#201f1e"
-  ink-secondary: "#605e5c"
-  ink-muted: "#8a8886"
-  success: "#107c10"
-  success-soft: "#dff6dd"
-  warning: "#f7630c"
-  warning-soft: "#fff4ce"
-  danger: "#d13438"
-  danger-soft: "#fde7e9"
+  panel-alt: "#f8f9fb"
+  border-soft: "#e7e9ef"
+  border-strong: "#d2d6df"
+  border-input: "#c3c9d6"
+  ink-primary: "#0f172a"
+  ink-secondary: "#475569"
+  ink-muted: "#5b6472"
+  success: "#15803d"
+  success-soft: "#e8f8ee"
+  success-text: "#166534"
+  warning: "#ea580c"
+  warning-soft: "#fff4e5"
+  warning-text: "#9a3412"
+  danger: "#dc2626"
+  danger-soft: "#fee9e9"
+  danger-text: "#b91c1c"
+  info: "#4f46e5"
+  info-soft: "#eef0ff"
+  info-text: "#4338ca"
+  brand-text: "#4338ca"
   wiki-green: "#006400"
   wiki-green-mid: "#008000"
   wiki-green-soft: "#e6f2e6"
   wiki-ink: "#111814"
 typography:
   display:
-    fontFamily: "'Segoe UI', 'Segoe UI Variable Text', Inter, -apple-system, Arial, sans-serif"
-    fontSize: "34px"
-    fontWeight: 600
+    fontFamily: "'Inter', 'Inter Variable', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif"
+    fontSize: "36px"
+    fontWeight: 700
+    lineHeight: 1.15
+    letterSpacing: "-0.025em"
+  headline:
+    fontFamily: "'Inter', 'Inter Variable', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif"
+    fontSize: "22px"
+    fontWeight: 700
     lineHeight: 1.2
     letterSpacing: "-0.02em"
-  headline:
-    fontFamily: "'Segoe UI', 'Segoe UI Variable Text', Inter, -apple-system, Arial, sans-serif"
-    fontSize: "24px"
-    fontWeight: 800
-    lineHeight: 1.2
-    letterSpacing: "-0.01em"
   title:
-    fontFamily: "'Segoe UI', 'Segoe UI Variable Text', Inter, -apple-system, Arial, sans-serif"
-    fontSize: "17px"
+    fontFamily: "'Inter', 'Inter Variable', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif"
+    fontSize: "16px"
     fontWeight: 600
     lineHeight: 1.4
   body:
-    fontFamily: "'Segoe UI', 'Segoe UI Variable Text', Inter, -apple-system, Arial, sans-serif"
+    fontFamily: "'Inter', 'Inter Variable', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif"
     fontSize: "14px"
     fontWeight: 400
     lineHeight: 1.5
   label:
-    fontFamily: "'Segoe UI', 'Segoe UI Variable Text', Inter, -apple-system, Arial, sans-serif"
-    fontSize: "12px"
+    fontFamily: "'Inter', 'Inter Variable', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif"
+    fontSize: "11px"
     fontWeight: 700
     lineHeight: 1.4
     letterSpacing: "0.05em"
 rounded:
-  sm: "4px"
-  md: "6px"
-  lg: "8px"
-  xl: "12px"
+  sm: "8px"
+  md: "10px"
+  lg: "12px"
+  xl: "14px"
   pill: "999px"
 spacing:
   xs: "4px"
@@ -70,27 +78,27 @@ components:
     backgroundColor: "{colors.primary}"
     textColor: "{colors.panel}"
     rounded: "{rounded.sm}"
-    padding: "7px 14px"
+    padding: "8px 14px"
   button-primary-hover:
     backgroundColor: "{colors.primary-deep}"
     textColor: "{colors.panel}"
     rounded: "{rounded.sm}"
-    padding: "7px 14px"
+    padding: "8px 14px"
   button-outline:
     backgroundColor: "transparent"
     textColor: "{colors.ink-primary}"
     rounded: "{rounded.sm}"
-    padding: "7px 14px"
+    padding: "8px 14px"
   input-default:
-    backgroundColor: "{colors.panel-alt}"
+    backgroundColor: "{colors.panel}"
     textColor: "{colors.ink-primary}"
-    rounded: "{rounded.lg}"
+    rounded: "{rounded.md}"
     padding: "10px 14px"
   card-default:
     backgroundColor: "{colors.panel}"
     textColor: "{colors.ink-primary}"
     rounded: "{rounded.lg}"
-    padding: "24px"
+    padding: "20px"
   chip-neutral:
     backgroundColor: "{colors.panel-alt}"
     textColor: "{colors.ink-secondary}"
@@ -102,27 +110,30 @@ components:
 
 ## Overview
 
-**Creative North Star: "The Fluent Service Desk"**
+**Creative North Star: "The Calm Omnichannel Desk"**
 
-Atendeflow looks and behaves like a calm Microsoft 365 workbench for triage and reply. Dense three-pane inbox, flat white surfaces on warm gray app background, 1px borders, 4–8px corners, Segoe UI throughout. Blue is reserved for ownership and action — active nav, selected conversation, outgoing bubble, primary button — never as decoration.
+Atendeflow is a service desk that should feel like a well-run workspace, not a dashboard: dense three-pane inbox, flat white surfaces on a cool light-gray canvas, 1px borders, generous 8–14px corners, Inter throughout. Indigo marks ownership and action — active nav, selected conversation, outgoing bubble, primary button — and nothing else.
 
-The public wiki portal is a deliberate second world: forest-green editorial knowledge base with Plus Jakarta Sans + DM Serif Display, 12px radius, airy 1140px reading layout. The embeddable WebChat widget bridges the two, reusing Fluent blue tokens in a floating 384px panel.
+> **Identity note (2026-10).** The previous identity was a Microsoft 365 / Fluent clone (Fluent Channel Blue `#0078d4`, Segoe UI, a "Microsoft sign-in" style login). With the Office 365 subscription expired, that lineage no longer applies. The system now carries its own identity: **indigo `#4f46e5`**, **Inter**, and a cooler neutral ramp. Do not reintroduce Fluent blue, Segoe UI as a deliberate choice, or Microsoft product naming.
+
+The public wiki portal is a deliberate second world: forest-green editorial knowledge base with Plus Jakarta Sans + DM Serif Display, 12px radius, airy 1140px reading layout. The embeddable WebChat widget bridges the two, reusing the indigo tokens in a floating 384px panel.
 
 **Key Characteristics:**
-- Calm operational density: 14px base, tabular counts, 240px sidebar + 380px list + fluid chat
+- Calm operational density: 14px base, tabular counts, 256px sidebar + 400px list + fluid chat
 - Flat-by-default with ambient lift only on overlay, hover, focus
-- Precise and restrained components: 4px buttons, 1px borders, 0.12–0.15s feedback
-- Two worlds, no mixing: Fluent blue app + widget, green serif wiki portal
+- Airy spacing: 60px topbar, 20px page gutters, 12–14px card corners
+- Two worlds, no mixing: indigo app + widget, green serif wiki portal
 
 ## Colors
 
-Operational Fluent blue plus warm-gray neutrals; semantic softs for status; forest green confined to the wiki portal.
+Indigo plus cool neutrals; semantic softs for status; forest green confined to the wiki portal.
 
 ### Primary
-- **Fluent Channel Blue** (#0078d4): Active nav indicator, selected conversation, outgoing bubble, primary buttons, launcher, links. Used sparingly against white/gray.
-- **Fluent Deep Blue** (#106ebe): Hover state for primary buttons and links.
-- **Fluent Ink Blue** (#005a9e): Active/pressed state, dark text on light-blue soft backgrounds.
-- **Channel Mist** (#deecf9): Selected backgrounds — `nav-item.active`, `conv-item.active`, unread notification, hover washes.
+- **Indigo 600** (#4f46e5): Active nav indicator, selected conversation, outgoing bubble, primary buttons, launcher, links. Used sparingly against white/gray.
+- **Indigo 700** (#4338ca): Hover state for primary buttons and links.
+- **Indigo 800** (#3730a3): Active/pressed state, dark text on light-indigo soft backgrounds.
+- **Indigo 50** (#eef0ff): Selected backgrounds — `nav-item.active`, `conv-item.active`, unread notification, hover washes.
+- **Indigo 100** (#e0e3ff): Secondary wash (flow chips, secondary chips).
 
 ### Secondary
 - **Knowledge Forest Green** (#006400): Wiki portal only — hero gradient base, category icons, primary wiki buttons, links.
@@ -131,112 +142,137 @@ Operational Fluent blue plus warm-gray neutrals; semantic softs for status; fore
 - **Knowledge Paper** (#f2f8f2): Wiki search field background.
 
 ### Neutral
-- **App Canvas** (#f5f5f5): App and chat-body background.
+- **App Canvas** (#f6f7f9): App and chat-body background.
 - **Panel White** (#ffffff): Sidebar, panels, cards, modals, incoming bubbles.
-- **Panel Alt** (#faf9f8): Search boxes, meta wells, card alt backgrounds, table row hover.
-- **Soft Border** (#edebe9): Default 1px borders, dividers.
-- **Strong Border** (#d2d0ce): Hover borders, scrollbar thumbs, empty-state icons.
-- **Ink Primary** (#201f1e): Headings, body text, chat names.
-- **Ink Secondary** (#605e5c): Subtitles, previews, labels.
-- **Ink Muted** (#8a8886): Timestamps, placeholders, helper text.
+- **Panel Alt** (#f8f9fb): Search boxes, meta wells, card alt backgrounds, table row hover.
+- **Soft Border** (#e7e9ef): Default 1px borders, dividers.
+- **Strong Border** (#d2d6df): Hover borders, scrollbar thumbs, empty-state icons.
+- **Input Border** (#c3c9d6): Form-control and composer borders — one step darker than a divider so fields stay visible without a heavy outline.
+- **Ink Primary** (#0f172a): Headings, body text, chat names.
+- **Ink Secondary** (#475569): Subtitles, previews, labels.
+- **Ink Muted** (#5b6472): Timestamps, placeholders, helper text — 5,9:1 on white and 5,2:1 on the selected row `#eef0ff`, so it survives WCAG AA on both.
 - **Wiki Ink** (#111814): Wiki body text on `#f7fbf7` background.
 
-Semantic pairs (background + text always used together): Success `#107c10` on `#dff6dd`; Warning `#f7630c` on `#fff4ce`; Danger `#d13438` on `#fde7e9`; Info `#0078d4` on `#eff6fc`. SLA list colors are runtime-driven via `--sla-color-*` but reuse the same softs.
+Semantic pairs (background + text always used together): Success `#15803d` on `#e8f8ee`; Warning `#ea580c` on `#fff4e5`; Danger `#dc2626` on `#fee9e9`; Info `#4f46e5` on `#eef0ff`. SLA list colors are runtime-driven via `--sla-color-*` but reuse the same softs.
 
 ### Named Rules
-**The One Voice Rule.** Fluent blue marks ownership or action only. If it is not clickable, selected, or sent-by-agent, it stays gray.
+**The One Voice Rule.** Indigo marks ownership or action only. If it is not clickable, selected, or sent-by-agent, it stays gray.
 
 ## Typography
 
-**Display Font:** Segoe UI Variable / Segoe UI (with Inter, -apple-system, Helvetica Neue, Arial fallback) — app, widget, CSAT
-**Body Font:** Segoe UI stack — app; Plus Jakarta Sans — wiki portal only
-**Label/Mono Font:** Consolas / ui-monospace for hex codes, API keys, variable chips; DM Serif Display for wiki headlines only
+**Display Font:** Inter (with `-apple-system`, `BlinkMacSystemFont`, `Segoe UI`, `Roboto`, `Helvetica Neue`, `Arial` as fallback) — app, widget, login, CSAT
+**Body Font:** Inter — app; Plus Jakarta Sans — wiki portal only
+**Label/Mono Font:** `ui-monospace`, Consolas for hex codes, API keys, variable chips; DM Serif Display for wiki headlines only
 
-**Character:** Operational grotesque clarity in the app — semibold 600–800 headings with tight -1% to -2% tracking; generous editorial serif contrast confined to wiki reading surfaces.
+**Character:** Operational grotesque clarity — semibold 600–700 headings with tight −1% to −2.5% tracking; generous editorial serif contrast confined to wiki reading surfaces.
 
 ### Hierarchy
-- **Display** (600, 34px/1.2, -0.02em): Login hero headline; wiki hero uses DM Serif `clamp(2rem, 5vw, 3.2rem)` instead.
-- **Headline** (800, 24px/1.2): Department header name, stat values 22–24px/800, report titles.
-- **Title** (600, 15–17px/1.4): List title 17px, chat title 15.5px/700, modal h3 17px, card names 15px/700.
-- **Body** (400, 14px/1.5, max ~65ch in wiki article at 0.97rem/1.75): Messages, previews 12.5–14px, table cells 13.5px.
-- **Label** (700, 11–12px, 0.05em uppercase): Nav labels 11px, stat labels 12px uppercase, table th 12px uppercase, badges 11px/700.
+- **Display** (700, 36px/1.15, −0.025em): Login hero headline; wiki hero uses DM Serif `clamp(2rem, 5vw, 3.2rem)` instead.
+- **Headline** (700, 22px/1.2): Page titles, department header name, stat values, report titles.
+- **Title** (600, 16px/1.4): List title, chat title, modal h3, card names.
+- **Body** (400, 14px/1.5, max ~65ch in wiki article at 0.97rem/1.75): Messages, previews, table cells.
+- **Label** (700, 11px, 0.05em uppercase): Nav labels, stat labels, table headers, badges.
 
 ### Named Rules
-**The Two Voices Rule.** Segoe UI speaks in the desk; DM Serif + Jakarta speak only in the wiki portal. Never set wiki serif inside inbox, reports, or flows.
+**The Two Voices Rule.** Inter speaks in the desk; DM Serif + Jakarta speak only in the wiki portal. Never set the wiki serif inside inbox, reports, or flows.
 
 ## Layout
 
-App shell is a CSS grid: `240px sidebar + fluid content`, `49px topbar + 1fr body`, full viewport height, no page radius. Inbox mode adds a middle column: `240px | 380px | 1fr`. Wiki reading shell is centered `max-width 1140–1200px` with `24px` gutters, `56–80px` section padding.
+App shell is a CSS grid: `256px sidebar + fluid content`, `60px topbar + 1fr body`, full viewport height, no page radius. Inbox mode adds a middle column: `256px | 400px | 1fr`. Wiki reading shell is centered `max-width 1140–1200px` with `24px` gutters, `56–80px` section padding.
 
-Density: list rows `12px 10px`, chat body `20px 24px` with `12px` message gaps, cards `18–24px` padding, `14–16px` grid gaps for stat/user/contact grids (`repeat(auto-fill, minmax(180–280px, 1fr))`).
+Density: list rows `13px 12px`, chat body `24px 28px` with `14px` message gaps, cards `20px` padding, `16px` grid gaps for stat/user/contact grids (`repeat(auto-fit, minmax(180–280px, 1fr))`).
 
-Responsive: 1200px collapses inbox to two columns; 992px fixes chat as full overlay; 860px hides wiki nav links behind hamburger; 768px hides sidebar behind drawer + strips login hero, stacks contact/dept grids to one column; 480px turns widget into full bottom sheet with 0 radius. Spacing rhythm is 4 / 8 / 16 / 24 / 32px.
+Responsive: 1200px collapses inbox to two columns; 992px fixes chat as full overlay; 860px hides wiki nav links behind hamburger; 768px hides sidebar behind drawer and strips the login hero, stacking contact/dept grids to one column; 480px turns widget into full bottom sheet with 0 radius. Spacing rhythm is 4 / 8 / 16 / 24 / 32px.
 
 ## Elevation & Depth
 
-Flat-by-default with ambient lift. Depth comes first from tonal layering (`#f5f5f5` canvas → `#ffffff` panel → `#faf9f8` alt) and 1px `#edebe9` borders; shadows appear only as response to state — hover, popover, modal, or new-message pill.
+Flat-by-default with ambient lift. Depth comes first from tonal layering (`#f6f7f9` canvas → `#ffffff` panel → `#f8f9fb` alt) and 1px `#e7e9ef` borders; shadows appear only as response to state — hover, popover, modal, or new-message pill.
 
 ### Shadow Vocabulary
-- **Hairline** (`box-shadow: 0 1px 2px rgba(0,0,0,.09)`): Bubbles, toasts, reaction pills at rest.
-- **Fluent Low** (`box-shadow: 0 1.6px 3.6px rgba(0,0,0,.13), 0 .3px .9px rgba(0,0,0,.11)`): Stat/user cards, date separators, stat tiles.
-- **Fluent Lift** (`box-shadow: 0 6.4px 14.4px rgba(0,0,0,.13), 0 1.2px 3.6px rgba(0,0,0,.11)`): Hover lift on cards, widget panel, media bubbles.
-- **Overlay** (`box-shadow: 0 32px 64px rgba(0,0,0,.18), 0 16px 40px rgba(0,0,0,.14)`): Notification dropdown, emoji picker, modals with `blur(4px)` scrim `rgba(0,0,0,.5)`.
-- **Wiki Green Ambient** (`box-shadow: 0 1px 4px rgba(0,100,0,.07)` / `0 4px 24px rgba(0,100,0,.10)` / `0 12px 48px rgba(0,100,0,.14)`): Same lift grammar tinted green, portal only.
+- **Hairline** (`0 1px 2px rgba(15,23,42,.05)`): Bubbles, toasts, reaction pills at rest.
+- **Low** (`0 1px 3px rgba(15,23,42,.06), 0 1px 2px rgba(15,23,42,.04)`): Stat/user cards, date separators.
+- **Lift** (`0 6px 16px rgba(15,23,42,.08), 0 2px 5px rgba(15,23,42,.05)`): Hover lift on cards, widget panel, media bubbles.
+- **Overlay** (`0 24px 48px rgba(15,23,42,.16), 0 8px 20px rgba(15,23,42,.07)`): Notification dropdown, emoji picker, modals with `blur(4px)` scrim `rgba(0,0,0,.5)`.
+- **Wiki Green Ambient** (`0 1px 4px rgba(0,100,0,.07)` / `0 4px 24px rgba(0,100,0,.10)` / `0 12px 48px rgba(0,100,0,.14)`): Same lift grammar tinted green, portal only.
 
 ### Named Rules
 **The Flat-By-Default Rule.** Surfaces are flat at rest. If a shadow is visible without hover, focus, drag, or overlay, remove it.
 
 ## Shapes
 
-Small, crisp, rectangular workbench in the app; softer editorial cards in the wiki. App radii: 4px buttons, inputs, brand marks; 6px large panels/modals; 8px page cards, message bodies, login card; pill 20–999px for chips, badges, status pills, date separators. Avatars, launcher, send button, and step numbers are full circles. Incoming bubbles keep a 2–5px sharp corner on the tail side; outgoing mirrors it. Wiki radius is uniformly 12px for cards, search, category tiles, with 8–10px for inner icon tiles and inputs.
+Crisp but generous workbench in the app; softer editorial cards in the wiki. App radii: 8px buttons and inputs, 10px inline panels, 12px cards/dropdowns, 14px large cards; pill 20–999px for chips, badges, status pills, date separators. Avatars, launcher, send button, and step numbers are full circles. Incoming bubbles keep a sharp corner on the tail side; outgoing mirrors it. Wiki radius is uniformly 12px for cards, search, category tiles, with 8–10px for inner icon tiles and inputs.
 
-Borders are 1px `#edebe9` by default, thickening only semantically: 3px left accent on login alerts and article callouts, dashed 1px amber on internal notes, 2px solid on selected timeline cards.
+Borders are 1px `#e7e9ef` by default, thickening only semantically: 3px left accent on login alerts and article callouts, dashed 1px amber on internal notes, 2px solid on selected timeline cards.
 
 ## Components
 
-Precise and restrained: flat fills, 1px borders, instant feedback, blue focus rings. No gradients except login hero, dept banner, and wiki hero.
+Precise and restrained: flat fills, 1px borders, instant feedback, indigo focus rings. No gradients except the login hero, dept banner, and wiki hero.
 
 ### Buttons
-- **Shape:** Gently square (4px radius), 2px radius for block login button.
-- **Primary:** Fluent Channel Blue fill (#0078d4) + white text, `7px 14px`, 13.5px/600; send кноп 40px square.
-- **Hover / Focus:** Deep blue (#106ebe) on hover, ink blue (#005a9e) on active; focus is `0 0 0 1px #0078d4` border shift, search focus adds `0 0 0 3px #deecf9`.
-- **Secondary / Ghost:** Outline is transparent + `#8a8886` border; icon-btn 32–36px transparent turning `#deecf9` bg + `#106ebe` icon on hover.
+- **Shape:** Gently square (8px radius).
+- **Primary:** Indigo 600 fill (#4f46e5) + white text, `8px 14px`, 13.5px/600; send button 40px square with 12px radius.
+- **Hover / Focus:** Indigo 700 (#4338ca) on hover; focus is a 1px indigo border shift, search/input focus adds a 3px `#eef0ff` ring.
+- **Secondary / Ghost:** Outline is transparent + `#c3c9d6` border; icon-btn 32–38px transparent turning `#eef0ff` bg + indigo icon on hover.
 
 ### Chips
-- **Style:** Pill 20–999px, 11–12px/700; variants map to semantic softs (success/info/warning/danger/flow `#c7e6f7` + `#106ebe`).
-- **State:** Hover is `brightness(0.95–0.97)` only; filter pills invert to blue fill + white text when active; tag grid items fill with their own `--tag-color` when applied.
+- **Style:** Pill 20–999px, 11–12px/700; variants map to semantic softs (success/info/warning/danger/flow `#e0e3ff` + `#4338ca`).
+- **State:** Hover is `brightness(0.95–0.97)` only; filter pills invert to indigo fill + white text when active; tag grid items fill with their own `--tag-color` when applied.
+- **Contrast (regra dura):** nenhuma etiqueta pode reprovar em WCAG AA (4,5:1). Cores escolhidas pelo usuário passam por `readable_pair()` (PHP) / `readablePair()` (JS), que devolve o par *(fundo, texto)* já com contraste garantido — quando nem texto branco nem texto escuro passam de 4,5:1 sobre a cor, o **fundo é escurecido** até o branco passar. Texto sobre fundo *tintado* (a cor + alfa) passa por escurecimento da cor do texto. Nunca confiar em `contrast_color()` (escolha binária preto/branco) para texto pequeno sobre cor saturada.
+- **Texto sobre *soft*:** usar as variantes escuras `--success-text` (#166534), `--info-text` / `--brand-text` (#4338ca) e `--danger-text` (#b91c1c) — o tom puro (#4f46e5 sobre #eef0ff = 5,6:1) já passa, mas a variante escura garante folga em Fundos tinted. No **tema escuro** essas três variantes invertem para o tom claro (`#6ee7a0` / `#a5b4fc`) — sobre os *softs* escuros o texto escuro reprovaria.
 
 ### Cards / Containers
-- **Corner Style:** Rounded 8px (app), 12px (wiki).
-- **Background:** Panel white on app canvas; alt `#faf9f8` for meta wells.
-- **Shadow Strategy:** Hairline/Fluent Low at rest, Fluent Lift on hover with `translateY(-2px)`.
-- **Border:** 1px soft border always; hover upgrades to strong border or blue.
-- **Internal Padding:** 14–24px; headers have `14–18px 16–24px` + bottom border.
+- **Corner Style:** Rounded 12px (app), 12px (wiki).
+- **Background:** Panel white on app canvas; alt `#f8f9fb` for meta wells.
+- **Shadow Strategy:** Hairline/Low at rest, Lift on hover with `translateY(-2px)`.
+- **Border:** 1px soft border always; hover upgrades to strong border or indigo.
+- **Internal Padding:** 16–24px; headers have `16–20px` + bottom border.
 
 ### Inputs / Fields
-- **Style:** Alt-gray fill `#faf9f8` or white, 1px `#edebe9` (or `#8a8886` in login/composer), 4px in composer/login, 11–13px in list search and forms.
-- **Focus:** Blue border + soft glow; login/composer uses 1px ring, list search uses 3px `#deecf9` ring.
+- **Style:** Panel white or alt fill, 1px `#c3c9d6` (`--border-input`), 8–12px radius, 11–13.5px in list search and forms.
+- **Focus:** Indigo border + `#eef0ff` glow ring (3px); composer and login use a 3–4px ring.
 - **Error / Disabled:** Error is danger-soft bg + danger text + 3px danger left border; disabled is `opacity .4–.6` + `not-allowed`.
 
 ### Navigation
-Sidebar 240px white with right border, 13.5px/500 items, `8px 10px` padding, 4px radius. Hover is `#f3f2f1`; active is `#deecf9` bg + `#005a9e` text + 3px left blue bar + 600 weight. Topbar 48px white with bottom border. Wiki nav is 64px sticky blurred white with 8px pill links turning green wash on hover plus 2px underline grow.
+Sidebar 256px white with right border, 13.5px/500 items, `9px 12px` padding, 8px radius. Hover is `#f1f3f7`; active is `#eef0ff` bg + `#3730a3` text + 3px indigo bar with rounded right corners + 600 weight. Sub-items indent to 38px so the icon aligns under the parent's label. Topbar 60px white with bottom border.
 
 ### Chat Bubbles
-Incoming: white, 1px soft border, `8px 12px`, 14px/1.5, tail sharp at 2px bottom-left, 32px avatar alongside. Outgoing: Fluent blue, white text, no border, tail sharp bottom-right, aligned right. Notes are amber dashed with gradient wash; system events are centered muted pills.
+Incoming: white, 1px soft border, `13px 17px`, 14px/1.5, tail sharp at the bottom-left, 32px avatar alongside. Outgoing: indigo, white text, no border, tail sharp bottom-right, aligned right. Notes are amber dashed with gradient wash; system events are centered muted pills.
+
+## Login
+
+The access screen is its own surface, not a resized app page.
+
+- **Split:** brand panel (indigo gradient `158deg` + radial glow + masked 44px grid) on the left; access card on the right.
+- **Card:** white, 18px radius, `--shadow-md`, `40px` padding (`32px` under 560px).
+- **Fields:** 50px tall, 12px radius, `--border-input`; focus = indigo border + 4px `#eef0ff` ring.
+- **Primary button:** full width, 50px, 12px radius, indigo with a soft indigo shadow; hover indigo 700.
+- **Extras:** show/hide password (`aria-pressed`), Caps Lock hint, discreet default-credentials strip, and a theme toggle that respects the saved `omini-theme` preference.
 
 ## Do's and Don'ts
 
 Concrete guardrails grounded in the shipped code. No invented prohibitions.
 
 ### Do:
-- **Do** keep blue for action and ownership — active, selected, sent, primary — on ≤10% of any inbox screen.
-- **Do** use soft + strong text pairs together (e.g. `#107c10` on `#dff6dd`), never soft as text on white.
-- **Do** keep app corners at 4–8px and wiki cards at 12px; circles only for avatars, launcher, send, status dots.
-- **Do** show focus with a blue border + soft ring on every input, search, and composer.
-- **Do** confine DM Serif Display and Jakarta to the wiki portal; Segoe UI everywhere else.
+- **Do** keep indigo for action and ownership — active, selected, sent, primary — on ≤10% of any inbox screen.
+- **Do** use soft + strong text pairs together (e.g. `#15803d` on `#e8f8ee`), never soft as text on white.
+- **Do** keep app corners at 8–14px and wiki cards at 12px; circles only for avatars, launcher, send, status dots.
+- **Do** show focus with an indigo border + soft ring on every input, search, and composer.
+- **Do** confine DM Serif Display and Jakarta to the wiki portal; Inter everywhere else.
 
 ### Don't:
+- **Don't** reintroduce Microsoft 365 / Fluent blue (`#0078d4`) or Segoe UI as a deliberate pick — the Office 365 lineage is retired.
 - **Don't** introduce a new accent hue in the desk — greens, violets, or teals belong only to wiki, SLA/semantic states, or dept color dots.
-- **Don't** use gradients outside login hero, dept banners, wiki hero, and note washes.
+- **Don't** use gradients outside the login hero, dept banners, wiki hero, and note washes.
 - **Don't** add shadows to resting list rows, sidebar items, or table cells — lift on hover/overlay only.
-- **Don't** mix the two radius worlds — no 12–16px SaaS cards inside inbox triage.
+- **Don't** mix the two radius worlds — no 16px SaaS cards inside inbox triage.
+
+## Accessibility floor (non-negotiable)
+
+Measured with a DOM audit on every screen at 1440×900 and 390×844.
+
+- **Contrast:** body text ≥ 4,5:1 (WCAG 2.1 AA); large text ≥ 3:1. Muted ink is `#5b6472` (5,9:1 on white), not `#8a8886` (3,5:1 — rejected). Colored chips go through `readable_pair()` / `readablePair()` so any user-chosen color stays readable.
+- **Type floor:** 11px minimum for any rendered text (labels, counters, badges, chart axes, timestamps). 10px is reserved for icon glyphs only.
+- **Target floor:** 24×24 CSS px minimum for every click target. Inline text links inside a sentence or table cell are exempt; icon-only buttons are not — give them a 28–38px box.
+- **Truncation:** use `text-overflow: ellipsis` on a non-flex text node (or a nested `.conv-preview-text` span). `text-overflow` does not work on a flex container — the text is cut with no ellipsis.
+- **Scroll containment:** a wide table lives inside a `.table-wrap` with `overflow-x: auto`, `tabindex="0"` and `role="region"`. The page itself must never scroll horizontally.
+- **Touch feedback:** every state (hover, focus, disabled, loading, error, empty) is explicit — no state may be conveyed by color alone.

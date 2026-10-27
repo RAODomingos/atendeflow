@@ -1,34 +1,161 @@
+<?php
+/*
+ * Filtros da caixa de entrada. A caixa é única: o recorte vem daqui e as
+ * caixas do menu são visões salvas sobre o mesmo escopo.
+ */
+$filters = is_array($filters ?? null) ? $filters : [];
+$iq = !empty($activeInbox) ? 'inbox=' . (int)$activeInbox . '&' : '';
+$currentStatus = (string) ($fstatus ?? 'active');
+$hasFilters = !empty($filters['channel_id'])
+    || !empty($filters['channel']) || !empty($filters['priority'])
+    || !empty($filters['assignee']) || !empty($filters['unread']);
+
+// "Minha Caixa" e "Não Atribuídas" são páginas do mesmo recorte: os
+// formulários precisam voltar para a mesma rota, senão o filtro se perde.
+$isMineScope = !empty($filters['mine']);
+$isUnassignedScope = !empty($filters['unassigned']);
+$scopeAction = $isMineScope
+    ? url('inbox/mine')
+    : ($isUnassignedScope ? url('inbox/unassigned') : url('inbox'));
+
+/**
+ * Inputs ocultos que carregam o filtro atual para dentro de outro form
+ * (a busca e a barra de filtros compartilham o mesmo recorte).
+ */
+$filterHiddenFields = function (array $filters): string {
+    $html = '';
+    if (!empty($filters['channel_id'])) {
+        $html .= '<input type="hidden" name="channel_id" value="' . (int) $filters['channel_id'] . '">';
+    }
+    if (!empty($filters['channel'])) {
+        $html .= '<input type="hidden" name="channel" value="' . e((string) $filters['channel']) . '">';
+    }
+    if (!empty($filters['priority'])) {
+        $html .= '<input type="hidden" name="priority" value="' . e((string) $filters['priority']) . '">';
+    }
+    if (!empty($filters['assignee'])) {
+        $html .= '<input type="hidden" name="assignee" value="' . e((string) $filters['assignee']) . '">';
+    }
+    if (!empty($filters['unread'])) {
+        $html .= '<input type="hidden" name="unread" value="1">';
+    }
+    if (!empty($filters['mine'])) {
+        $html .= '<input type="hidden" name="mine" value="1">';
+    }
+    if (!empty($filters['unassigned'])) {
+        $html .= '<input type="hidden" name="unassigned" value="1">';
+    }
+    return $html;
+};
+?>
 <div class="list-panel" id="listPanel">
     <div class="list-header">
-        <h1 class="list-title">Caixa de Entrada <span class="list-title-count"><?= count($conversations) ?></span></h1>
+        <h1 class="list-title"><?= e($title ?? 'Caixa de Entrada') ?></h1>
         <button type="button" class="btn-new" onclick="openNewConvModal()">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg>
             Novo
         </button>
     </div>
 
-    <?php $iq = !empty($activeInbox) ? 'inbox=' . (int)$activeInbox . '&' : ''; ?>
     <div class="search-wrap">
-        <form method="GET" action="<?= url('inbox') ?><?= $iq ? '?' . rtrim($iq, '&') : '' ?>" id="inboxSearchForm" data-fstatus="<?= e($fstatus ?? 'active') ?>" class="search-box">
+        <form method="GET" action="<?= $scopeAction ?><?= $iq ? '?' . rtrim($iq, '&') : '' ?>" id="inboxSearchForm" data-fstatus="<?= e($currentStatus) ?>" class="search-box">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
             <input type="text" name="search" placeholder="Buscar por nome, protocolo..."
                    value="<?= e($search ?? '') ?>"
                    oninput="debounceSearch(this)" autocomplete="off">
-            <input type="hidden" name="fstatus" value="<?= e($fstatus ?? 'active') ?>">
+            <input type="hidden" name="fstatus" value="<?= e($currentStatus) ?>">
             <?php if (!empty($activeInbox)): ?>
                 <input type="hidden" name="inbox" value="<?= (int)$activeInbox ?>">
             <?php endif; ?>
+            <?= $filterHiddenFields($filters) ?>
             <button type="submit" style="display:none"></button>
         </form>
     </div>
 
+    <form method="GET" action="<?= $scopeAction ?>" class="filter-bar" id="inboxFilterForm">
+        <input type="hidden" name="fstatus" value="<?= e($currentStatus) ?>">
+        <input type="hidden" name="search" value="<?= e($search ?? '') ?>">
+        <?php if (!empty($activeInbox)): ?>
+            <input type="hidden" name="inbox" value="<?= (int)$activeInbox ?>">
+        <?php endif; ?>
+        <?php if ($isMineScope): ?>
+            <input type="hidden" name="mine" value="1">
+        <?php endif; ?>
+        <?php if ($isUnassignedScope): ?>
+            <input type="hidden" name="unassigned" value="1">
+        <?php endif; ?>
+
+        <select name="channel_id" class="filter-select" onchange="this.form.submit()" title="Filtrar por canal">
+            <option value="">Todos os canais</option>
+            <?php foreach (($filterChannels ?? []) as $ch): ?>
+                <option value="<?= (int) $ch['id'] ?>" <?= (int) ($filters['channel_id'] ?? 0) === (int) $ch['id'] ? 'selected' : '' ?>><?= e($ch['name']) ?></option>
+            <?php endforeach; ?>
+        </select>
+
+        <select name="priority" class="filter-select" onchange="this.form.submit()" title="Filtrar por prioridade">
+            <option value="">Prioridade: todas</option>
+            <?php foreach (['low' => 'Baixa', 'normal' => 'Normal', 'high' => 'Alta', 'urgent' => 'Urgente'] as $pval => $plabel): ?>
+                <option value="<?= e($pval) ?>" <?= (string) ($filters['priority'] ?? '') === $pval ? 'selected' : '' ?>><?= e($plabel) ?></option>
+            <?php endforeach; ?>
+        </select>
+
+        <?php
+        // Em "Minha Caixa" o responsável é o próprio recorte: a opção fica
+        // travada em "Atribuídas a mim" para ninguém achar que o filtro
+        // está solto.
+        $assigneeSelected = $isMineScope ? 'me' : (string) ($filters['assignee'] ?? '');
+        ?>
+        <select name="assignee" class="filter-select" onchange="this.form.submit()" title="Filtrar por responsável" <?= $isMineScope ? 'disabled' : '' ?>>
+            <option value="">Qualquer responsável</option>
+            <option value="me" <?= $assigneeSelected === 'me' ? 'selected' : '' ?>>Atribuídas a mim</option>
+            <option value="unassigned" <?= $assigneeSelected === 'unassigned' ? 'selected' : '' ?>>Sem responsável</option>
+            <?php foreach (($filterUsers ?? []) as $fu): ?>
+                <option value="<?= (int) $fu['id'] ?>" <?= $assigneeSelected === (string) $fu['id'] ? 'selected' : '' ?>><?= e($fu['name']) ?></option>
+            <?php endforeach; ?>
+        </select>
+
+        <label class="filter-check" title="Mostrar apenas conversas com mensagem do cliente não lida">
+            <input type="checkbox" name="unread" value="1" <?= !empty($filters['unread']) ? 'checked' : '' ?> onchange="this.form.submit()">
+            Só não lidas
+        </label>
+
+        <?php if ($hasFilters): ?>
+            <a href="<?= $scopeAction ?>?<?= $iq ?>fstatus=<?= urlencode($currentStatus) ?>" class="filter-clear">Limpar</a>
+        <?php endif; ?>
+    </form>
+
+    <?php
+    $filterQuery = http_build_query(array_filter([
+        'channel_id' => $filters['channel_id'] ?? null,
+        'channel'    => $filters['channel'] ?? null,
+        'priority'   => $filters['priority'] ?? null,
+        'assignee'   => $filters['assignee'] ?? null,
+        'unread'     => !empty($filters['unread']) ? '1' : null,
+        'mine'       => !empty($filters['mine']) ? '1' : null,
+        'unassigned' => !empty($filters['unassigned']) ? '1' : null,
+    ], fn($v) => $v !== null && $v !== ''));
+    // Sufixo de query com os filtros ativos: as abas mantêm o recorte.
+    $fs = $filterQuery !== '' ? '&' . $filterQuery : '';
+    ?>
+
+    <?php
+    // Badges das abas: "Em atendimento" e "Aguardando" mostram a
+    // quantidade; "Concluído" não tem contador.
+    $tabCounts = is_array($tabCounts ?? null) ? $tabCounts : ['active' => 0, 'waiting' => 0];
+    $tabCountHtml = function (string $tab, int $n): string {
+        return '<span class="tab-count' . ($n > 0 ? '' : ' is-empty') . '" data-tab-count="' . $tab . '">' . $n . '</span>';
+    };
+    ?>
     <div class="tabs" id="inboxTabs">
-        <a href="<?= url('inbox') ?>?<?= $iq ?>fstatus=active" class="tab <?= ($fstatus ?? 'active') === 'active' ? 'active' : '' ?>">
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 12h-6l-2 3h-4l-2-3H2"/><path d="M5.45 5.11L2 12v6a2 2 0 002 2h16a2 2 0 002-2v-6l-3.45-6.89A2 2 0 0016.76 4H7.24a2 2 0 00-1.79 1.11z"/></svg>
+        <a href="<?= url('inbox') ?>?<?= $iq ?>fstatus=active<?= $fs ?>" class="tab <?= ($fstatus ?? 'active') === 'active' ? 'active' : '' ?>">
             Em atendimento
+            <?= $tabCountHtml('active', (int) ($tabCounts['active'] ?? 0)) ?>
         </a>
-        <a href="<?= url('inbox') ?>?<?= $iq ?>fstatus=resolved_closed" class="tab <?= ($fstatus ?? '') === 'resolved_closed' ? 'active' : '' ?>">
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg>
+        <a href="<?= url('inbox') ?>?<?= $iq ?>fstatus=waiting<?= $fs ?>" class="tab <?= ($fstatus ?? '') === 'waiting' ? 'active' : '' ?>">
+            Aguardando
+            <?= $tabCountHtml('waiting', (int) ($tabCounts['waiting'] ?? 0)) ?>
+        </a>
+        <a href="<?= url('inbox') ?>?<?= $iq ?>fstatus=resolved_closed<?= $fs ?>" class="tab <?= ($fstatus ?? '') === 'resolved_closed' ? 'active' : '' ?>">
             Concluído
         </a>
     </div>
@@ -54,11 +181,28 @@
 </div>
 
 <script>
+/* Usuário logado: o filtro "Atribuídas a mim" precisa do id para saber o
+   que é meu — inclusive quando a conversa chega pelo SSE. */
+window.__currentUserId = <?= (int) \App\Core\Auth::id() ?>;
+
 var searchTimer;
 function debounceSearch(input) {
     clearTimeout(searchTimer);
     searchTimer = setTimeout(function() { input.closest('form').submit(); }, 400);
 }
+
+/**
+ * Rola até o balão pedido na URL (?msg=123). Usado pelo histórico de
+ * menções da tela de grupos ("ver na conversa").
+ */
+function jumpToMessageFromUrl() {
+    var mid = new URL(window.location).searchParams.get('msg');
+    if (!mid) return;
+    setTimeout(function() {
+        if (typeof scrollToMessage === 'function') scrollToMessage(mid);
+    }, 300);
+}
+document.addEventListener('DOMContentLoaded', jumpToMessageFromUrl);
 
 function loadConversation(convId, updateUrl) {
     var panel = document.getElementById('conversationDetail');
@@ -87,6 +231,10 @@ function loadConversation(convId, updateUrl) {
                 else { ns.textContent = s.textContent; }
                 document.body.appendChild(ns);
             });
+
+            // Abre num balão específico (?msg=123) — usado pelo histórico de
+            // menções da tela de grupos.
+            jumpToMessageFromUrl();
 
             if (window.innerWidth <= 992) {
                 panel.style.display = 'flex';
@@ -296,6 +444,20 @@ function refreshConversationList() {
     var sw = p.get('search');
     if (!sw) { var si = document.querySelector('input[name="search"]'); if (si) sw = si.value; }
     if (sw) params.set('search', sw);
+    // Filtros da barra (canal, prioridade, responsável, não lidas) e os
+    // escopos da URL (minhas / sem responsável): o refresh tem de respeitar
+    // o mesmo recorte da página.
+    ['channel_id', 'channel', 'priority', 'assignee', 'unread', 'mine', 'unassigned'].forEach(function(k) {
+        var v = p.get(k);
+        if (!v) {
+            var el = document.querySelector('[name="' + k + '"]');
+            if (el) {
+                // Checkbox desligado não é filtro (o value existe de todo modo).
+                v = el.type === 'checkbox' ? (el.checked ? (el.value || '1') : '') : el.value;
+            }
+        }
+        if (v) params.set(k, v);
+    });
     var cv = p.get('conv');
     if (cv) params.set('conv', cv);
 
@@ -308,9 +470,6 @@ function refreshConversationList() {
         var prevActive = container.querySelector('.conv-item.active');
         var prevId = prevActive ? prevActive.dataset.convId : (cv || null);
         container.innerHTML = html;
-
-        var countEl = document.querySelector('.list-title-count');
-        if (countEl) countEl.textContent = container.querySelectorAll('.conv-item').length;
 
         if (prevId) {
             var el = container.querySelector('.conv-item[data-conv-id="' + prevId + '"]');

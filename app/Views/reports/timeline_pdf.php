@@ -6,7 +6,7 @@
 <style>
     @page { margin: 16mm 12mm; }
     body { font-size: 9pt; }
-    .scope-bar { background: #eff6fc; border: 1px solid #deecf9; border-radius: 6px; padding: 6px 10px; font-size: 8.5pt; color: #005a9e; font-weight: 600; margin: 10px 0 12px; }
+    .scope-bar { background: #eef0ff; border: 1px solid #eef0ff; border-radius: 6px; padding: 6px 10px; font-size: 8.5pt; color: #3730a3; font-weight: 600; margin: 10px 0 12px; }
 </style>
 </head>
 <body>
@@ -159,7 +159,7 @@ $totalEvents = array_sum(array_map(fn($c) => count($c['events'] ?? []), $convers
     <div>
         <?php foreach ($allTags as $tag): ?>
             <?php if (in_array($tag['id'], array_column($contactTags, 'id'))): ?>
-            <span class="tag" style="background:<?= e($tag['color'] ?? '#6c757d') ?>;color:<?= e(contrast_color($tag['color'] ?? '#6c757d')) ?>"><?= e($tag['name']) ?></span>
+            <span class="tag" style="background:<?= e(readable_pair($tag['color'] ?? '#5b6472')[0]) ?>;color:<?= e(readable_pair($tag['color'] ?? '#5b6472')[1]) ?>"><?= e($tag['name']) ?></span>
             <?php endif; ?>
         <?php endforeach; ?>
     </div>

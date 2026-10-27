@@ -16,10 +16,10 @@ if ($isEdit && !empty($editMacro['actions'])) {
     $editActs = json_decode($editMacro['actions'], true) ?: [];
 }
 $typeMeta = [
-    'text'  => ['icon' => 'fa-comment-dots', 'label' => 'Texto',   'color' => '#0078d4'],
-    'image' => ['icon' => 'fa-image',         'label' => 'Foto',    'color' => '#107c10'],
+    'text'  => ['icon' => 'fa-comment-dots', 'label' => 'Texto',   'color' => '#4f46e5'],
+    'image' => ['icon' => 'fa-image',         'label' => 'Foto',    'color' => '#15803d'],
     'video' => ['icon' => 'fa-video',         'label' => 'Vídeo',   'color' => '#5c2d91'],
-    'file'  => ['icon' => 'fa-paperclip',     'label' => 'Arquivo', 'color' => '#f7630c'],
+    'file'  => ['icon' => 'fa-paperclip',     'label' => 'Arquivo', 'color' => '#ea580c'],
     'audio' => ['icon' => 'fa-microphone',    'label' => 'Áudio',   'color' => '#008272'],
 ];
 $totalMacros = count($macros);
@@ -84,15 +84,15 @@ $deptNameOf = function ($id) use ($departments) {
 .macro-sec-title{display:flex;align-items:center;gap:8px;font-size:12px;font-weight:700;color:var(--text-primary);margin:18px 0 10px;text-transform:uppercase;letter-spacing:.04em}
 .macro-sec-title:first-child{margin-top:0}
 .macro-item{border:1px solid var(--border-soft);border-left:4px solid var(--brand);border-radius:10px;padding:11px 12px;background:var(--bg-panel-alt);margin-bottom:10px}
-.macro-item[data-type="image"]{border-left-color:#107c10}
+.macro-item[data-type="image"]{border-left-color:#15803d}
 .macro-item[data-type="video"]{border-left-color:#5c2d91}
-.macro-item[data-type="file"]{border-left-color:#f7630c}
+.macro-item[data-type="file"]{border-left-color:#ea580c}
 .macro-item[data-type="audio"]{border-left-color:#008272}
 .macro-item-head{display:flex;align-items:center;gap:7px;margin-bottom:9px}
 .macro-type-pill{font-size:11px;font-weight:800;padding:3px 11px;border-radius:20px;color:#fff;background:var(--brand)}
-.macro-item[data-type="image"] .macro-type-pill{background:#107c10}
+.macro-item[data-type="image"] .macro-type-pill{background:#15803d}
 .macro-item[data-type="video"] .macro-type-pill{background:#5c2d91}
-.macro-item[data-type="file"] .macro-type-pill{background:#f7630c}
+.macro-item[data-type="file"] .macro-type-pill{background:#ea580c}
 .macro-item[data-type="audio"] .macro-type-pill{background:#008272}
 .macro-add-row{display:flex;gap:7px;flex-wrap:wrap}
 .macro-add-btn{display:inline-flex;align-items:center;gap:7px;border:1px dashed var(--border-strong);background:transparent;color:var(--text-secondary);font-size:12.5px;font-weight:600;padding:8px 13px;border-radius:10px;cursor:pointer;transition:.15s}

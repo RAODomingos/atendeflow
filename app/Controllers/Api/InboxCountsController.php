@@ -37,24 +37,15 @@ class InboxCountsController
      */
     public static function countsForUser(int $userId): array
     {
-        $catInboxes = [];
-        foreach (Inbox::getUserInboxes($userId) as $ib) {
-            if (($ib['type'] ?? '') !== 'personal') {
-                $catInboxes[] = $ib;
-            }
-        }
-        $personalInboxes = Inbox::getOwnedPersonalInboxes($userId);
-        $allIds = array_merge(array_column($catInboxes, 'id'), array_column($personalInboxes, 'id'));
-
-        if (empty($allIds)) {
-            return [[], 0];
-        }
+        $inboxes = Inbox::getUserInboxes($userId);
+        $allIds = array_map('intval', array_column($inboxes, 'id'));
 
         $counts = Conversation::openCountsByInbox($allIds);
-        $total = 0;
-        foreach ($catInboxes as $ib) {
-            $total += (int) ($counts[$ib['id']] ?? 0);
-        }
+
+        // O total da caixa de entrada é a contagem do escopo, e NÃO a soma
+        // dos badges: as caixas se sobrepõem (uma conversa pode estar em
+        // duas), então somar contaria a mesma conversa duas vezes.
+        $total = Conversation::openCountForSets(Conversation::scopeSetsForUser($userId));
 
         return [$counts, $total];
     }

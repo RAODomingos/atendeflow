@@ -4,7 +4,7 @@
     var C = window.ATENDIMENTO_CONFIG || {};
     var WIDGET_KEY = C.widgetId || '';
     var API_BASE = C.apiUrl || (window.location.origin + (window.AF_BASE || ''));
-    var PRIMARY = C.color || '#0078d4';
+    var PRIMARY = C.color || '#4f46e5';
     var POSITION = C.position || 'right';
     var TITLE = C.title || 'Atendimento';
     var WELCOME = C.welcomeMessage || 'Olá! Como podemos ajudar?';
@@ -91,9 +91,9 @@
         '.afw-csat-stars .afw-star{border:0;background:none;font-size:24px;color:#d0d7de;cursor:pointer;padding:0 2px;line-height:1}' +
         '.afw-csat-stars .afw-star.on{color:#ffb400}' +
         '.afw-csat-comment{width:100%;margin-top:8px;border:1px solid #d0d7de;border-radius:8px;padding:6px;font:inherit;resize:vertical}' +
-        '.afw-csat-send{margin-top:8px;width:100%;background:var(--afw-primary,#0078d4);color:#fff;border:0;border-radius:8px;padding:8px;cursor:pointer}' +
+        '.afw-csat-send{margin-top:8px;width:100%;background:var(--afw-primary,#4f46e5);color:#fff;border:0;border-radius:8px;padding:8px;cursor:pointer}' +
         '.afw-csat-thanks{color:#16a34a;font-weight:600;margin-top:6px}' +
-        '.afw-csat-link{display:block;margin-top:8px;text-align:center;color:var(--afw-primary,#0078d4);font-weight:600;text-decoration:none}' +
+        '.afw-csat-link{display:block;margin-top:8px;text-align:center;color:var(--afw-primary,#4f46e5);font-weight:600;text-decoration:none}' +
         '.afw-csat-link:hover{text-decoration:underline}';
     document.head.appendChild(csatStyle);
 

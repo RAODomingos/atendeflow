@@ -42,6 +42,80 @@ class Department
         return Database::getInstance()->delete('departments', 'id = ?', [$id]);
     }
 
+    /**
+     * Separa a lista de telefones de alerta em tokens.
+     *
+     * Aceita vírgula, ponto e vírgula, barra ou quebra de linha como
+     * separadores — a tela de departamento digita um número por linha,
+     * mas colar "11999999999, 11988888888" também funciona.
+     *
+     * O espaço NÃO separa: ele faz parte do número ("+55 11 99999-9999"
+     * é um telefone só, não quatro).
+     *
+     * @return string[] tokens brutos (sem espaços nas pontas)
+     */
+    public static function splitAlertPhones(?string $raw): array
+    {
+        $raw = trim((string) $raw);
+        if ($raw === '') {
+            return [];
+        }
+        $parts = preg_split('/[,;\/\r\n]+/u', $raw) ?: [];
+        $out = [];
+        foreach ($parts as $part) {
+            $part = trim($part);
+            if ($part !== '') {
+                $out[] = $part;
+            }
+        }
+        return $out;
+    }
+
+    /**
+     * Números de alerta válidos: só dígitos, no mínimo 10, sem repetição.
+     *
+     * @return string[]
+     */
+    public static function normalizeAlertPhones(?string $raw): array
+    {
+        $out = [];
+        foreach (self::splitAlertPhones($raw) as $token) {
+            $digits = preg_replace('/\D/', '', $token);
+            if ($digits === null || strlen($digits) < 10) {
+                continue;
+            }
+            if (!in_array($digits, $out, true)) {
+                $out[] = $digits;
+            }
+        }
+        return $out;
+    }
+
+    /**
+     * Tokens que NÃO são telefones válidos (para avisar o usuário na tela).
+     *
+     * @return string[]
+     */
+    public static function invalidAlertPhones(?string $raw): array
+    {
+        $out = [];
+        foreach (self::splitAlertPhones($raw) as $token) {
+            $digits = preg_replace('/\D/', '', $token);
+            if ($digits === null || strlen($digits) < 10) {
+                $out[] = $token;
+            }
+        }
+        return $out;
+    }
+
+    /**
+     * Texto pronto para o textarea da tela: um telefone por linha.
+     */
+    public static function formatAlertPhones(?string $raw): string
+    {
+        return implode("\n", self::normalizeAlertPhones($raw));
+    }
+
     public static function getUsers(int $departmentId): array
     {
         return Database::getInstance()->fetchAll(

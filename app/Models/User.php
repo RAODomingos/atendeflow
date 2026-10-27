@@ -35,6 +35,16 @@ class User
         );
     }
 
+    /**
+     * Usuários ativos para o filtro de responsável da listagem.
+     */
+    public static function listForFilter(): array
+    {
+        return Database::getInstance()->fetchAll(
+            "SELECT u.id, u.name FROM users u WHERE u.is_active = 1 ORDER BY u.name"
+        );
+    }
+
     public static function create(array $data): int
     {
         $data['password'] = password_hash($data['password'], PASSWORD_ARGON2ID);

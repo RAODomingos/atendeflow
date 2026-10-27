@@ -27,9 +27,9 @@
                                     <h3 style="display:flex;align-items:center;gap:8px">
                                         <?= e($flow['name']) ?>
                                         <?php if ($flow['is_active']): ?>
-                                            <span class="badge badge-success" style="font-size:10px">Ativo</span>
+                                            <span class="badge badge-success">Ativo</span>
                                         <?php else: ?>
-                                            <span class="badge badge-secondary" style="font-size:10px">Inativo</span>
+                                            <span class="badge badge-secondary">Inativo</span>
                                         <?php endif; ?>
                                     </h3>
                                     <p><?= e(truncate($flow['description'] ?? 'Sem descrição', 100)) ?></p>

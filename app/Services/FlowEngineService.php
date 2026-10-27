@@ -741,10 +741,7 @@ class FlowEngineService
                 if ($departmentId) {
                     $conv = Conversation::find($conversationId);
                     $update = ['department_id' => $departmentId];
-                    $resolved = \App\Models\Inbox::resolveInboxForDepartment(
-                        (int) $departmentId,
-                        isset($conv['inbox_id']) ? (int) $conv['inbox_id'] : null
-                    );
+                    $resolved = \App\Models\Inbox::resolveProfileForDepartment((int) $departmentId);
                     if ($resolved && $resolved !== (int) ($conv['inbox_id'] ?? 0)) {
                         $update['inbox_id'] = $resolved;
                     }
@@ -1110,8 +1107,16 @@ class FlowEngineService
         if ($handoffNode) {
             $this->executeNode($conversationId, $handoffNode);
         } else {
-            // Fallback: encaminhar para atendimento humano
-            $this->dispatchOutboundMessage($conversationId, 'text', 'Tempo esgotado. Um atendente irá ajudá-lo em breve.');
+            // Fallback: encaminhar para atendimento humano.
+            //
+            // O repasse é SILENCIOSO: o timeout do fluxo é um evento
+            // interno e não deve virar mensagem para o cliente. Avisar
+            // "Tempo esgotado. Um atendente irá ajudá-lo em breve" grava
+            // uma mensagem que não responde a nada, confunde o cliente e
+            // ocupa a conversa como se fosse uma resposta da equipe.
+            // O repasse continua visível para a equipe pelo evento
+            // 'flow_timeout' na linha do tempo e pelo status 'new' (a
+            // conversa volta para a fila de "Aguardando").
             Conversation::update($conversationId, ['status' => 'new']);
             Flow::completeFlowState($conversationId);
             Conversation::addEvent($conversationId, 'flow_timeout', 'Fluxo finalizado por timeout');

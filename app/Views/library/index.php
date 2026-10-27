@@ -58,7 +58,7 @@ $isEditSubject = !empty($editSubject);
                 <div>
                     <label style="display:block;font-size:12px;font-weight:500;color:var(--secondary);margin-bottom:4px">Cor</label>
                     <input type="color" name="color" class="form-control form-control-color"
-                           value="<?= e($editTag['color'] ?? '#6c757d') ?>" style="width:46px;height:38px;padding:2px;cursor:pointer">
+                           value="<?= e($editTag['color'] ?? '#5b6472') ?>" style="width:46px;height:38px;padding:2px;cursor:pointer">
                 </div>
                 <div>
                     <?php if ($editTag): ?>
@@ -84,8 +84,9 @@ $isEditSubject = !empty($editSubject);
             <?php else: ?>
                 <div class="lib-grid-tags">
                     <?php foreach ($tags as $t): ?>
+                        <?php [$tagBg, $tagFg] = readable_pair($t['color'] ?? '#5b6472'); ?>
                         <div class="tag-row" style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:8px 12px;border:1px solid var(--border-color);border-radius:8px;transition:all 0.2s">
-                            <span class="tag-pill" style="display:inline-flex;align-items:center;padding:4px 14px;border-radius:12px;font-size:12px;font-weight:600;background:<?= e($t['color']) ?>;color:#fff;">
+                            <span class="tag-pill" style="display:inline-flex;align-items:center;padding:4px 14px;border-radius:12px;font-size:12px;font-weight:600;background:<?= e($tagBg) ?>;color:<?= e($tagFg) ?>;">
                                 <?= e($t['name']) ?>
                             </span>
                             <div style="display:flex;gap:4px">

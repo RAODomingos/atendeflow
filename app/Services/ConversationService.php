@@ -24,7 +24,9 @@ class ConversationService
             'contact_id' => $contact['id'],
             'channel_id' => $channelId,
             'department_id' => $departmentId,
-            'inbox_id' => \App\Models\Inbox::resolveInboxForChannel($channelId),
+            // Perfil de SLA da equipe que vai atender. A conversa NÃO fica
+            // presa à caixa: quem a roteia é o departamento.
+            'inbox_id' => \App\Models\Inbox::resolveProfileFor($channelId, $departmentId),
             'subject' => $subject,
             'status' => 'new',
             'source' => $contactData['source'] ?? 'webchat',
@@ -67,9 +69,12 @@ class ConversationService
 
         if ($type !== 'internal_note') {
             $conv = Conversation::find($conversationId);
+            // Conversa de grupo não tem dono: o alerta é a MENÇÃO no grupo.
+            // Responder no grupo não "pega" a conversa para o atendente.
+            $isGroup = !empty($conv['group_id']);
 
             // Auto-assign to the agent if conversation was unassigned
-            if (empty($conv['assigned_user_id'])) {
+            if (!$isGroup && empty($conv['assigned_user_id'])) {
                 Conversation::update($conversationId, [
                     'assigned_user_id' => $userId,
                 ]);
@@ -78,8 +83,10 @@ class ConversationService
                 ]);
             }
 
-            // Mark as being attended (Em atendimento)
-            $data['status'] = 'waiting_customer';
+            // Mark as being attended (Em atendimento).
+            // Conversa de grupo fica sempre "em aberto": o grupo não
+            // "termina" a atendimento, a menção é que avisa a equipe.
+            $data['status'] = $isGroup ? 'open' : 'waiting_customer';
 
             // Parar fluxo ativo quando atendente responder.
             // applyAbertoTag=false: a tag "Fluxo" some e NÃO vira "Aberto"
@@ -166,9 +173,15 @@ class ConversationService
         // Reabre conversa finalizada em nova mensagem do cliente (exceto spam).
         // Com responsável: vai para "Em atendimento" (waiting_customer);
         // sem responsável: volta para "Novo". Consistente com WebChatController.
+        // Conversa de grupo é outra coisa: fica sempre "em aberto".
         $isSpam = ($conv['status'] ?? '') === 'spam';
         if ($isSpam) {
             Conversation::update($conversationId, [
+                'last_message_at' => date('Y-m-d H:i:s'),
+            ]);
+        } elseif (!empty($conv['group_id'])) {
+            Conversation::update($conversationId, [
+                'status' => 'open',
                 'last_message_at' => date('Y-m-d H:i:s'),
             ]);
         } else {
@@ -257,12 +270,9 @@ class ConversationService
             $data['department_id'] = $departmentId;
             $dept = \App\Models\Department::find($departmentId);
             $description .= " para departamento " . ($dept['name'] ?? ('#' . $departmentId));
-            // Trocou de setor sem caixa explícita: acompanha a caixa do setor.
+            // Trocou de setor: o perfil de SLA acompanha o novo time.
             if (!$inboxId && (int) $departmentId !== (int) $prevDept) {
-                $resolved = \App\Models\Inbox::resolveInboxForDepartment(
-                    (int) $departmentId,
-                    isset($prev['inbox_id']) ? (int) $prev['inbox_id'] : null
-                );
+                $resolved = \App\Models\Inbox::resolveProfileForDepartment((int) $departmentId);
                 if ($resolved && $resolved !== (int) ($prev['inbox_id'] ?? 0)) {
                     $data['inbox_id'] = $resolved;
                     $newInbox = \App\Models\Inbox::find($resolved);
@@ -273,16 +283,40 @@ class ConversationService
 
         if ($userId) {
             $data['assigned_user_id'] = $userId;
-            $data['status'] = 'open';
             $description .= " para usuário #{$userId}";
         } else {
             $data['assigned_user_id'] = null;
-            $data['status'] = 'new';
             $description .= " (sem responsável)";
         }
 
+        // Transferência devolve a conversa para a fila do setor de destino:
+        // ela entra em "Aguardando" como NOVA, mesmo quando alguém foi
+        // escolhido como responsável. É o mesmo estado de uma conversa
+        // que acabou de chegar ou que saiu do bot — o atendimento é
+        // reiniciado no destino (manual e macro passam por aqui).
+        // Conversa de grupo não tem fila: continua "em aberto".
+        $data['status'] = !empty($prev['group_id']) ? 'open' : 'new';
+
         Conversation::update($conversationId, $data);
         Conversation::addEvent($conversationId, 'transferred', $description, Auth::id());
+
+        // Conversa de grupo: a caixa escolhida passa a ser a do grupo.
+        // Sem isso, a mensagem seguinte devolveria a conversa para a caixa
+        // antiga (o espelhamento usa a caixa do grupo) e o sino de menção
+        // continuaria avisando a equipe da caixa anterior.
+        if (!empty($prev['group_id']) && !empty($data['inbox_id'])) {
+            try {
+                \App\Models\WhatsAppGroup::setInbox((int) $prev['group_id'], (int) $data['inbox_id']);
+                Conversation::addEvent(
+                    $conversationId,
+                    'group_inbox_changed',
+                    'Caixa do grupo alterada para #' . (int) $data['inbox_id'],
+                    Auth::id()
+                );
+            } catch (\Throwable $e) {
+                error_log('transfer group inbox sync error: ' . $e->getMessage());
+            }
+        }
 
         // Trocou de departamento: permite nova validação de horário do destino.
         if ($departmentId && (int) $departmentId !== (int) $prevDept) {
@@ -321,9 +355,12 @@ class ConversationService
         $old = $conv['status'] ?? null;
 
         // Conversas de grupo WhatsApp são permanentes: não podem ser
-        // encerradas/fechadas/spam (só histórico + menções).
-        if (!empty($conv['group_id']) && in_array($status, ['resolved', 'closed', 'spam'], true)) {
-            throw new \RuntimeException('Conversas de grupo não podem ser encerradas ou fechadas.');
+        // encerradas/fechadas/spam (só histórico + menções) e ficam sempre
+        // "em aberto" — não existe "aguardando cliente" nem "novo" no grupo.
+        if (!empty($conv['group_id'])) {
+            if ($status !== 'open') {
+                throw new \RuntimeException('Conversas de grupo ficam sempre em aberto.');
+            }
         }
 
         $data = ['status' => $status];

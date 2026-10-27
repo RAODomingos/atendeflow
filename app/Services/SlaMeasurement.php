@@ -70,14 +70,22 @@ class SlaMeasurement
         string $now,
         array $opts = []
     ): array {
-        // Conversa de grupo de WhatsApp: permanente, sem objeto de SLA.
+        // Conversa de grupo de WhatsApp: o objeto de SLA é a MENÇÃO
+        // (da marcação até a 1ª resposta), não a 1ª mensagem do cliente.
         if (!empty($conv['group_id'])) {
-            return [];
+            return self::measureGroup($conv, $messages, $timeline, $schedule, $scheduleTz, $now, $opts);
         }
 
         $appTz = (string) ($opts['app_tz'] ?? date_default_timezone_get());
         $responseThreshold = (int) ($opts['response_threshold'] ?? 0);
         $resolutionThreshold = (int) ($opts['resolution_threshold'] ?? 0);
+        // Limite do alerta de "cliente sem resposta". Sem valor próprio,
+        // herda o limite de 1ª resposta (mesma semântica: tempo que o
+        // cliente fica esperando por uma resposta).
+        $pendingThreshold = (int) ($opts['pending_threshold'] ?? 0);
+        if ($pendingThreshold <= 0) {
+            $pendingThreshold = $responseThreshold;
+        }
 
         $nowAt = self::parse($now, $appTz) ?? new \DateTimeImmutable('now', self::tz($appTz));
         $closedAt = self::parse($conv['closed_at'] ?? null, $appTz);
@@ -96,6 +104,7 @@ class SlaMeasurement
         $firstInbound = null;
         $firstReply = null;
         $waitStart = null;   // 1ª mensagem do cliente desde a última resposta
+        $waitStartId = 0;    // id dessa mensagem (âncora do ciclo pendente)
         $periods = [];       // [inicio, fim] com a bola com a gente
         $periodStartedAt = null;
 
@@ -114,6 +123,7 @@ class SlaMeasurement
                     // ancora a espera: se ele insiste, a espera não recomeça
                     // (senão o intervalo entre a 1ª e a última se perde).
                     $waitStart = $at;
+                    $waitStartId = (int) ($m['id'] ?? 0);
                 }
                 continue;
             }
@@ -140,8 +150,31 @@ class SlaMeasurement
             $periodStartedAt = $waitStart->format('Y-m-d H:i:s');
         }
 
+        // ── Ciclo de resposta pendente ────────────────────────────
+        // A mensagem do cliente que está sem resposta AGORA (a 1ª desde a
+        // última resposta nossa). É a âncora do alerta de "cliente sem
+        // resposta": o alerta é por MENSAGEM, não por conversa — assim
+        // uma conversa já atendida que o cliente reativa volta a ter
+        // alerta quando ninguém responde de novo.
+        $pendingMessageId = $waitStartId;
+        $pendingSeconds = null;
+        $pendingBreached = false;
+
         // Status vigente antes da primeira mudança registrada: o da conversa.
         $fallbackStatus = (string) ($conv['status'] ?? '');
+
+        if ($waitStart !== null) {
+            $pendingSeconds = self::countWithPause(
+                $schedule,
+                $scheduleTz,
+                $appTz,
+                $waitStart,
+                $closedAt ?? $nowAt,
+                $timeline,
+                $fallbackStatus
+            );
+            $pendingBreached = !$isFinal && $pendingSeconds >= $pendingThreshold;
+        }
 
         // ── SLA de primeira resposta ───────────────────────────────
         $responseSeconds = null;
@@ -224,6 +257,10 @@ class SlaMeasurement
             'resolution_breached' => $resolutionBreached,
             'resolution_threshold' => $resolutionThreshold,
             'period_started_at' => $periodStartedAt,
+            'pending_message_id' => $pendingMessageId,
+            'pending_seconds' => $pendingSeconds,
+            'pending_breached' => $pendingBreached,
+            'pending_threshold' => $pendingThreshold,
         ];
     }
 
@@ -290,25 +327,118 @@ class SlaMeasurement
     }
 
     /**
+     * SLA de grupo: o que importa é a MENÇÃO.
+     *
+     * O tráfego do grupo é contínuo e ninguém "tem a bola" — medir a 1ª
+     * resposta do grupo não faria sentido. O relógio que importa começa
+     * quando alguém marca o número da conexão (ou @todos) e para na 1ª
+     * resposta humana depois da marcação.
+     *
+     * Uma menção nova depois da resposta reinicia o relógio (cada menção
+     * tem a sua): o alerta é por menção, não por conversa.
+     *
+     * @return array [] quando o grupo nunca recebeu menção (sem objeto de SLA)
+     */
+    private static function measureGroup(
+        array $conv,
+        array $messages,
+        array $timeline,
+        ?array $schedule,
+        string $scheduleTz,
+        string $now,
+        array $opts
+    ): array {
+        $appTz = (string) ($opts['app_tz'] ?? date_default_timezone_get());
+        $threshold = (int) ($opts['mention_threshold'] ?? 0);
+        $nowAt = self::parse($now, $appTz) ?? new \DateTimeImmutable('now', self::tz($appTz));
+        $isFinal = !empty($conv['closed_at'])
+            || in_array((string) ($conv['status'] ?? ''), self::FINAL_STATUSES, true);
+
+        // Última menção recebida (mensagem marcada no webhook).
+        $mentionAt = null;
+        $mentionId = 0;
+        foreach ($messages as $m) {
+            if (($m['direction'] ?? '') !== 'inbound' || empty($m['is_mention'])) {
+                continue;
+            }
+            $at = self::parse($m['created_at'] ?? null, $appTz);
+            if ($at === null) {
+                continue;
+            }
+            $mentionAt = $at;
+            $mentionId = (int) ($m['id'] ?? 0);
+        }
+
+        if ($mentionAt === null) {
+            return []; // grupo sem menção: nada a medir
+        }
+
+        // 1ª resposta humana depois da última menção.
+        $replyAt = null;
+        foreach ($messages as $m) {
+            if (!self::isHumanReply($m)) {
+                continue;
+            }
+            $at = self::parse($m['created_at'] ?? null, $appTz);
+            if ($at === null || $at <= $mentionAt) {
+                continue;
+            }
+            $replyAt = $at;
+            break;
+        }
+
+        $closedAt = self::parse($conv['closed_at'] ?? null, $appTz);
+        $end = $replyAt ?? ($isFinal ? ($closedAt ?? $mentionAt) : null);
+        $seconds = self::countWithPause(
+            $schedule,
+            $scheduleTz,
+            $appTz,
+            $mentionAt,
+            $end ?? $nowAt,
+            $timeline,
+            (string) ($conv['status'] ?? '')
+        );
+
+        return [
+            'sla_kind' => 'group_mention',
+            // A 1ª resposta "clássica" não existe em grupo: o dado vive no
+            // ciclo da menção (pending_*), o que também mantém o relatório
+            // de compliance sem misturar grupo com atendimento 1:1.
+            'response_seconds' => null,
+            'response_at' => null,
+            'response_breached' => false,
+            'response_threshold' => null,
+            'resolution_seconds' => 0,
+            'resolution_breached' => false,
+            'resolution_threshold' => null,
+            'period_started_at' => null,
+            'pending_message_id' => $mentionId,
+            'pending_seconds' => $seconds,
+            'pending_breached' => $threshold > 0 && $seconds >= $threshold,
+            'pending_threshold' => $threshold,
+            'mention_answered' => $replyAt !== null,
+        ];
+    }
+
+    /**
      * Mede os dois SLAs de uma conversa a partir do banco.
      *
      * Não grava nada: quem decide o que fazer com o resultado é o worker
      * (que chama saveMeasurement).
      *
-     * @return array|null null quando a conversa não tem objeto de SLA
-     *         (grupo de WhatsApp) ou não existe.
+     * @return array|null null quando a conversa não existe
      */
     public static function forConversation(int $conversationId, ?string $now = null): ?array
     {
         $conv = \App\Models\Conversation::find($conversationId);
-        if (!$conv || !empty($conv['group_id'])) {
+        if (!$conv) {
             return null;
         }
 
         $db = \App\Core\Database::getInstance();
 
         $messages = $db->fetchAll(
-            "SELECT id, direction, type, user_id, created_at
+            "SELECT id, direction, type, user_id, created_at, is_mention
              FROM messages WHERE conversation_id = ? ORDER BY id",
             [$conversationId]
         );
@@ -330,6 +460,20 @@ class SlaMeasurement
             ?? \App\Models\Setting::get('sla_response_minutes', '15'));
         $resolutionMinutes = (int) ($cfg['resolution_minutes']
             ?? \App\Models\Setting::get('sla_resolution_minutes', '1440'));
+        // Limite do alerta de "cliente sem resposta". Vazio = herda o
+        // limite de 1ª resposta.
+        $pendingMinutes = (int) ($cfg['pending_response_minutes']
+            ?? \App\Models\Setting::get('sla_pending_response_minutes', '0'));
+        if ($pendingMinutes <= 0) {
+            $pendingMinutes = $responseMinutes;
+        }
+        // Limite do SLA da MENÇÃO em grupo. Vazio = herda o limite de 1ª
+        // resposta (mesma régua: tempo que a bola fica com a gente).
+        $mentionMinutes = (int) ($cfg['group_mention_minutes']
+            ?? \App\Models\Setting::get('sla_group_mention_minutes', '0'));
+        if ($mentionMinutes <= 0) {
+            $mentionMinutes = $responseMinutes;
+        }
 
         // Ciclo reiniciado por reabertura: as mensagens anteriores ficam de fora.
         $cycleStartedAt = null;
@@ -351,6 +495,8 @@ class SlaMeasurement
             [
                 'response_threshold' => $responseMinutes * 60,
                 'resolution_threshold' => $resolutionMinutes * 60,
+                'pending_threshold' => $pendingMinutes * 60,
+                'mention_threshold' => $mentionMinutes * 60,
                 'cycle_started_at' => $cycleStartedAt,
                 'app_tz' => date_default_timezone_get(),
             ]
@@ -432,6 +578,7 @@ class SlaMeasurement
         }
 
         \App\Models\ConversationSla::save($conversationId, [
+            'sla_kind' => $measurement['sla_kind'] ?? 'standard',
             'response_seconds' => $measurement['response_seconds'] ?? null,
             'response_at' => $measurement['response_at'] ?? null,
             'response_breached' => !empty($measurement['response_breached']) ? 1 : 0,
@@ -440,6 +587,10 @@ class SlaMeasurement
             'resolution_breached' => !empty($measurement['resolution_breached']) ? 1 : 0,
             'resolution_threshold' => $measurement['resolution_threshold'] ?? null,
             'period_started_at' => $measurement['period_started_at'] ?? null,
+            'pending_message_id' => $measurement['pending_message_id'] ?? null,
+            'pending_seconds' => $measurement['pending_seconds'] ?? null,
+            'pending_breached' => !empty($measurement['pending_breached']) ? 1 : 0,
+            'pending_threshold' => $measurement['pending_threshold'] ?? null,
             'metadata' => $meta,
         ]);
     }

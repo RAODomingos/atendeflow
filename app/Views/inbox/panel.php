@@ -202,17 +202,9 @@ $renderReceipts = function (array $msg) {
                         <?= e($contact['name'] ?? 'Contato') ?>
                     </div>
                     <div class="chat-title-meta">
-                        <span class="meta-tag"><i class="<?= channel_icon($conv['channel_type'] ?? 'webchat') ?>" style="font-size:11px"></i> <?= e($conv['channel_name'] ?? '') ?></span>
                         <?php if (!empty($conv['protocol'])): ?>
-                            <span class="meta-sep">·</span>
                             <span class="meta-tag" title="Protocolo do atendimento" style="font-weight:700">
                                 <i class="fas fa-hashtag" style="font-size:10px"></i> <?= e(format_protocol($conv['protocol'])) ?>
-                            </span>
-                        <?php endif; ?>
-                        <?php if (!empty($conv['department_name'])): ?>
-                            <span class="meta-sep">·</span>
-                            <span class="meta-tag" style="color:<?= e($conv['department_color'] ?? '#666') ?>;font-weight:700">
-                                <i class="fas fa-building" style="font-size:10px"></i> <?= e($conv['department_name']) ?>
                             </span>
                         <?php endif; ?>
                         <?php if (!empty($conv['assigned_user_name'])): ?>
@@ -238,7 +230,7 @@ $renderReceipts = function (array $msg) {
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="color:var(--text-muted);flex-shrink:0;margin-left:6px"><path d="M9 18l6-6-6-6"/></svg>
             </button>
             <?php if (empty($contact['stores']) && empty($conv['group_id'])): ?>
-            <input type="text" id="convUnitInput" style="font-size:12px;padding:4px 8px;border:1px solid var(--brand);border-radius:6px;outline:none;width:160px" value="<?= e($conv['unit'] ?? '') ?>" placeholder="Unidade" onblur="saveUnit(this.value)" onkeydown="if(event.key==='Enter')saveUnit(this.value);if(event.key==='Escape')cancelUnitEdit()">
+            <input type="text" id="convUnitInput" style="font-size:12px;padding:4px 8px;border:1px solid var(--brand);border-radius:6px;outline:none;width:160px;max-width:100%" value="<?= e($conv['unit'] ?? '') ?>" placeholder="Unidade" onblur="saveUnit(this.value)" onkeydown="if(event.key==='Enter')saveUnit(this.value);if(event.key==='Escape')cancelUnitEdit()">
             <?php endif; ?>
         </div>
         <div class="chat-header-right">
@@ -247,10 +239,12 @@ $renderReceipts = function (array $msg) {
             $scls = $conv['status'] === 'open' || $conv['status'] === 'new' ? 'chip-success' : ($conv['status'] === 'waiting_customer' ? 'chip-info' : ($conv['status'] === 'resolved' || $conv['status'] === 'closed' ? 'chip-neutral' : 'chip-warning'));
             $sdot = $conv['status'] === 'open' || $conv['status'] === 'new' ? 'var(--success)' : ($conv['status'] === 'waiting_customer' ? 'var(--info)' : ($conv['status'] === 'resolved' || $conv['status'] === 'closed' ? 'var(--text-muted)' : 'var(--warning)'));
             $sicon = $conv['status'] === 'waiting_customer' ? 'fa-headset' : ($conv['status'] === 'new' ? 'fa-bell' : ($conv['status'] === 'open' ? 'fa-comments' : ($conv['status'] === 'resolved' ? 'fa-check-circle' : ($conv['status'] === 'closed' ? 'fa-archive' : ($conv['status'] === 'spam' ? 'fa-ban' : 'fa-clock')))));
+            // Conversa de grupo fica sempre "em aberto": o status não muda.
+            $isGroupConv = !empty($conv['group_id']);
             ?>
-            <span class="status-chip header-chip-status <?= $scls ?>" onclick="openStatusModal()" title="Clique para alterar status">
-                <i class="fas <?= $sicon ?>" style="font-size:11px"></i>
-                <span class="chip-text"><?= e($slabels[$conv['status']] ?? $conv['status']) ?></span>
+            <span class="status-chip header-chip-status <?= $scls ?>" <?= $isGroupConv ? '' : 'onclick="openStatusModal()" title="Clique para alterar status"' ?> title="<?= $isGroupConv ? 'Conversa de grupo: fica sempre em aberto' : 'Clique para alterar status' ?>">
+                <i class="fas <?= $isGroupConv ? 'fa-users' : $sicon ?>" style="font-size:11px"></i>
+                <span class="chip-text"><?= $isGroupConv ? 'Em aberto' : e($slabels[$conv['status']] ?? $conv['status']) ?></span>
             </span>
             <button type="button" class="header-chip header-chip-subject <?= empty($conv['subject']) ? 'is-empty' : '' ?>" onclick="openSubjectModal()" title="Clique para selecionar o assunto">
                 <i class="fas fa-tag"></i>
@@ -265,6 +259,28 @@ $renderReceipts = function (array $msg) {
             <?php
             // Chip de SLA: 1ª resposta (a acionável) e resolução no title.
             $slaRow = \App\Models\ConversationSla::summaryForConversation((int) $conv['id']);
+            if (!$slaRow) {
+                // Conversa ainda não medida (o worker grava a linha): sem
+                // fallback o chip ficaria cego ("SLA —") e a fila de
+                // chegada jamais mostraria o estado "estourado". Mede ao
+                // vivo, em memória, sem gravar nada.
+                $live = \App\Services\SlaMeasurement::forConversation((int) $conv['id']);
+                if ($live) {
+                    $slaRow = [
+                        'sla_kind' => $live['sla_kind'] ?? 'standard',
+                        'response_seconds' => $live['response_seconds'] ?? null,
+                        'response_at' => $live['response_at'] ?? null,
+                        'response_breached' => !empty($live['response_breached']),
+                        'response_threshold' => $live['response_threshold'] ?? null,
+                        'resolution_seconds' => $live['resolution_seconds'] ?? 0,
+                        'resolution_breached' => !empty($live['resolution_breached']),
+                        'resolution_threshold' => $live['resolution_threshold'] ?? null,
+                        'pending_seconds' => $live['pending_seconds'] ?? null,
+                        'pending_breached' => !empty($live['pending_breached']),
+                        'pending_threshold' => $live['pending_threshold'] ?? null,
+                    ];
+                }
+            }
             $slaHuman = function ($sec): string {
                 if ($sec === null) return '—';
                 $sec = (int) $sec;
@@ -274,13 +290,31 @@ $renderReceipts = function (array $msg) {
                 $m = intdiv($sec % 3600, 60);
                 return $m > 0 ? $h . 'h' . $m : $h . 'h';
             };
-            $slaRespSec = $slaRow['response_seconds'] ?? null;
-            $slaRespLimit = (int) ($slaRow['response_threshold'] ?? 0);
-            $slaRespDone = !empty($slaRow['response_at']);
-            $slaRespBreach = !empty($slaRow['response_breached']);
-            $slaResSec = (int) ($slaRow['resolution_seconds'] ?? 0);
-            $slaResLimit = (int) ($slaRow['resolution_threshold'] ?? 0);
-            $slaResBreach = !empty($slaRow['resolution_breached']);
+            $isGroupSla = ($slaRow['sla_kind'] ?? '') === 'group_mention';
+            if ($isGroupSla) {
+                // Em grupo o objeto do SLA é a MENÇÃO: o relógio vai da
+                // marcação até a 1ª resposta.
+                $slaRespSec = $slaRow['pending_seconds'] ?? null;
+                $slaRespLimit = (int) ($slaRow['pending_threshold'] ?? 0);
+                $slaRespDone = false;
+                $slaRespBreach = !empty($slaRow['pending_breached']);
+                $slaResSec = 0;
+                $slaResLimit = 0;
+                $slaResBreach = false;
+                $slaTitle = 'SLA da menção em grupo: '
+                    . ($slaRespSec === null ? 'sem menção pendente' : $slaHuman($slaRespSec) . ($slaRespLimit ? ' de ' . $slaHuman($slaRespLimit) : ''));
+            } else {
+                $slaRespSec = $slaRow['response_seconds'] ?? null;
+                $slaRespLimit = (int) ($slaRow['response_threshold'] ?? 0);
+                $slaRespDone = !empty($slaRow['response_at']);
+                $slaRespBreach = !empty($slaRow['response_breached']);
+                $slaResSec = (int) ($slaRow['resolution_seconds'] ?? 0);
+                $slaResLimit = (int) ($slaRow['resolution_threshold'] ?? 0);
+                $slaResBreach = !empty($slaRow['resolution_breached']);
+                $slaTitle = 'SLA de 1ª resposta: '
+                    . ($slaRespSec === null ? 'sem resposta ainda' : $slaHuman($slaRespSec) . ($slaRespLimit ? ' de ' . $slaHuman($slaRespLimit) : ''))
+                    . ' · SLA de resolução: ' . $slaHuman($slaResSec) . ($slaResLimit ? ' de ' . $slaHuman($slaResLimit) : '');
+            }
             if ($slaRespBreach) {
                 $slaColor = '#dc2626';
             } elseif ($slaRespSec !== null && $slaRespLimit > 0 && $slaRespSec >= $slaRespLimit * 0.6) {
@@ -288,9 +322,6 @@ $renderReceipts = function (array $msg) {
             } else {
                 $slaColor = '#16a34a';
             }
-            $slaTitle = 'SLA de 1ª resposta: '
-                . ($slaRespSec === null ? 'sem resposta ainda' : $slaHuman($slaRespSec) . ($slaRespLimit ? ' de ' . $slaHuman($slaRespLimit) : ''))
-                . ' · SLA de resolução: ' . $slaHuman($slaResSec) . ($slaResLimit ? ' de ' . $slaHuman($slaResLimit) : '');
             ?>
             <span class="header-chip header-chip-sla" title="<?= e($slaTitle) ?>">
                 <i class="fas fa-stopwatch" style="color:<?= $slaColor ?>"></i>
@@ -367,7 +398,8 @@ $renderReceipts = function (array $msg) {
     <div class="conv-header-tags" id="convHeaderTags">
         <?php if (!empty($conv['tags'])): ?>
             <?php foreach ($conv['tags'] as $tag): ?>
-                <span class="conv-tag" data-tag-id="<?= $tag['id'] ?>" style="background:<?= e($tag['color'] ?? '#e9ecef') ?>;color:<?= e(contrast_color($tag['color'] ?? '#e9ecef')) ?>">
+                <?php [$tagBg, $tagFg] = readable_pair($tag['color'] ?? '#e9ecef'); ?>
+                <span class="conv-tag" data-tag-id="<?= $tag['id'] ?>" style="background:<?= e($tagBg) ?>;color:<?= e($tagFg) ?>">
                     <?= e($tag['name']) ?>
                 </span>
             <?php endforeach; ?>
@@ -625,7 +657,8 @@ $renderReceipts = function (array $msg) {
 .contact-card { display: flex; align-items: center; gap: 10px; background: #f0f7ff; border: 1px solid #cfe3ff; border-radius: 10px; padding: 10px 12px; max-width: 280px; }
 .contact-card-icon { font-size: 28px; color: #0b5ed7; }
 .contact-card-info { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: #1a1a1a; }
-.contact-card-info a { color: #0b5ed7; }
+.contact-card-info a { color: #0b5ed7; display:inline-flex; align-items:center; min-height:24px; padding:2px 4px; border-radius:4px; }
+.contact-card-info a[href^="https://wa.me"] { width:28px; min-width:28px; justify-content:center; font-size:15px; }
 .contact-chat-btn { align-self: flex-start; border: 1px solid #0b5ed7; background: #0b5ed7; color: #fff; border-radius: 8px; padding: 4px 10px; font-size: 12px; cursor: pointer; }
 .contact-chat-btn:hover { background: #0949ad; }
 </style>
@@ -638,7 +671,7 @@ $renderReceipts = function (array $msg) {
         <div style="padding:14px 16px;overflow-y:auto">
             <input type="text" id="contactSearch" class="form-control" placeholder="Buscar contato por nome ou telefone..." onkeyup="filterContactSuggest()">
             <div id="contactList" style="margin-top:10px;display:flex;flex-direction:column;gap:8px"></div>
-            <p style="margin:12px 0 0;font-size:12px;color:#6c757d">Envia o cartão do contato da base como mensagem.</p>
+            <p style="margin:12px 0 0;font-size:12px;color:#5b6472">Envia o cartão do contato da base como mensagem.</p>
         </div>
     </div>
 </div>
@@ -719,22 +752,24 @@ function initTagManager(convId) {
     var tagCount = document.getElementById('convTagCount');
     var createInput = document.getElementById('tagCreateInput');
     var createBtn = document.getElementById('tagCreateBtn');
-    var allTags = <?= json_encode(array_map(function($t) { return ['id' => (int)$t['id'], 'name' => $t['name'], 'color' => $t['color'] ?? '#6c757d']; }, $allTags)) ?>;
+    var allTags = <?= json_encode(array_map(function($t) { return ['id' => (int)$t['id'], 'name' => $t['name'], 'color' => $t['color'] ?? '#5b6472']; }, $allTags)) ?>;
 
     function contrast(c) {
-        var h = c.replace('#','');
-        if (h.length===3) h = h[0]+h[0]+h[1]+h[1]+h[2]+h[2];
-        var r=parseInt(h.substr(0,2),16), g=parseInt(h.substr(2,2),16), b=parseInt(h.substr(4,2),16);
-        return (0.299*r+0.587*g+0.114*b)/255 > 0.5 ? '#1a1a2e' : '#fff';
+        // Par (fundo, texto) com contraste garantido — o fundo é escurecido
+        // quando nem branco nem escuro passariam de 4,5:1.
+        var p = window.OminiColor ? window.OminiColor.readablePair(c) : [c, '#ffffff'];
+        return { bg: p[0], fg: p[1] };
     }
 
     function tagHtml(t) {
-        return '<span class="conv-tag-modern applied" data-tag-id="'+t.id+'" style="background:'+t.color+';color:'+contrast(t.color)+'">' +
+        var c = contrast(t.color);
+        return '<span class="conv-tag-modern applied" data-tag-id="'+t.id+'" style="background:'+c.bg+';color:'+c.fg+'">' +
             t.name + ' <button type="button" class="tag-remove-btn" data-tag-id="'+t.id+'" title="Remover">&times;</button></span>';
     }
 
     function headerTagHtml(t) {
-        return '<span class="conv-tag" data-tag-id="'+t.id+'" style="background:'+t.color+';color:'+contrast(t.color)+'">'+t.name+'</span>';
+        var c = contrast(t.color);
+        return '<span class="conv-tag" data-tag-id="'+t.id+'" style="background:'+c.bg+';color:'+c.fg+'">'+t.name+'</span>';
     }
 
     function gridItemHtml(t, applied) {
@@ -802,7 +837,7 @@ function initTagManager(convId) {
         var items = tagList.querySelectorAll('.conv-tag-modern.applied');
         return Array.from(items).map(function(el) {
             var id = parseInt(el.dataset.tagId, 10);
-            return allTags.find(function(t){return t.id===id}) || {id:id, name:'?', color:'#6c757d'};
+            return allTags.find(function(t){return t.id===id}) || {id:id, name:'?', color:'#5b6472'};
         }).filter(Boolean);
     }
 
@@ -822,7 +857,7 @@ function initTagManager(convId) {
             createBtn.textContent = '...';
             postJson('/inbox/'+convId+'/tags', { tag_name: name }).then(function(resp) {
                 if (resp.success !== false && resp.tag_id) {
-                    var newTag = { id: resp.tag_id, name: name, color: resp.color || '#6c757d' };
+                    var newTag = { id: resp.tag_id, name: name, color: resp.color || '#5b6472' };
                     allTags.push(newTag);
                     var cur = getCurrentTags();
                     cur.push(newTag);
@@ -893,8 +928,6 @@ function closeCannedModal() { document.getElementById('cannedModal').style.displ
 function openMacroModal() { document.getElementById('macroModal').style.display = 'flex'; loadMacros(); }
 function closeMacroModal() { document.getElementById('macroModal').style.display = 'none'; }
 function closeEditModal() { document.getElementById('editModal').style.display = 'none'; }
-function openContactEditModal() { document.getElementById('contactEditModal').style.display = 'flex'; }
-function closeContactEditModal() { document.getElementById('contactEditModal').style.display = 'none'; }
 
 /* ---------- Modais de Assunto, Prioridade e Sub-status (chips) ---------- */
 function openSubjectModal() {
@@ -1246,36 +1279,16 @@ function cancelUnitEdit() {
     d.style.display = 'inline-block';
 }
 if (document.getElementById('convUnitNetwork')) unitLoadStores();
-function submitContactEdit(e) {
-    e.preventDefault();
-    var form = document.getElementById('contactEditForm');
-    var btn = document.getElementById('contactEditBtn');
-    btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Salvando...';
-    var fd = new FormData(form);
-    fetch(form.action, {
-        method: 'POST',
-        headers: { 'X-Requested-With': 'XMLHttpRequest' },
-        body: fd
-    }).then(function(r) { return r.json(); }).then(function(resp) {
-        if (resp && resp.success !== false) {
-            closeContactEditModal();
-            toast('Contato atualizado com sucesso');
-            setTimeout(function() { location.reload(); }, 800);
-        } else {
-            toast(resp.error || 'Erro ao atualizar contato');
-        }
-    }).catch(function() {
-        toast('Erro de conexão. Tente novamente.');
-    }).finally(function() {
-        btn.disabled = false; btn.innerHTML = '<i class="fas fa-save"></i> Salvar';
-    });
-    return false;
-}
 document.querySelectorAll('.modal-overlay').forEach(function(m) {
     m.addEventListener('click', function(e) { if (e.target === this) this.style.display = 'none'; });
 });
 document.addEventListener('keydown', function(e) {
     if (e.key === 'Escape') {
+        var cd = document.getElementById('contactDrawer');
+        if (cd && cd.classList.contains('open')) {
+            if (typeof closeContactDrawer === 'function') closeContactDrawer();
+            return;
+        }
         document.querySelectorAll('.modal-overlay').forEach(function(m) { m.style.display = 'none'; });
         toggleClientDrawer(false);
     }
@@ -1438,7 +1451,7 @@ function filterContactSuggest() {
 function escContact(s) { var d = document.createElement('div'); d.textContent = s == null ? '' : s; return d.innerHTML; }
 function loadContactSuggest(q) {
     var box = document.getElementById('contactList'); if (!box) return;
-    box.innerHTML = '<p style="font-size:12px;color:#6c757d">Buscando...</p>';
+    box.innerHTML = '<p style="font-size:12px;color:#5b6472">Buscando...</p>';
     fetch(API + '/contacts/search?q=' + encodeURIComponent(q || ''), { headers: { 'X-Requested-With': 'XMLHttpRequest' } })
         .then(function(r) { return r.json(); })
         .then(function(list) {
@@ -1448,11 +1461,11 @@ function loadContactSuggest(q) {
                 var row = document.createElement('button');
                 row.type = 'button';
                 row.style.cssText = 'display:flex;align-items:center;gap:8px;text-align:left;border:1px solid #eee;border-radius:8px;padding:8px 10px;background:#fff;cursor:pointer;width:100%';
-                row.innerHTML = '<i class="fas fa-address-card" style="color:#6c757d"></i><span><strong>' + escContact(c.name || c.phone) + '</strong><br><small style="color:#6c757d">' + escContact(c.phone) + '</small></span>';
+                row.innerHTML = '<i class="fas fa-address-card" style="color:#5b6472"></i><span><strong>' + escContact(c.name || c.phone) + '</strong><br><small style="color:#5b6472">' + escContact(c.phone) + '</small></span>';
                 row.onclick = (function(id) { return function() { sendContactCard(id); }; })(c.id);
                 box.appendChild(row);
             });
-            if (!box.children.length) box.innerHTML = '<p style="font-size:12px;color:#6c757d">Nenhum contato com telefone encontrado.</p>';
+            if (!box.children.length) box.innerHTML = '<p style="font-size:12px;color:#5b6472">Nenhum contato com telefone encontrado.</p>';
         })
         .catch(function() { box.innerHTML = '<p style="font-size:12px;color:#dc2626">Falha na busca. Tente novamente.</p>'; });
 }
@@ -2050,7 +2063,7 @@ function pollTyping() {
 if (!document.getElementById('composerSuggestStyle')) {
     var __cs = document.createElement('style');
     __cs.id = 'composerSuggestStyle';
-    __cs.textContent = '.composer-suggest{position:absolute;z-index:50;background:#fff;border:1px solid #d0d7de;border-radius:8px;box-shadow:0 6px 20px rgba(0,0,0,.15);max-height:260px;overflow:auto;min-width:240px;display:none}.composer-suggest-item{padding:8px 10px;cursor:pointer;border-bottom:1px solid #f0f0f0}.composer-suggest-item:last-child{border-bottom:none}.composer-suggest-item.active,.composer-suggest-item:hover{background:#f1f5fb}.composer-suggest-item .cs-title{font-weight:600;font-size:13px;color:#222}.composer-suggest-item .cs-preview{font-size:12px;color:#6c757d;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}';
+    __cs.textContent = '.composer-suggest{position:absolute;z-index:50;background:#fff;border:1px solid #d0d7de;border-radius:8px;box-shadow:0 6px 20px rgba(0,0,0,.15);max-height:260px;overflow:auto;min-width:240px;display:none}.composer-suggest-item{padding:8px 10px;cursor:pointer;border-bottom:1px solid #f0f0f0}.composer-suggest-item:last-child{border-bottom:none}.composer-suggest-item.active,.composer-suggest-item:hover{background:#f1f5fb}.composer-suggest-item .cs-title{font-weight:600;font-size:13px;color:#222}.composer-suggest-item .cs-preview{font-size:12px;color:#5b6472;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}';
     document.head.appendChild(__cs);
 }
 var suggestBox = null, suggestItems = [], suggestIndex = -1, suggestTokenStart = -1;
@@ -2576,16 +2589,30 @@ function slaHuman(sec) {
     return m > 0 ? h + 'h' + m : h + 'h';
 }
 function slaChipHtml(c) {
-    var respSec = (c.sla_response_seconds === null || typeof c.sla_response_seconds === 'undefined') ? null : parseInt(c.sla_response_seconds, 10);
-    var respLimit = parseInt(c.sla_response_threshold, 10) || 0;
-    var respDone = !!(c.sla_response_at);
-    var respBreach = parseInt(c.sla_response_breached, 10) === 1;
-    var resSec = parseInt(c.sla_resolution_seconds, 10) || 0;
-    var resLimit = parseInt(c.sla_resolution_threshold, 10) || 0;
+    var isGroup = (c.sla_kind === 'group_mention');
+    var respSec, respLimit, respDone, respBreach, resSec, resLimit, title;
+    if (isGroup) {
+        // Em grupo o objeto do SLA é a MENÇÃO: o relógio vai da marcação
+        // até a 1ª resposta.
+        respSec = (c.sla_pending_seconds === null || typeof c.sla_pending_seconds === 'undefined') ? null : parseInt(c.sla_pending_seconds, 10);
+        respLimit = parseInt(c.sla_pending_threshold, 10) || 0;
+        respDone = false;
+        respBreach = parseInt(c.sla_pending_breached, 10) === 1;
+        resSec = 0;
+        resLimit = 0;
+        title = 'SLA da menção em grupo: ' + (respSec === null ? 'sem menção pendente' : slaHuman(respSec) + (respLimit ? ' de ' + slaHuman(respLimit) : ''));
+    } else {
+        respSec = (c.sla_response_seconds === null || typeof c.sla_response_seconds === 'undefined') ? null : parseInt(c.sla_response_seconds, 10);
+        respLimit = parseInt(c.sla_response_threshold, 10) || 0;
+        respDone = !!(c.sla_response_at);
+        respBreach = parseInt(c.sla_response_breached, 10) === 1;
+        resSec = parseInt(c.sla_resolution_seconds, 10) || 0;
+        resLimit = parseInt(c.sla_resolution_threshold, 10) || 0;
+        title = 'SLA de 1ª resposta: ' + (respSec === null ? 'sem resposta ainda' : slaHuman(respSec) + (respLimit ? ' de ' + slaHuman(respLimit) : ''))
+            + ' · SLA de resolução: ' + slaHuman(resSec) + (resLimit ? ' de ' + slaHuman(resLimit) : '');
+    }
     var color = respBreach ? '#dc2626'
         : (respSec !== null && respLimit > 0 && respSec >= respLimit * 0.6 ? '#f59e0b' : '#16a34a');
-    var title = 'SLA de 1ª resposta: ' + (respSec === null ? 'sem resposta ainda' : slaHuman(respSec) + (respLimit ? ' de ' + slaHuman(respLimit) : ''))
-        + ' · SLA de resolução: ' + slaHuman(resSec) + (resLimit ? ' de ' + slaHuman(resLimit) : '');
     var text = respDone ? 'SLA ok' : 'SLA ' + slaHuman(respSec);
     return '<span class="header-chip header-chip-sla" title="' + title.replace(/"/g, '&quot;') + '">'
         + '<i class="fas fa-stopwatch" style="color:' + color + '"></i>'

@@ -41,7 +41,7 @@
             gap: 8px;
         }
         .demo-info .subtitle {
-            color: #6c757d;
+            color: #5b6472;
             font-size: 14px;
             margin-top: 4px;
         }
@@ -63,7 +63,7 @@
         }
         .demo-preview-card .hint {
             text-align: center;
-            color: #6c757d;
+            color: #5b6472;
         }
         .demo-preview-card .hint i {
             font-size: 40px;
@@ -109,7 +109,7 @@
             font-size: 12px;
             font-weight: 600;
             text-transform: uppercase;
-            color: #6c757d;
+            color: #5b6472;
             margin-bottom: 6px;
             letter-spacing: 0.3px;
         }
@@ -220,7 +220,7 @@
             background: #fff;
             cursor: pointer;
             font-size: 12px;
-            color: #6c757d;
+            color: #5b6472;
             transition: all 0.15s;
         }
         .reset-btn:hover {
@@ -262,7 +262,7 @@
                 <a href="<?= url('channels') ?>" class="back-link">&larr; Voltar para Canais</a>
                 <h1><i class="fas fa-comment-dots" style="color:#4A90D9"></i> <?= e($widget['title']) ?></h1>
                 <p class="subtitle">Pré-visualização ao vivo &mdash; personalize o estilo do chat e veja as alterações em tempo real.</p>
-                <div style="margin-top:12px;display:flex;gap:12px;font-size:13px;color:#6c757d">
+                <div style="margin-top:12px;display:flex;gap:12px;font-size:13px;color:#5b6472">
                     <span><i class="fas fa-fingerprint"></i> <span class="tag"><?= e(truncate($widget['widget_key'], 16)) ?>…</span></span>
                     <?php if ($widget['flow_name']): ?>
                         <span><i class="fas fa-diagram-project"></i> <?= e($widget['flow_name']) ?></span>
@@ -289,16 +289,16 @@
                     <div class="style-group">
                         <label>Cor primária</label>
                         <div class="input-row">
-                            <input type="color" id="sColor" value="#0078d4" oninput="applyStyles()">
-                            <input type="text" id="sColorHex" value="#0078d4" maxlength="7" oninput="syncColor(this.value)">
+                            <input type="color" id="sColor" value="#4f46e5" oninput="applyStyles()">
+                            <input type="text" id="sColorHex" value="#4f46e5" maxlength="7" oninput="syncColor(this.value)">
                         </div>
                     </div>
 
                     <div class="style-group">
                         <label>Cor das mensagens do usuário</label>
                         <div class="input-row">
-                            <input type="color" id="sUserColor" value="#0078d4" oninput="applyStyles()">
-                            <input type="text" id="sUserColorHex" value="#0078d4" maxlength="7" oninput="syncUserColor(this.value)">
+                            <input type="color" id="sUserColor" value="#4f46e5" oninput="applyStyles()">
+                            <input type="text" id="sUserColorHex" value="#4f46e5" maxlength="7" oninput="syncUserColor(this.value)">
                         </div>
                     </div>
 
@@ -348,7 +348,7 @@
                         <label>Tamanho do botão</label>
                         <div class="input-row">
                             <input type="range" id="sSize" min="42" max="64" value="52" oninput="applyStyles()">
-                            <span id="sSizeVal" style="font-size:12px;color:#6c757d;min-width:32px">52px</span>
+                            <span id="sSizeVal" style="font-size:12px;color:#5b6472;min-width:32px">52px</span>
                         </div>
                     </div>
 
@@ -500,10 +500,10 @@ window.ATENDIMENTO_CONFIG = {
     }
 
     function resetStyles() {
-        document.getElementById('sColor').value = '#0078d4';
-        document.getElementById('sColorHex').value = '#0078d4';
-        document.getElementById('sUserColor').value = '#0078d4';
-        document.getElementById('sUserColorHex').value = '#0078d4';
+        document.getElementById('sColor').value = '#4f46e5';
+        document.getElementById('sColorHex').value = '#4f46e5';
+        document.getElementById('sUserColor').value = '#4f46e5';
+        document.getElementById('sUserColorHex').value = '#4f46e5';
         document.getElementById('sBg').value = '#f4f6fb';
         document.getElementById('sBgHex').value = '#f4f6fb';
         document.getElementById('sBorder').value = '#e7eaf1';

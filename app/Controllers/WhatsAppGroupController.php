@@ -20,7 +20,8 @@ class WhatsAppGroupController
     public function index(Request $request): void
     {
         $connectionId = (int) ($request->input('connection') ?? 0);
-        $groups = WhatsAppGroup::allWithDetails($connectionId ?: null);
+        $search = trim((string) ($request->input('search') ?? ''));
+        $groups = WhatsAppGroup::allWithDetails($connectionId ?: null, $search ?: null);
         $connections = WhatsAppConnection::allWithDetails();
 
         View::renderWithLayout('whatsapp/groups', 'main', [
@@ -29,6 +30,7 @@ class WhatsAppGroupController
             'groups' => $groups,
             'connections' => $connections,
             'filterConnection' => $connectionId ?: '',
+            'filterSearch' => $search,
             'inboxes' => Inbox::all(),
             'isManager' => Auth::isManager(),
         ]);
@@ -56,9 +58,95 @@ class WhatsAppGroupController
             'group' => WhatsAppGroup::find($id),
             'connection' => $connection,
             'mentions' => WhatsAppGroup::mentions($id, 100),
+            'members' => WhatsAppGroup::members($id),
+            'membersSyncedAt' => WhatsAppGroup::membersSyncedAt($id),
             'inboxes' => Inbox::all(),
             'isManager' => Auth::isManager(),
             'conversationId' => WhatsAppGroup::openConversationId($id),
+        ]);
+    }
+
+    /**
+     * POST /whatsapp/groups/{id}/monitor — monitora ou arquiva o grupo.
+     *
+     * Arquivado: o grupo continua registrado (nome, JID, histórico já
+     * espelhado), mas deixa de espelhar mensagem na caixa e de disparar
+     * alerta de menção.
+     */
+    public function toggleMonitor(Request $request, int $id): void
+    {
+        $group = WhatsAppGroup::find($id);
+        if (!$group) {
+            View::json(['error' => 'Grupo não encontrado'], 404);
+            return;
+        }
+        $monitored = $request->input('monitored');
+        $monitored = $monitored === null
+            ? (!WhatsAppGroup::isMonitored($group))
+            : ($monitored ? true : false);
+        WhatsAppGroup::setMonitored($id, $monitored);
+        \App\Core\Session::setFlash(
+            'success',
+            $monitored
+                ? 'Grupo monitorado: as mensagens voltam a aparecer na caixa e as menções avisam a equipe.'
+                : 'Grupo arquivado: as mensagens não são mais espelhadas na caixa e as menções não avisam mais.'
+        );
+        $back = $_SERVER['HTTP_REFERER'] ?? null;
+        if ($back && str_starts_with($back, base_url())) {
+            header('Location: ' . $back);
+            exit;
+        }
+        View::redirect(url('whatsapp/groups/' . $id));
+    }
+
+    /**
+     * POST /whatsapp/groups/{id}/topic-window — janela de silêncio (horas)
+     * que abre uma nova conversa para o grupo. 0 = uma conversa só.
+     */
+    public function setTopicWindow(Request $request, int $id): void
+    {
+        if (!WhatsAppGroup::find($id)) {
+            View::json(['error' => 'Grupo não encontrado'], 404);
+            return;
+        }
+        $hours = max(0, min(720, (int) ($request->input('topic_window_hours') ?? 0)));
+        WhatsAppGroup::setTopicWindow($id, $hours);
+        \App\Core\Session::setFlash(
+            'success',
+            $hours > 0
+                ? 'Novo tópico a cada ' . $hours . 'h de silêncio no grupo.'
+                : 'O grupo volta a usar uma única conversa.'
+        );
+        $back = $_SERVER['HTTP_REFERER'] ?? null;
+        if ($back && str_starts_with($back, base_url())) {
+            header('Location: ' . $back);
+            exit;
+        }
+        View::redirect(url('whatsapp/groups/' . $id));
+    }
+
+    /**
+     * POST /whatsapp/groups/{id}/refresh-members — busca a lista de
+     * participantes no provedor e guarda em cache (o autocomplete de
+     * @menção usa o cache em vez de chamar o provedor a cada troca).
+     */
+    public function refreshMembers(Request $request, int $id): void
+    {
+        $group = WhatsAppGroup::find($id);
+        if (!$group) {
+            View::json(['error' => 'Grupo não encontrado'], 404);
+            return;
+        }
+        $members = (new WhatsAppService())->fetchGroupMembersForDisplay($id);
+        if ($members === null) {
+            View::json(['error' => 'Lista de participantes indisponível no momento'], 502);
+            return;
+        }
+        WhatsAppGroup::saveMembers($id, $members);
+        View::json([
+            'members' => $members,
+            'fetched_at' => date('c'),
+            'cached_at' => date('Y-m-d H:i:s'),
         ]);
     }
 

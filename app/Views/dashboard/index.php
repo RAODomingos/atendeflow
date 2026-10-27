@@ -42,8 +42,8 @@ $resArea  = $padL . ',' . $baseY . ' ' . $resLine . ' ' . ($padL + ($n - 1) * $s
 // ---------- Donut (status ativos) ----------
 $donutR = 62; $donutC = 2 * M_PI * $donutR;
 $donutDefs = [
-    ['key' => 'new',               'label' => 'Novos',        'color' => '#2e90fa'],
-    ['key' => 'open',              'label' => 'Abertos',      'color' => '#0078d4'],
+    ['key' => 'new',               'label' => 'Novos',        'color' => '#818cf8'],
+    ['key' => 'open',              'label' => 'Abertos',      'color' => '#4f46e5'],
     ['key' => 'waiting_customer',  'label' => 'Agu. cliente', 'color' => '#12b76a'],
     ['key' => 'waiting_internal',  'label' => 'Agu. interno', 'color' => '#f59e0b'],
 ];
@@ -87,7 +87,7 @@ $ngDonutTotal = $ngOpenTotal > 0 ? $ngOpenTotal : 1;
 $ngNormalLen = ($normalOpen ?? 0) / $ngDonutTotal * $donutC;
 $ngGroupLen = ($groupOpen ?? 0) / $ngDonutTotal * $donutC;
 $ngDonutSegs = [
-    ['color' => '#0078d4', 'dash' => round($ngNormalLen, 2), 'offset' => round($donutC, 2)],
+    ['color' => '#4f46e5', 'dash' => round($ngNormalLen, 2), 'offset' => round($donutC, 2)],
     ['color' => '#12b76a', 'dash' => round($ngGroupLen, 2), 'offset' => round($donutC - $ngNormalLen, 2)],
 ];
 
@@ -137,13 +137,13 @@ $newWaiting = (int) ($globalCounts['new'] ?? 0);
 
     <!-- Operação agora: atendimento normal x grupos -->
     <div class="dash-section-title"><span>Operação agora</span></div>
-    <div class="stats-grid dash-stats">
+    <div class="stats-grid dash-stats dash-stats-6">
         <div class="stat-card stat-hero">
             <div class="stat-icon stat-icon-primary"><i class="fas fa-comments"></i></div>
             <div class="stat-info">
                 <span class="stat-value" id="statNormalOpen" data-count="<?= $normalOpen ?>"><?= $normalOpen ?></span>
                 <span class="stat-label">Normal em aberto</span>
-                <span class="stat-sub"><i class="fas fa-circle" style="color:#2e90fa;font-size:7px"></i> <?= $split['normal']['new'] ?? 0 ?> novos &middot; <?= $split['normal']['open'] ?? 0 ?> em atendimento</span>
+                <span class="stat-sub"><i class="fas fa-circle" style="color:#818cf8;font-size:7px"></i> <?= $split['normal']['new'] ?? 0 ?> novos &middot; <?= $split['normal']['open'] ?? 0 ?> em atendimento</span>
             </div>
         </div>
 
@@ -197,7 +197,7 @@ $newWaiting = (int) ($globalCounts['new'] ?? 0);
                 <span class="stat-value" id="statTodayResolved" data-count="<?= $todayResolved ?>"><?= $todayResolved ?></span>
                 <span class="stat-label">Resolvidos hoje</span>
                 <?php if ($deltaRes === 'new'): ?>
-                    <span class="stat-delta delta-new"><i class="fas fa-sparkles"></i> Sem base ontem</span>
+                    <span class="stat-delta delta-new"><i class="fas fa-star"></i> Sem base ontem</span>
                 <?php elseif ($deltaRes !== null): ?>
                     <span class="stat-delta <?= $deltaRes >= 0 ? 'delta-up' : 'delta-down' ?>" id="dTodayResolved">
                         <i class="fas fa-<?= $deltaRes >= 0 ? 'arrow-up' : 'arrow-down' ?>"></i> <?= abs($deltaRes) ?>% vs ontem
@@ -209,14 +209,14 @@ $newWaiting = (int) ($globalCounts['new'] ?? 0);
 
     <!-- Movimento de hoje -->
     <div class="dash-section-title"><span>Movimento de hoje</span></div>
-    <div class="stats-grid dash-stats">
+    <div class="stats-grid dash-stats dash-stats-4">
         <div class="stat-card">
             <div class="stat-icon stat-icon-violet"><i class="fas fa-calendar-day"></i></div>
             <div class="stat-info">
                 <span class="stat-value" id="statTodayConvs" data-count="<?= $todayConversations ?>"><?= $todayConversations ?></span>
                 <span class="stat-label">Conversas hoje</span>
                 <?php if ($deltaConv === 'new'): ?>
-                    <span class="stat-delta delta-new"><i class="fas fa-sparkles"></i> Sem base ontem</span>
+                    <span class="stat-delta delta-new"><i class="fas fa-star"></i> Sem base ontem</span>
                 <?php elseif ($deltaConv !== null): ?>
                     <span class="stat-delta <?= $deltaConv >= 0 ? 'delta-up' : 'delta-down' ?>" id="dTodayConvs">
                         <i class="fas fa-<?= $deltaConv >= 0 ? 'arrow-up' : 'arrow-down' ?>"></i> <?= abs($deltaConv) ?>% vs ontem
@@ -234,7 +234,7 @@ $newWaiting = (int) ($globalCounts['new'] ?? 0);
                 <span class="stat-value" id="statTodayMsgs" data-count="<?= $todayMessages ?>"><?= $todayMessages ?></span>
                 <span class="stat-label">Mensagens hoje</span>
                 <?php if ($deltaMsgs === 'new'): ?>
-                    <span class="stat-delta delta-new"><i class="fas fa-sparkles"></i> Sem base ontem</span>
+                    <span class="stat-delta delta-new"><i class="fas fa-star"></i> Sem base ontem</span>
                 <?php elseif ($deltaMsgs !== null): ?>
                     <span class="stat-delta <?= $deltaMsgs >= 0 ? 'delta-up' : 'delta-down' ?>" id="dTodayMsgs">
                         <i class="fas fa-<?= $deltaMsgs >= 0 ? 'arrow-up' : 'arrow-down' ?>"></i> <?= abs($deltaMsgs) ?>% vs ontem
@@ -274,7 +274,7 @@ $newWaiting = (int) ($globalCounts['new'] ?? 0);
     </div>
 
     <!-- Personal stats -->
-    <div class="dash-section-title"><span>Minha fila</span><a href="<?= url('inbox/mine') ?>" class="dash-section-link">Ver minha caixa <i class="fas fa-arrow-right"></i></a></div>
+    <div class="dash-section-title"><span>Minha fila</span><a href="<?= url('inbox/mine') ?>?mine=1" class="dash-section-link">Ver minha caixa <i class="fas fa-arrow-right"></i></a></div>
     <div class="dash-myrow">
         <div class="dash-myhead">
             <span class="dash-myicon"><i class="fas fa-user"></i></span>
@@ -321,7 +321,7 @@ $newWaiting = (int) ($globalCounts['new'] ?? 0);
             <div class="card-header">
                 <h3><i class="fas fa-chart-column" style="color:var(--primary)"></i> Novas por dia <small class="card-header-sub">últimos 7 dias</small></h3>
                 <div class="chart-legend">
-                    <span class="chart-legend-item"><span class="legend-dot" style="background:#0078d4"></span> Normal</span>
+                    <span class="chart-legend-item"><span class="legend-dot" style="background:#4f46e5"></span> Normal</span>
                     <span class="chart-legend-item"><span class="legend-dot" style="background:#12b76a"></span> Grupos</span>
                 </div>
             </div>
@@ -339,7 +339,7 @@ $newWaiting = (int) ($globalCounts['new'] ?? 0);
                             $nv = $trendNormalValues[$i] ?? 0; $gv = $trendGroupValues[$i] ?? 0;
                             $nh = $nv * $ngScale; $gh = $gv * $ngScale;
                         ?>
-                            <rect class="ng-bar" x="<?= round($x0, 1) ?>" y="<?= round($ngBaseY - $nh, 1) ?>" width="<?= $ngBarW ?>" height="<?= round(max($nh, 0), 1) ?>" rx="4" fill="#0078d4">
+                            <rect class="ng-bar" x="<?= round($x0, 1) ?>" y="<?= round($ngBaseY - $nh, 1) ?>" width="<?= $ngBarW ?>" height="<?= round(max($nh, 0), 1) ?>" rx="4" fill="#4f46e5">
                                 <title><?= $label ?> — <?= $nv ?> normal</title>
                             </rect>
                             <rect class="ng-bar" x="<?= round($x0 + $ngBarW + 8, 1) ?>" y="<?= round($ngBaseY - $gh, 1) ?>" width="<?= $ngBarW ?>" height="<?= round(max($gh, 0), 1) ?>" rx="4" fill="#12b76a">
@@ -379,7 +379,7 @@ $newWaiting = (int) ($globalCounts['new'] ?? 0);
                 </div>
                 <div class="donut-legend">
                     <div class="donut-legend-row">
-                        <span class="legend-dot" style="background:#0078d4"></span>
+                        <span class="legend-dot" style="background:#4f46e5"></span>
                         <span class="donut-legend-name">Normal</span>
                         <span class="donut-legend-count" id="gCountNormalOpen"><?= $normalOpen ?></span>
                         <span class="donut-legend-pct"><?= $ngOpenTotal > 0 ? round($normalOpen / $ngOpenTotal * 100) : 0 ?>%</span>
@@ -440,8 +440,8 @@ $newWaiting = (int) ($globalCounts['new'] ?? 0);
                     <svg viewBox="0 0 <?= $chartW ?> <?= $chartH ?>" class="trend-svg" preserveAspectRatio="xMidYMid meet">
                         <defs>
                             <linearGradient id="gradConv" x1="0" y1="0" x2="0" y2="1">
-                                <stop offset="0%" stop-color="#0078d4" stop-opacity="0.28"/>
-                                <stop offset="100%" stop-color="#0078d4" stop-opacity="0.02"/>
+                                <stop offset="0%" stop-color="#4f46e5" stop-opacity="0.28"/>
+                                <stop offset="100%" stop-color="#4f46e5" stop-opacity="0.02"/>
                             </linearGradient>
                             <linearGradient id="gradRes" x1="0" y1="0" x2="0" y2="1">
                                 <stop offset="0%" stop-color="#12b76a" stop-opacity="0.20"/>
@@ -537,13 +537,13 @@ $newWaiting = (int) ($globalCounts['new'] ?? 0);
                     <?php foreach ($deptData as $dept): $dpct = round($dept['total'] / $deptMax * 100); ?>
                         <div class="dept-bar-row">
                             <div class="hbar-top">
-                                <span class="hbar-dot" style="background:<?= e($dept['color'] ?? '#6c757d') ?>"></span>
+                                <span class="hbar-dot" style="background:<?= e($dept['color'] ?? '#5b6472') ?>"></span>
                                 <span class="dept-bar-name"><?= e($dept['name']) ?></span>
                                 <span class="hbar-pct"><?= $dpct ?>%</span>
                                 <span class="dept-bar-count"><?= $dept['total'] ?></span>
                             </div>
                             <div class="dept-bar-track">
-                                <div class="dept-bar-fill" style="width:<?= $dpct ?>%;background:<?= e($dept['color'] ?? '#6c757d') ?>"></div>
+                                <div class="dept-bar-fill" style="width:<?= $dpct ?>%;background:<?= e($dept['color'] ?? '#5b6472') ?>"></div>
                             </div>
                         </div>
                     <?php endforeach; ?>
@@ -609,16 +609,20 @@ $newWaiting = (int) ($globalCounts['new'] ?? 0);
                                     <span class="convo-time"><?= time_elapsed($conv['last_message_at'] ?? $conv['created_at']) ?></span>
                                 </div>
                                 <p class="convo-preview">
-                                    <?= e(truncate($conv['last_message'] ?? 'Sem mensagens', 80)) ?>
+                                    <?= e(conversation_preview_text($conv['last_message'] ?? 'Sem mensagens', 80)) ?>
                                 </p>
                                 <div class="convo-meta">
-                                    <?php $chColor = ['whatsapp' => '#25D366', 'webchat' => '#4361ee', 'email' => '#f59e0b', 'telegram' => '#0088cc', 'facebook' => '#1877f2', 'instagram' => '#e1306c', 'phone' => '#6c757d'][$conv['channel_type'] ?? ''] ?? '#6c757d'; ?>
-                                    <span class="convo-channel" style="background:<?= $chColor ?>">
+                                    <?php
+                                    $chColor = ['whatsapp' => '#25D366', 'webchat' => '#4f46e5', 'email' => '#f59e0b', 'telegram' => '#0088cc', 'facebook' => '#1877f2', 'instagram' => '#e1306c', 'phone' => '#5b6472'][$conv['channel_type'] ?? ''] ?? '#5b6472';
+                                    [$chBg, $chFg] = readable_pair($chColor);
+                                    ?>
+                                    <span class="convo-channel" style="background:<?= $chBg ?>;color:<?= $chFg ?>">
                                         <i class="<?= channel_icon($conv['channel_type'] ?? 'webchat') ?>"></i>
                                         <?= e($conv['channel_name'] ?? '') ?>
                                     </span>
                                     <?php if (!empty($conv['group_id'])): ?>
-                                    <span class="convo-channel" style="background:#0e9f6e">
+                                    <?php [$grpBg, $grpFg] = readable_pair('#0e9f6e'); ?>
+                                    <span class="convo-channel" style="background:<?= $grpBg ?>;color:<?= $grpFg ?>">
                                         <i class="fas fa-users"></i>
                                         <?= e($conv['group_name'] ?? 'Grupo') ?>
                                     </span>
@@ -691,12 +695,12 @@ $newWaiting = (int) ($globalCounts['new'] ?? 0);
 .dash-attention-icon{width:30px;height:30px;border-radius:9px;background:#f59e0b;color:#fff;display:flex;align-items:center;justify-content:center;font-size:13px;flex-shrink:0}
 .dash-attention-go{margin-left:auto;font-size:12px}
 .dash-attention-groups{background:#eff6ff;border-color:#bfdbfe;color:#1e40af}
-.dash-attention-groups .dash-attention-icon{background:#0078d4}
+.dash-attention-groups .dash-attention-icon{background:#4f46e5}
 .stat-icon-group{background:#e7f6ef;color:#0e9f6e}
 .stat-hero-groups{border-color:#bfe8d4;box-shadow:0 1px 3px rgba(18,183,106,.14)}
 .ng-bar{transition:opacity .15s}
 .ng-bar:hover{opacity:.82}
-.ng-val{font-size:10px;font-weight:700;fill:var(--text-secondary);text-anchor:middle}
+.ng-val{font-size:11px;font-weight:700;fill:var(--text-secondary);text-anchor:middle}
 .group-list{display:flex;flex-direction:column}
 .group-row{display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--border-soft)}
 .group-row:last-child{border-bottom:none}
@@ -706,11 +710,15 @@ $newWaiting = (int) ($globalCounts['new'] ?? 0);
 .group-info small{font-size:11.5px;color:var(--text-muted)}
 .group-row .btn{flex-shrink:0}
 .dash-section-title{display:flex;align-items:center;justify-content:space-between;margin:18px 0 10px;font-size:11px;font-weight:800;letter-spacing:.09em;text-transform:uppercase;color:var(--text-muted)}
-.dash-section-link{font-size:12px;font-weight:700;color:var(--brand-2);text-transform:none;letter-spacing:0;display:inline-flex;align-items:center;gap:5px}
-.dash-section-link i{font-size:10px}
+.dash-section-link{font-size:12px;font-weight:700;color:var(--brand-2);text-transform:none;letter-spacing:0;display:inline-flex;align-items:center;gap:5px;padding:4px 2px;margin:-4px -2px}
+.dash-section-link i{font-size:11px}
 .card-header-sub{font-size:11px;font-weight:600;color:var(--text-muted);margin-left:2px}
-.dash-stats{grid-template-columns:repeat(auto-fill,minmax(210px,1fr))}
-.stat-card{position:relative;overflow:hidden;transition:transform .18s ease,box-shadow .18s ease;min-height:112px;align-items:center}
+/* auto-fit (e não auto-fill): com auto-fill a grade criava colunas vazias
+   ao lado das 4 fichas de "Movimento de hoje" e sobrava ~230px de vazio.
+   Com 176px de base as 6 fichas de "Operação agora" cabem em uma linha
+   única e as 4 da outra seção também preenchem a linha. */
+.dash-stats{grid-template-columns:repeat(auto-fit,minmax(176px,1fr))}
+.stat-card{position:relative;overflow:hidden;transition:transform .18s ease,box-shadow .18s ease;min-height:112px;align-items:center;gap:13px;padding:16px}
 .stat-card .stat-info{flex:1;min-width:0}
 .stat-card:hover{transform:none;box-shadow:none;border-color:var(--border-strong)}
 .stat-card::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;background:var(--brand);opacity:0;transition:opacity .18s}
@@ -722,14 +730,15 @@ $newWaiting = (int) ($globalCounts['new'] ?? 0);
 .delta-down{color:var(--danger)}
 .delta-new{color:var(--info)}
 .stat-icon-violet{background:#efedfd;color:#4c1d95}
-.stat-icon-amber{background:var(--warning-soft);color:#b45309}
+.stat-icon-amber{background:var(--warning-soft);color:#9a3412}
 .stat-icon-success{background:var(--success-soft);color:var(--success)}
 .stat-icon-danger{background:var(--danger-soft);color:var(--danger)}
 .stat-icon-neutral{background:#eef1f6;color:#4b5162}
 .stat-icon-primary{background:var(--brand-soft);color:var(--brand-2)}
 .stat-icon-info{background:var(--info-soft);color:var(--info)}
-.stat-icon-warning{background:var(--warning-soft);color:#b45309}
+.stat-icon-warning{background:var(--warning-soft);color:#9a3412}
 .stat-hero{border-color:#d9d6fa;box-shadow:0 1px 3px rgba(67,56,202,.12)}
+.dash-stats .stat-icon{width:38px;height:38px;font-size:15px;border-radius:6px}
 .stat-value{font-variant-numeric:tabular-nums}
 .stat-value.stat-pulse{animation:statPulse .5s ease}
 @keyframes statPulse{0%{transform:scale(1)}40%{transform:scale(1.18)}100%{transform:scale(1)}}
@@ -757,8 +766,8 @@ $newWaiting = (int) ($globalCounts['new'] ?? 0);
 .trend-chart{width:100%}
 .trend-svg{width:100%;height:auto;display:block}
 .trend-gridline{stroke:var(--border-soft);stroke-width:1;stroke-dasharray:3 5}
-.trend-y{font-size:10px;fill:var(--text-muted);text-anchor:end}
-.trend-x{font-size:10px;fill:var(--text-muted);text-anchor:middle}
+.trend-y{font-size:11px;fill:var(--text-muted);text-anchor:end}
+.trend-x{font-size:11px;fill:var(--text-muted);text-anchor:middle}
 .trend-area{pointer-events:none}
 .trend-line{fill:none;stroke-width:2.4;stroke-linecap:round;stroke-linejoin:round}
 .trend-line-conv{stroke:var(--primary)}
@@ -774,7 +783,7 @@ $newWaiting = (int) ($globalCounts['new'] ?? 0);
 .donut-track{fill:none;stroke:var(--bg-panel-alt);stroke-width:20}
 .donut-seg{fill:none;stroke-width:20;transition:stroke-dashoffset .8s ease}
 .donut-total{font-size:26px;font-weight:800;fill:var(--text-primary);font-variant-numeric:tabular-nums}
-.donut-total-label{font-size:10px;fill:var(--text-muted);letter-spacing:.06em}
+.donut-total-label{font-size:11px;fill:var(--text-muted);letter-spacing:.06em}
 .donut-legend{width:100%;display:flex;flex-direction:column;gap:6px}
 .donut-legend-row{display:flex;align-items:center;gap:8px;font-size:12.5px}
 .donut-legend-name{flex:1;font-weight:600;color:var(--text-secondary)}
@@ -797,7 +806,13 @@ $newWaiting = (int) ($globalCounts['new'] ?? 0);
 .agent-progress-num{font-size:12px;font-weight:800;min-width:18px;text-align:right;font-variant-numeric:tabular-nums}
 
 @media(max-width:1100px){.dashboard-grid{grid-template-columns:1fr !important}.dash-mystats{margin-left:0}}
-@media(max-width:768px){.dash-title{font-size:20px}.dash-subtitle{margin-left:0}.dash-stats{grid-template-columns:repeat(auto-fill,minmax(150px,1fr))}}
+@media(max-width:768px){.dash-title{font-size:20px}.dash-subtitle{margin-left:0}.dash-stats{grid-template-columns:repeat(auto-fit,minmax(150px,1fr))}}
+/* Sem cartão órfão: a contagem de colunas divide o número de cartões
+   (6 → 3/2 colunas, 4 → 4/2 colunas), então nunca sobra um item sozinho
+   na segunda linha. */
+@media(max-width:1400px){.dash-stats-6{grid-template-columns:repeat(3,minmax(0,1fr))}}
+@media(max-width:1100px){.dash-stats-4{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:768px){.dash-stats-6{grid-template-columns:repeat(2,minmax(0,1fr))}.dash-stats-4{grid-template-columns:repeat(2,minmax(0,1fr))}}
 </style>
 
 <script>
@@ -910,7 +925,7 @@ $newWaiting = (int) ($globalCounts['new'] ?? 0);
                     if (!el) return;
                     var today = t[1], prev = t[2], html;
                     if (prev <= 0) {
-                        html = '<i class="fas fa-sparkles"></i> Sem base ontem';
+                        html = '<i class="fas fa-star"></i> Sem base ontem';
                         el.className = 'stat-delta delta-new';
                     } else {
                         var pct = Math.round((today - prev) / prev * 100);

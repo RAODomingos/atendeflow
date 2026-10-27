@@ -101,7 +101,7 @@ class NotificationService
             }
         }
         if (empty($ids)) {
-            $inboxId = Inbox::resolveInboxForChannel((int) $connection['channel_id']);
+            $inboxId = Inbox::resolveProfileFor((int) $connection['channel_id']);
             if ($inboxId) {
                 foreach (Inbox::getUsers($inboxId) as $u) {
                     $ids[] = (int) $u['id'];
@@ -149,6 +149,13 @@ class NotificationService
     {
         $conv = Conversation::find($conversationId);
         if (!$conv) {
+            return [];
+        }
+
+        // Conversa de grupo: o aviso é a MENÇÃO (notifyGroupMention).
+        // Notificar "nova conversa"/"enviou mensagem" a cada mensagem do
+        // grupo spamma a caixa inteira — o grupo tem vida própria.
+        if (!empty($conv['group_id'])) {
             return [];
         }
 

@@ -622,7 +622,7 @@ try {
         'created_at' => $anchorAt,
         'last_inbound_at' => $anchorAt,
         'last_inbound_id' => 1,
-        'last_public_id' => 0,
+        'last_human_id' => 0,
     ];
 
     $onClock = \App\Services\SlaService::clockState(

@@ -8,8 +8,8 @@
     .page:last-child { page-break-after: auto; }
     .cover-kicker { font-size: 8pt; color: #8a8886; text-transform: uppercase; letter-spacing: .12em; }
     .cover h1 { font-size: 24pt; font-weight: 700; color: #201f1e; margin: 6px 0 4px; }
-    .cover .scope { font-size: 11pt; font-weight: 600; color: #005a9e; margin-top: 6px; }
-    .cover-rule { width: 72px; height: 4px; background: #0078d4; margin: 12px 0 18px; }
+    .cover .scope { font-size: 11pt; font-weight: 600; color: #3730a3; margin-top: 6px; }
+    .cover-rule { width: 72px; height: 4px; background: #4f46e5; margin: 12px 0 18px; }
     .cover-meta { font-size: 8.5pt; color: #8a8886; margin-top: 4px; }
     .toc { margin-top: 4px; }
 </style>
@@ -178,7 +178,7 @@ $totalMsgs = array_sum(array_map(fn($c) => count($c['messages'] ?? []), $convers
     <div>
         <?php foreach ($allTags as $tag): ?>
             <?php if (in_array($tag['id'], array_column($contactTags, 'id'))): ?>
-            <span class="tag" style="background:<?= e($tag['color'] ?? '#6c757d') ?>;color:<?= e(contrast_color($tag['color'] ?? '#6c757d')) ?>"><?= e($tag['name']) ?></span>
+            <span class="tag" style="background:<?= e(readable_pair($tag['color'] ?? '#5b6472')[0]) ?>;color:<?= e(readable_pair($tag['color'] ?? '#5b6472')[1]) ?>"><?= e($tag['name']) ?></span>
             <?php endif; ?>
         <?php endforeach; ?>
     </div>

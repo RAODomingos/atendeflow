@@ -66,16 +66,10 @@ $totalCount = (int) ($statusCounts['_total'] ?? count($conversations));
     .cd-conv.is-selected{background:var(--brand-soft)}
     .cd-conv .conv-checkbox{display:none;align-items:center;justify-content:center;padding:0 2px 0 12px;cursor:pointer;background:none;border:none}
     .cd-chan{width:36px;height:36px;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:15px;flex-shrink:0}
-    .cd-subject{font-size:14px;font-weight:700;color:var(--text-primary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-decoration:none}
+    .cd-subject{display:block;font-size:14px;font-weight:700;color:var(--text-primary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-decoration:none;padding:3px 0}
     .cd-subject:hover{color:var(--brand)}
     .timeline-dept-badge{font-size:11px;font-weight:600;padding:1px 8px;border-radius:10px}
     .conv-list-close{color:var(--text-muted)}
-    .guild-group{border:1px solid var(--border-soft);border-radius:8px;padding:10px 12px;margin-top:8px;background:var(--bg-panel-alt)}
-    .guild-group-title{font-size:12px;font-weight:700;margin-bottom:6px}
-    .guild-units{font-size:12px;color:var(--text-secondary);margin:0 0 6px}
-    .guild-opt{display:flex;align-items:center;gap:8px;font-size:13px;padding:3px 0;cursor:pointer}
-    .guild-opt input{accent-color:var(--brand)}
-    .guild-err{font-size:12.5px;color:var(--danger);margin-top:8px}
     @media(max-width:768px){.cd-page{padding:2px 12px 24px}}
     </style>
 
@@ -95,7 +89,8 @@ $totalCount = (int) ($statusCounts['_total'] ?? count($conversations));
                 <?php if (!empty($contact['tags'])): ?>
                     <span class="cd-tags">
                         <?php foreach ($contact['tags'] as $tag): ?>
-                            <span class="conv-tag-modern" style="background:<?= e($tag['color'] ?? '#6c757d') ?>;color:<?= e(contrast_color($tag['color'] ?? '#6c757d')) ?>">
+                            <?php [$tagBg, $tagFg] = readable_pair($tag['color'] ?? '#5b6472'); ?>
+                            <span class="conv-tag-modern" style="background:<?= e($tagBg) ?>;color:<?= e($tagFg) ?>">
                                 <?= e($tag['name']) ?>
                             </span>
                         <?php endforeach; ?>
@@ -322,7 +317,7 @@ $totalCount = (int) ($statusCounts['_total'] ?? count($conversations));
             <?php else: ?>
                 <div class="conversation-list" id="convTimeline" data-mode="view">
                     <?php foreach ($conversations as $conv):
-                        $chColor = ['whatsapp'=>'#25D366','webchat'=>'var(--brand)','email'=>'#f59e0b','telegram'=>'#0088cc','facebook'=>'#1877f2','instagram'=>'#e1306c','phone'=>'#6c757d'][$conv['channel_type'] ?? ''] ?? 'var(--text-muted)';
+                        $chColor = ['whatsapp'=>'#25D366','webchat'=>'var(--brand)','email'=>'#f59e0b','telegram'=>'#0088cc','facebook'=>'#1877f2','instagram'=>'#e1306c','phone'=>'#5b6472'][$conv['channel_type'] ?? ''] ?? 'var(--text-muted)';
                         $chSoft = ['whatsapp'=>'var(--success-soft)','webchat'=>'var(--brand-soft)','email'=>'var(--warning-soft)','telegram'=>'var(--info-soft)','facebook'=>'var(--info-soft)','instagram'=>'var(--danger-soft)','phone'=>'var(--bg-panel-alt)'][$conv['channel_type'] ?? ''] ?? 'var(--bg-panel-alt)';
                         $convPreview = trim((string) ($conv['subject'] ?? ''));
                         if ($convPreview === '') {
@@ -371,7 +366,8 @@ $totalCount = (int) ($statusCounts['_total'] ?? count($conversations));
                                     <?= status_badge($conv['status']) ?>
                                     <?= priority_badge($conv['priority'] ?? 'normal') ?>
                                     <?php if (!empty($conv['department_name'])): ?>
-                                        <span class="timeline-dept-badge" style="background:<?= e($conv['department_color'] ?? 'var(--border-soft)') ?>20;color:<?= e($conv['department_color'] ?? 'var(--text-muted)') ?>">
+                                        <?php $deptColor = $conv['department_color'] ?? '#676560'; ?>
+                                        <span class="timeline-dept-badge" style="background:<?= e($deptColor) ?>20;color:<?= e(readable_text_on_tint($deptColor)) ?>">
                                             <i class="fas fa-layer-group"></i> <?= e($conv['department_name']) ?>
                                         </span>
                                     <?php endif; ?>
@@ -395,80 +391,12 @@ $totalCount = (int) ($statusCounts['_total'] ?? count($conversations));
     </div>
 </div>
 
-<div class="contact-drawer-overlay" id="contactDrawerOverlay" onclick="closeContactDrawer()"></div>
-<div class="contact-drawer" id="contactDrawer">
-    <div class="contact-drawer-header">
-        <h3><i class="fas fa-user-edit" style="color:var(--brand)"></i> Editar Contato</h3>
-        <button class="contact-drawer-close" onclick="closeContactDrawer()">&times;</button>
-    </div>
-    <div class="contact-drawer-body">
-        <form id="contactEditForm" action="<?= url("contacts/{$contact['id']}/update") ?>" method="POST">
-            <?= csrf_field() ?>
-            <div class="form-group">
-                <label><i class="fas fa-user"></i> Nome *</label>
-                <input type="text" name="name" class="form-control" required
-                       value="<?= e($contact['name'] ?? '') ?>"
-                       placeholder="Nome completo">
-            </div>
-            <div class="form-group">
-                <label><i class="fas fa-store"></i> Loja (Guild)</label>
-                <div style="display:flex;gap:8px">
-                    <input type="text" id="guildCustomerD" class="form-control" placeholder="Código da loja">
-                    <button type="button" class="btn btn-outline btn-sm" onclick="guildBuscar('D')">Buscar</button>
-                </div>
-                <div id="guildResultD">
-                    <?php foreach (($contact['stores'] ?? []) as $gs): ?>
-                        <div class="guild-group" data-network="<?= e($gs['network_name']) ?>" data-customer="<?= e($gs['customer_id']) ?>">
-                            <div class="guild-group-title"><?= e($gs['network_name']) ?> <span class="text-muted">(<?= e($gs['customer_id']) ?>)</span></div>
-                            <label class="guild-opt"><input type="checkbox" checked> Vincular esta loja</label>
-                        </div>
-                    <?php endforeach; ?>
-                </div>
-                <input type="hidden" name="guild_stores_json" id="guildJsonD" value="">
-                <input type="hidden" name="guild_networks_json" id="guildNetD" value="">
-            </div>
-            <div class="form-group">
-                <label><i class="fas fa-envelope"></i> E-mail</label>
-                <input type="email" name="email" class="form-control"
-                       value="<?= e($contact['email'] ?? '') ?>"
-                       placeholder="email@exemplo.com">
-            </div>
-            <div class="form-group">
-                <label><i class="fas fa-phone"></i> Telefone</label>
-                <input type="text" name="phone" class="form-control"
-                       value="<?= e($contact['phone'] ?? '') ?>"
-                       placeholder="(11) 99999-9999">
-            </div>
-            <div class="form-group">
-                <label><i class="fas fa-id-card"></i> CPF/CNPJ</label>
-                <input type="text" name="document" class="form-control"
-                       value="<?= e($contact['document'] ?? '') ?>">
-            </div>
-            <div class="form-group">
-                <label><i class="fas fa-tags"></i> Etiquetas</label>
-                <select name="tag_ids[]" class="form-control" multiple>
-                    <?php foreach ($tags as $tag): ?>
-                        <option value="<?= $tag['id'] ?>"
-                            <?= $contact && in_array($tag['id'], array_column($contact['tags'] ?? [], 'id')) ? 'selected' : '' ?>>
-                            <?= e($tag['name']) ?>
-                        </option>
-                    <?php endforeach; ?>
-                </select>
-            </div>
-            <div class="form-group">
-                <label><i class="fas fa-sticky-note"></i> Observações</label>
-                <textarea name="notes" rows="5" class="form-control"
-                          placeholder="Informações adicionais sobre o contato..."><?= e($contact['notes'] ?? '') ?></textarea>
-            </div>
-        </form>
-    </div>
-    <div class="contact-drawer-footer">
-        <button type="button" class="btn btn-outline" onclick="closeContactDrawer()">Cancelar</button>
-        <button type="submit" class="btn btn-primary" form="contactEditForm">
-            <i class="fas fa-save"></i> Salvar
-        </button>
-    </div>
-</div>
+<?php
+// Drawer de edição compartilhado com a caixa de entrada (mesma tela em ambos).
+$contactDrawerSuffix = 'D';
+$contactDrawerAjax   = false;
+include __DIR__ . '/_edit_drawer.php';
+?>
 
 <form id="deleteForm" action="<?= url('contacts/') ?><?= $contact['id'] ?>/delete" method="POST" style="display:none">
     <?= csrf_field() ?>
@@ -495,92 +423,11 @@ $totalCount = (int) ($statusCounts['_total'] ?? count($conversations));
 </div>
 
 <script>
-(function(){
-    var f = document.getElementById('contactEditForm');
-    if (f) f.addEventListener('submit', function(){ guildCollect('D'); });
-})();
-function guildErr(box, msg){
-    var p = document.createElement('p');
-    p.className = 'guild-err';
-    p.textContent = msg;
-    box.appendChild(p);
-}
-function guildBuscar(sfx){
-    var codeEl = document.getElementById('guildCustomer' + sfx);
-    var box = document.getElementById('guildResult' + sfx);
-    var code = (codeEl.value || '').trim();
-    if (!code || !box) return;
-    var tmp = document.createElement('p');
-    tmp.className = 'text-muted'; tmp.dataset.tmp = '';
-    tmp.textContent = 'Buscando lojas...';
-    box.appendChild(tmp);
-    var base = document.querySelector('meta[name="base-url"]')?.content || '';
-    fetch(base + '/api/guild/stores?customer_id=' + encodeURIComponent(code), {headers:{'X-Requested-With':'XMLHttpRequest'}})
-        .then(function(r){ return r.json(); })
-        .then(function(j){
-            tmp.remove();
-            if (!j.success) { guildErr(box, j.error || 'Falha ao consultar o painel Guild.'); return; }
-            var dup = false;
-            box.querySelectorAll('.guild-group').forEach(function(g){ if (g.dataset.network === j.network_name) dup = true; });
-            if (dup) return;
-            guildRenderGroup(box, {customer_id: code, network_name: j.network_name, units: j.stores.map(function(st){ return st.name; })});
-        })
-        .catch(function(){ tmp.remove(); guildErr(box, 'Falha ao consultar o painel Guild. Tente novamente.'); });
-}
-function guildRenderGroup(box, g){
-    var div = document.createElement('div');
-    div.className = 'guild-group';
-    div.dataset.network = g.network_name;
-    div.dataset.customer = g.customer_id;
-    var title = document.createElement('div');
-    title.className = 'guild-group-title';
-    title.textContent = g.network_name + ' (' + g.customer_id + ')';
-    div.appendChild(title);
-    if (g.units && g.units.length) {
-        var u = document.createElement('div');
-        u.className = 'guild-units';
-        u.textContent = g.units.length + ' unidades: ' + g.units.join(', ');
-        div.appendChild(u);
-    }
-    var lab = document.createElement('label');
-    lab.className = 'guild-opt';
-    var cb = document.createElement('input');
-    cb.type = 'checkbox'; cb.checked = true;
-    lab.appendChild(cb);
-    lab.appendChild(document.createTextNode(' Vincular esta loja'));
-    div.appendChild(lab);
-    box.appendChild(div);
-}
-function guildCollect(sfx){
-    var box = document.getElementById('guildResult' + sfx);
-    if (!box) return;
-    var stores = [], nets = [];
-    box.querySelectorAll('.guild-group').forEach(function(g){
-        nets.push(g.dataset.network);
-        if (g.querySelector('input[type="checkbox"]:checked')) {
-            stores.push({customer_id: g.dataset.customer, network_name: g.dataset.network});
-        }
-    });
-    document.getElementById('guildJson' + sfx).value = JSON.stringify(stores);
-    document.getElementById('guildNet' + sfx).value = JSON.stringify(nets);
-}
 function confirmDelete() {
     OminiConfirm('Tem certeza que deseja excluir este contato? Todas as conversas vinculadas também serão removidas.').then(function(ok) {
         if (!ok) return;
         document.getElementById('deleteForm').submit();
     });
-}
-
-function openContactDrawer() {
-    document.getElementById('contactDrawer').classList.add('open');
-    document.getElementById('contactDrawerOverlay').classList.add('open');
-    document.body.style.overflow = 'hidden';
-}
-
-function closeContactDrawer() {
-    document.getElementById('contactDrawer').classList.remove('open');
-    document.getElementById('contactDrawerOverlay').classList.remove('open');
-    document.body.style.overflow = '';
 }
 
 // ===== Exportação de conversas (individual / selecionadas / filtradas) =====

@@ -39,6 +39,19 @@ class Channel
     }
 
     /**
+     * Canais ativos para o filtro da listagem de conversas.
+     */
+    public static function listForFilter(): array
+    {
+        return Database::getInstance()->fetchAll(
+            "SELECT ch.id, ch.type, ch.name
+             FROM channels ch
+             WHERE ch.is_active = 1
+             ORDER BY ch.type, ch.name"
+        );
+    }
+
+    /**
      * Todos os canais ativos para VINCULAÇÃO (form da caixa): inclui WhatsApp
      * desconectado — vínculo é configuração e não deve sumir quando a sessão
      * cai. Traz status da conexão para a UI sinalizar.

@@ -2,6 +2,8 @@
 .contact-card { display: flex; align-items: center; gap: 10px; background: #f0f7ff; border: 1px solid #cfe3ff; border-radius: 10px; padding: 10px 12px; max-width: 280px; }
 .contact-card-icon { font-size: 28px; color: #0b5ed7; }
 .contact-card-info { display: flex; flex-direction: column; gap: 2px; font-size: 13px; }
+.contact-card-info a { display:inline-flex; align-items:center; min-height:24px; padding:2px 4px; border-radius:4px; }
+.contact-card-info a[href^="https://wa.me"] { width:28px; min-width:28px; justify-content:center; font-size:15px; }
 </style>
 <div class="conversation-view">
     <div class="conv-sidebar">
@@ -71,7 +73,8 @@
             <?php if (!empty($contact['tags'])): ?>
                 <div class="conv-tags">
                     <?php foreach ($contact['tags'] as $tag): ?>
-                        <span class="conv-tag" style="background: <?= e($tag['color'] ?? '#6c757d') ?>20; color: <?= e($tag['color'] ?? '#6c757d') ?>">
+                        <?php $tagColor = $tag['color'] ?? '#5b6472'; ?>
+                        <span class="conv-tag" style="background: <?= e($tagColor) ?>20; color: <?= e(readable_text_on_tint($tagColor)) ?>">
                             <?= e($tag['name']) ?>
                         </span>
                     <?php endforeach; ?>
@@ -134,7 +137,8 @@
                 <div class="conv-tags" id="convTagListS" style="margin-bottom:8px">
                     <?php if (!empty($conversation['tags'])): ?>
                         <?php foreach ($conversation['tags'] as $tag): ?>
-                            <span class="conv-tag-modern applied" data-tag-id="<?= $tag['id'] ?>" style="background:<?= e($tag['color'] ?? '#6c757d') ?>;color:<?= e(contrast_color($tag['color'] ?? '#6c757d')) ?>">
+                            <?php [$tagBg, $tagFg] = readable_pair($tag['color'] ?? '#5b6472'); ?>
+                            <span class="conv-tag-modern applied" data-tag-id="<?= $tag['id'] ?>" style="background:<?= e($tagBg) ?>;color:<?= e($tagFg) ?>">
                                 <?= e($tag['name']) ?>
                                 <button type="button" class="tag-remove-btn" data-tag-id="<?= $tag['id'] ?>" title="Remover">&times;</button>
                             </span>
@@ -152,8 +156,8 @@
                         <button type="button"
                             class="tag-grid-item <?= $appliedS ? 'applied' : '' ?>"
                             data-tag-id="<?= $t['id'] ?>"
-                            data-color="<?= e($t['color'] ?? '#6c757d') ?>"
-                            style="--tag-color:<?= e($t['color'] ?? '#6c757d') ?>">
+                            data-color="<?= e($t['color'] ?? '#5b6472') ?>"
+                            style="--tag-color:<?= e($t['color'] ?? '#5b6472') ?>">
                             <?= e($t['name']) ?>
                         </button>
                     <?php endforeach; ?>
@@ -329,7 +333,7 @@
             <div style="padding:14px 16px;overflow-y:auto">
                 <input type="text" id="wikiSearchS" class="form-control" placeholder="Buscar artigo..." onkeyup="filterWikiSuggestS()">
                 <div id="wikiListS" style="margin-top:10px;display:flex;flex-direction:column;gap:8px"></div>
-                <p style="margin:12px 0 0;font-size:12px;color:#6c757d">Insere no campo de mensagem o <strong>link do portal do cliente</strong>.</p>
+                <p style="margin:12px 0 0;font-size:12px;color:#5b6472">Insere no campo de mensagem o <strong>link do portal do cliente</strong>.</p>
             </div>
         </div>
     </div>
@@ -343,7 +347,7 @@
             <div style="padding:14px 16px;overflow-y:auto">
                 <input type="text" id="contactSearch" class="form-control" placeholder="Buscar contato por nome ou telefone..." onkeyup="filterContactSuggest()">
                 <div id="contactList" style="margin-top:10px;display:flex;flex-direction:column;gap:8px"></div>
-                <p style="margin:12px 0 0;font-size:12px;color:#6c757d">Envia o cartão do contato da base como mensagem.</p>
+                <p style="margin:12px 0 0;font-size:12px;color:#5b6472">Envia o cartão do contato da base como mensagem.</p>
             </div>
         </div>
     </div>
@@ -844,7 +848,7 @@ function filterContactSuggest() {
 function escContact(s) { var d = document.createElement('div'); d.textContent = s == null ? '' : s; return d.innerHTML; }
 function loadContactSuggest(q) {
     var box = document.getElementById('contactList'); if (!box) return;
-    box.innerHTML = '<p style="font-size:12px;color:#6c757d">Buscando...</p>';
+    box.innerHTML = '<p style="font-size:12px;color:#5b6472">Buscando...</p>';
     var base = '<?= rtrim(parse_url(base_url('/'), PHP_URL_PATH), '/') ?>';
     fetch(base + '/api/contacts/search?q=' + encodeURIComponent(q || ''), { headers: { 'X-Requested-With': 'XMLHttpRequest' } })
         .then(function(r) { return r.json(); })
@@ -855,11 +859,11 @@ function loadContactSuggest(q) {
                 var row = document.createElement('button');
                 row.type = 'button';
                 row.style.cssText = 'display:flex;align-items:center;gap:8px;text-align:left;border:1px solid #eee;border-radius:8px;padding:8px 10px;background:#fff;cursor:pointer';
-                row.innerHTML = '<i class="fas fa-address-card" style="color:#6c757d"></i><span><strong>' + escContact(c.name || c.phone) + '</strong><br><small style="color:#6c757d">' + escContact(c.phone) + '</small></span>';
+                row.innerHTML = '<i class="fas fa-address-card" style="color:#5b6472"></i><span><strong>' + escContact(c.name || c.phone) + '</strong><br><small style="color:#5b6472">' + escContact(c.phone) + '</small></span>';
                 row.onclick = function() { sendContactCard(c.id); };
                 box.appendChild(row);
             });
-            if (!box.children.length) box.innerHTML = '<p style="font-size:12px;color:#6c757d">Nenhum contato com telefone encontrado.</p>';
+            if (!box.children.length) box.innerHTML = '<p style="font-size:12px;color:#5b6472">Nenhum contato com telefone encontrado.</p>';
         })
         .catch(function() { box.innerHTML = '<p style="font-size:12px;color:#dc2626">Falha na busca. Tente novamente.</p>'; });
 }
@@ -928,10 +932,10 @@ function filterWikiSuggestS() {
 function escWikiS(s) { var d = document.createElement('div'); d.textContent = s == null ? '' : s; return d.innerHTML; }
 function loadWikiSuggestS(q) {
     var box = document.getElementById('wikiListS'); if (!box) return;
-    box.innerHTML = '<p style="font-size:13px;color:#6c757d">Buscando...</p>';
+    box.innerHTML = '<p style="font-size:13px;color:#5b6472">Buscando...</p>';
     fetch(BASE + '/api/wiki/suggest?q=' + encodeURIComponent(q || '')).then(function(r) { return r.json(); }).then(function(list) {
         wikiSuggestS = list || []; renderWikiSuggestS();
-    }).catch(function() { wikiSuggestS = []; box.innerHTML = '<p style="font-size:13px;color:#6c757d">Falha ao buscar artigos.</p>'; });
+    }).catch(function() { wikiSuggestS = []; box.innerHTML = '<p style="font-size:13px;color:#5b6472">Falha ao buscar artigos.</p>'; });
 }
 function renderWikiSuggestS() {
     var box = document.getElementById('wikiListS'); if (!box) return;
@@ -939,9 +943,9 @@ function renderWikiSuggestS() {
     wikiSuggestS.forEach(function(a, i) {
         html += '<div onclick="insertWikiArticleS(' + i + ')" style="border:1px solid #e5e7eb;border-radius:8px;padding:10px 12px;cursor:pointer">'
             + '<div style="font-weight:600;font-size:13px;color:#222"><i class="fas fa-book-open"></i> ' + escWikiS(a.title) + '</div>'
-            + '<div style="font-size:12px;color:#6c757d;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + escWikiS(a.description || a.url || '') + '</div></div>';
+            + '<div style="font-size:12px;color:#5b6472;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + escWikiS(a.description || a.url || '') + '</div></div>';
     });
-    if (!html) html = '<p style="font-size:13px;color:#6c757d">Nenhum artigo encontrado.</p>';
+    if (!html) html = '<p style="font-size:13px;color:#5b6472">Nenhum artigo encontrado.</p>';
     box.innerHTML = html;
 }
 function insertWikiArticleS(i) {
@@ -970,16 +974,17 @@ function postJsonS(url, body) {
     var createInput = document.getElementById('tagCreateInputS');
     var createBtn = document.getElementById('tagCreateBtnS');
     if (!grid) return;
-    var allTags = <?= json_encode(array_map(function($t) { return ['id' => (int)$t['id'], 'name' => $t['name'], 'color' => $t['color'] ?? '#6c757d']; }, $allTags)) ?>;
+    var allTags = <?= json_encode(array_map(function($t) { return ['id' => (int)$t['id'], 'name' => $t['name'], 'color' => $t['color'] ?? '#5b6472']; }, $allTags)) ?>;
 
     function contrast(c) {
-        var h = c.replace('#','');
-        if (h.length===3) h = h[0]+h[0]+h[1]+h[1]+h[2]+h[2];
-        var r=parseInt(h.substr(0,2),16), g=parseInt(h.substr(2,2),16), b=parseInt(h.substr(4,2),16);
-        return (0.299*r+0.587*g+0.114*b)/255 > 0.5 ? '#1a1a2e' : '#fff';
+        // Par (fundo, texto) com contraste garantido — o fundo é escurecido
+        // quando nem branco nem escuro passariam de 4,5:1.
+        var p = window.OminiColor ? window.OminiColor.readablePair(c) : [c, '#ffffff'];
+        return { bg: p[0], fg: p[1] };
     }
     function tagHtml(t) {
-        return '<span class="conv-tag-modern applied" data-tag-id="'+t.id+'" style="background:'+t.color+';color:'+contrast(t.color)+'">' +
+        var c = contrast(t.color);
+        return '<span class="conv-tag-modern applied" data-tag-id="'+t.id+'" style="background:'+c.bg+';color:'+c.fg+'">' +
             t.name + ' <button type="button" class="tag-remove-btn" data-tag-id="'+t.id+'" title="Remover">&times;</button></span>';
     }
     function gridItemHtml(t, applied) {
@@ -1056,7 +1061,7 @@ function postJsonS(url, body) {
             createBtn.disabled = true; createBtn.textContent = '...';
             postJsonS('/inbox/'+convId+'/tags', { tag_name: name }).then(function(resp) {
                 if (resp.success !== false && resp.tag_id) {
-                    var newTag = { id: resp.tag_id, name: name, color: resp.color || '#6c757d' };
+                    var newTag = { id: resp.tag_id, name: name, color: resp.color || '#5b6472' };
                     allTags.push(newTag);
                     grid.insertAdjacentHTML('beforeend', gridItemHtml(newTag, true));
                     updateAppliedTags(newTag, true);

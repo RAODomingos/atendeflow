@@ -21,33 +21,86 @@ class InboxController
 {
     /**
      * Checagem central de acesso a conversa: admin vê tudo; demais precisam
-     * ser responsável, membro da inbox ou do departamento.
+     * ser responsável, membro do departamento ou dono de caixa pessoal que
+     * contenha a conversa.
      */
     private function canUserSeeConversation(int $conversationId, int $userId): bool
     {
-        $conv = Conversation::find($conversationId);
-        if (!$conv) {
-            return false;
-        }
         if (Auth::isAdmin()) {
-            return true;
+            return Conversation::find($conversationId) !== null;
         }
-        if (!empty($conv['assigned_user_id']) && (int) $conv['assigned_user_id'] === $userId) {
-            return true;
+        return Conversation::userCanSee($conversationId, $userId);
+    }
+
+    /**
+     * Filtros da listagem vindos da query string.
+     *
+     * A caixa de entrada é única: o recorte vem dos filtros (canal,
+     * prioridade, responsável, não lidas) e as caixas viram visões salvas
+     * sobre o mesmo escopo.
+     *
+     * $defaultStatus é a aba inicial quando a URL não traz `fstatus`. Sem
+     * isso a listagem vinha sem filtro de status e mostrava conversa
+     * finalizada na aba "Em atendimento" (que é o que a aba destaca).
+     */
+    private static function filtersFromRequest(Request $request, string $defaultStatus = ''): array
+    {
+        $filters = [];
+
+        $search = trim((string) $request->input('search', ''));
+        if ($search !== '') {
+            $filters['search'] = $search;
         }
-        if (!empty($conv['inbox_id']) && Inbox::canAccess((int) $conv['inbox_id'], $userId)) {
-            return true;
+
+        $status = (string) $request->input('fstatus', '');
+        if ($status === '') {
+            $status = $defaultStatus;
         }
-        if (!empty($conv['department_id'])) {
-            $row = Database::getInstance()->fetch(
-                "SELECT 1 FROM department_users WHERE department_id = ? AND user_id = ? LIMIT 1",
-                [$conv['department_id'], $userId]
-            );
-            if ($row) {
-                return true;
+        if ($status !== '' && $status !== 'all') {
+            $filters['status'] = $status;
+        }
+
+        $channelId = (int) $request->input('channel_id', 0);
+        if ($channelId > 0) {
+            $filters['channel_id'] = $channelId;
+        }
+
+        $channelType = trim((string) $request->input('channel', ''));
+        if ($channelType !== '') {
+            $filters['channel'] = $channelType;
+        }
+
+        $priority = trim((string) $request->input('priority', ''));
+        if ($priority !== '') {
+            $filters['priority'] = $priority;
+        }
+
+        if ($request->input('unread')) {
+            $filters['unread'] = true;
+        }
+
+        // Escopos da URL: "minhas conversas" e "sem responsável" são
+        // recortes do mesmo escopo, e precisam viajar na URL porque o
+        // live-feed refaz a consulta periodicamente — se ficarem só no
+        // servidor, o poll reescreve a lista sem eles.
+        //
+        // "Minha Caixa" é o filtro por responsável: quando o escopo mine está
+        // ligado, ele é o dono do recorte — um "responsável" diferente na
+        // URL viria de link antigo e zeraria a lista.
+        if ($request->input('mine')) {
+            $filters['mine'] = true;
+        } else {
+            $assignee = trim((string) $request->input('assignee', ''));
+            if ($assignee !== '') {
+                $filters['assignee'] = $assignee;
             }
         }
-        return false;
+
+        if ($request->input('unassigned')) {
+            $filters['unassigned'] = true;
+        }
+
+        return $filters;
     }
 
     /**
@@ -102,13 +155,7 @@ class InboxController
             $statusFilter = 'active';
         }
 
-        $filters = [];
-        if ($search) {
-            $filters['search'] = $search;
-        }
-        if ($statusFilter && $statusFilter !== 'all') {
-            $filters['status'] = $statusFilter;
-        }
+        $filters = self::filtersFromRequest($request, 'active');
 
         $detail = null;
         $convId = $request->input('conv');
@@ -126,44 +173,50 @@ class InboxController
             }
         }
 
-        if ($inboxId && Inbox::canAccess((int) $inboxId, Auth::id())) {
-            $inbox = Inbox::find((int) $inboxId);
-            $conversations = Conversation::getConversationsForInbox((int) $inboxId, Auth::id(), $filters);
-            View::renderWithLayout('inbox/index', 'main', [
-                'title' => 'Caixa: ' . $inbox['name'],
-                'activePage' => 'inbox',
-                'conversations' => $conversations,
-                'counts' => Conversation::countByStatus(Auth::id()),
-                'unread' => Conversation::getUnreadCount(Auth::id()),
-                'departments' => Department::all(),
-                'contacts' => Contact::all(['limit' => 200]),
-                'inboxes' => $inboxes,
-                'activeInbox' => (int) $inboxId,
-                'search' => $search,
-                'fstatus' => $statusFilter,
-                'detail' => $detail,
-                'channels' => \App\Models\Channel::getWhatsapp(),
-            ]);
-            return;
-        }
-
-        $ids = array_column($inboxes, 'id');
-        $conversations = Conversation::getConversationsForInboxes($ids, Auth::id(), $filters);
-
-        View::renderWithLayout('inbox/index', 'main', [
+        $view = [
             'title' => 'Caixa de Entrada',
             'activePage' => 'inbox',
-            'conversations' => $conversations,
-            'counts' => Conversation::countByStatus(Auth::id()),
-            'unread' => Conversation::getUnreadCount(Auth::id()),
             'departments' => Department::all(),
             'contacts' => Contact::all(['limit' => 200]),
             'inboxes' => $inboxes,
             'search' => $search,
             'fstatus' => $statusFilter,
+            'filters' => $filters,
             'detail' => $detail,
             'channels' => \App\Models\Channel::getWhatsapp(),
-        ]);
+            'filterChannels' => \App\Models\Channel::listForFilter(),
+            'filterUsers' => \App\Models\User::listForFilter(),
+        ];
+
+        if ($inboxId && Inbox::canAccess((int) $inboxId, Auth::id())) {
+            // Visão salva: a caixa é um recorte do mesmo escopo.
+            $inbox = Inbox::find((int) $inboxId);
+            $sets = Inbox::membershipSets([(int) $inboxId]);
+            $view['title'] = 'Caixa: ' . ($inbox['name'] ?? '');
+            $view['activeInbox'] = (int) $inboxId;
+            $view['conversations'] = Conversation::getConversationsForSets($sets, Auth::id(), $filters);
+            $view['tabCounts'] = Conversation::countsByTabForSets($sets, Auth::id(), $filters);
+        } else {
+            // Caixa de entrada unificada: tudo que o atendente alcança.
+            $scopeSets = Conversation::scopeSetsForUser(Auth::id());
+            $view['conversations'] = Conversation::getConversationsForSets($scopeSets, Auth::id(), $filters);
+            $view['tabCounts'] = Conversation::countsByTabForSets($scopeSets, Auth::id(), $filters);
+        }
+
+        // Os escopos "minhas" e "sem responsável" são recortes da caixa
+        // unificada: mudam o rótulo e o item do menu, não a lista.
+        if (!empty($filters['mine'])) {
+            $view['title'] = 'Minha Caixa';
+            $view['activePage'] = 'inbox_mine';
+        } elseif (!empty($filters['unassigned'])) {
+            $view['title'] = 'Não Atribuídas';
+            $view['activeTab'] = 'unassigned';
+        }
+
+        $view['counts'] = Conversation::countByStatus(Auth::id());
+        $view['unread'] = Conversation::getUnreadCount(Auth::id());
+
+        View::renderWithLayout('inbox/index', 'main', $view);
     }
 
     /**
@@ -241,36 +294,74 @@ class InboxController
         View::render('inbox/panel', $detail);
     }
 
+    /**
+     * "Minha Caixa": as conversas atribuídas a mim.
+     *
+     * Não depende de caixa pessoal criada: é o filtro por responsável sobre
+     * o mesmo escopo da caixa de entrada. O recorte é autoritativo — a
+     * página é sempre "o que está alocado a mim", e o filtro de responsável
+     * da barra fica travado em "Atribuídas a mim".
+     */
     public function mine(Request $request): void
     {
-        $owned = Inbox::getOwnedPersonalInboxes(Auth::id());
-        $ids = array_column($owned, 'id');
-        $conversations = Conversation::getConversationsForInboxes($ids, Auth::id());
+        $filters = self::filtersFromRequest($request, 'active');
+        $filters['mine'] = true;
+        unset($filters['assignee']);
+
+        $scopeSets = Conversation::scopeSetsForUser(Auth::id());
+        $conversations = Conversation::getConversationsForSets($scopeSets, Auth::id(), $filters);
 
         View::renderWithLayout('inbox/index', 'main', [
             'title' => 'Minha Caixa',
             'activePage' => 'inbox_mine',
             'conversations' => $conversations,
+            'tabCounts' => Conversation::countsByTabForSets($scopeSets, Auth::id(), $filters),
             'counts' => Conversation::countByStatus(Auth::id()),
             'unread' => Conversation::getUnreadCount(Auth::id()),
             'departments' => Department::all(),
+            'contacts' => Contact::all(['limit' => 200]),
             'inboxes' => Inbox::getUserInboxes(Auth::id()),
             'activeTab' => 'mine',
+            'filters' => $filters,
+            'fstatus' => (string) ($request->input('fstatus', 'active')),
+            'search' => trim((string) $request->input('search', '')),
+            'channels' => \App\Models\Channel::getWhatsapp(),
+            'filterChannels' => \App\Models\Channel::listForFilter(),
+            'filterUsers' => \App\Models\User::listForFilter(),
         ]);
     }
 
+    /**
+     * Conversas sem responsável dentro do meu escopo.
+     *
+     * Usa o mesmo caminho da caixa de entrada (filtro "sem responsável")
+     * para que a página e o live-feed contem a mesma coisa.
+     */
     public function unassigned(Request $request): void
     {
-        $conversations = Conversation::getUnassigned();
+        $filters = self::filtersFromRequest($request);
+        $filters['unassigned'] = true;
+
+        $scopeSets = Conversation::scopeSetsForUser(Auth::id());
+        $conversations = Conversation::getConversationsForSets($scopeSets, Auth::id(), $filters);
+
         View::renderWithLayout('inbox/index', 'main', [
             'title' => 'Não Atribuídas',
             'activePage' => 'inbox',
             'conversations' => $conversations,
+            'tabCounts' => Conversation::countsByTabForSets($scopeSets, Auth::id(), $filters),
             'counts' => Conversation::countByStatus(),
             'unread' => Conversation::getUnreadCount(Auth::id()),
             'departments' => Department::all(),
+            'contacts' => Contact::all(['limit' => 200]),
             'activeTab' => 'unassigned',
             'inboxes' => Inbox::getUserInboxes(Auth::id()),
+            'filters' => $filters,
+            'fstatus' => (string) ($request->input('fstatus', 'active')),
+            'search' => trim((string) $request->input('search', '')),
+            'channels' => \App\Models\Channel::getWhatsapp(),
+            'filterChannels' => \App\Models\Channel::listForFilter(),
+            'filterUsers' => \App\Models\User::listForFilter(),
         ]);
     }
 
@@ -708,7 +799,7 @@ class InboxController
             'contact_id' => (int) $contactId,
             'department_id' => $departmentId ? (int) $departmentId : null,
             'channel_id' => (int) $channelId,
-            'inbox_id' => Inbox::resolveInboxForChannel((int) $channelId),
+            'inbox_id' => Inbox::resolveProfileFor((int) $channelId, $departmentId ? (int) $departmentId : null),
             'assigned_user_id' => Auth::id(),
             'subject' => $subject,
             'status' => 'open',
@@ -728,24 +819,60 @@ class InboxController
 
     public function apiConversations(Request $request): void
     {
-        $inboxes = Inbox::getUserInboxes(Auth::id());
-        $ids = array_column($inboxes, 'id');
-
-        // Filter by specific inbox if provided
-        $inboxId = $request->input('inbox');
-        if ($inboxId && in_array((int) $inboxId, $ids)) {
-            $ids = [(int) $inboxId];
-        }
-
-        $filters = [];
-        $statusFilter = $request->input('fstatus');
-        if ($statusFilter && $statusFilter !== 'all') {
-            $filters['status'] = $statusFilter;
-        }
+        $filters = self::filtersFromRequest($request, 'active');
         // Endpoint de atualizacao periodica: nao precisa da fila inteira.
         $filters['limit'] = 200;
-        $conversations = Conversation::getConversationsForInboxes($ids, Auth::id(), $filters);
+        $conversations = Conversation::getConversationsForSets($this->listScope($request), Auth::id(), $filters);
         View::json(self::attachSlaFields($conversations));
+    }
+
+    /**
+     * Escopo da listagem: o conjunto de caixas visível (visão unificada) ou
+     * uma caixa específica (visão salva).
+     */
+    private function listScope(Request $request): array
+    {
+        $inboxes = Inbox::getUserInboxes(Auth::id());
+        $ids = array_map('intval', array_column($inboxes, 'id'));
+        $inboxId = (int) $request->input('inbox', 0);
+        if ($inboxId > 0 && in_array($inboxId, $ids, true)) {
+            return Inbox::membershipSets([$inboxId]);
+        }
+        return Conversation::scopeSetsForUser(Auth::id());
+    }
+
+    /**
+     * GET /api/conversations-status
+     *
+     * Mapa { conversation_id: status } de todas as conversas das caixas do
+     * usuario. Endpoint separado do /api/conversations para não quebrar o
+     * formato da lista (consumido pelo LiveFeed e pelos testes).
+     *
+     * Existe porque, com as três abas, uma conversa que sai da aba atual
+     * pode ter ido para "Aguardando" — não é a mesma coisa que ter sido
+     * finalizada. Sem o status real, o cliente anunciava "Conversa
+     * finalizada" para um simples "aguardando cliente".
+     */
+    public function apiConversationsStatus(Request $request): void
+    {
+        View::json(Conversation::statusMapForSets($this->listScope($request)));
+    }
+
+    /**
+     * GET /api/conversations-counts
+     *
+     * Contagem por aba da caixa: { active: N, waiting: N }.
+     * "Em atendimento" = abertas + aguardando cliente + aguardando interno;
+     * "Aguardando" = novas (fila de chegada). "Concluído" não tem badge.
+     *
+     * Endpoint separado (e leve) para o LiveFeed atualizar os números das
+     * abas junto com o poll da lista.
+     */
+    public function apiConversationsCounts(Request $request): void
+    {
+        $filters = self::filtersFromRequest($request);
+        unset($filters['status']);
+        View::json(Conversation::countsByTabForSets($this->listScope($request), Auth::id(), $filters));
     }
 
     /**
@@ -754,27 +881,13 @@ class InboxController
      */
     public function conversationsListFragment(Request $request): void
     {
-        $search = trim((string) $request->input('search'));
-        $inboxId = $request->input('inbox');
         $statusFilter = $request->input('fstatus');
-
-        $inboxes = Inbox::getUserInboxes(Auth::id());
-        $ids = array_column($inboxes, 'id');
-        if ($inboxId && in_array((int) $inboxId, $ids)) {
-            $ids = [(int) $inboxId];
-        }
-        $filters = [];
-        if ($search) {
-            $filters['search'] = $search;
-        }
-        if ($statusFilter && $statusFilter !== 'all') {
-            $filters['status'] = $statusFilter;
-        }
-        $conversations = Conversation::getConversationsForInboxes($ids, Auth::id(), $filters);
+        $filters = self::filtersFromRequest($request, 'active');
+        $conversations = Conversation::getConversationsForSets($this->listScope($request), Auth::id(), $filters);
 
         View::render('inbox/_conv_list', [
             'conversations' => $conversations,
-            'activeInbox' => $inboxId ? (int) $inboxId : null,
+            'activeInbox' => $request->input('inbox') ? (int) $request->input('inbox') : null,
             'fstatus' => $statusFilter,
             'activeConvId' => $request->input('conv') ? (int) $request->input('conv') : null,
         ]);
@@ -802,7 +915,7 @@ class InboxController
             'contact_id' => $contactId,
             'department_id' => $departmentId,
             'channel_id' => $channelId,
-            'inbox_id' => Inbox::resolveInboxForChannel($channelId),
+            'inbox_id' => Inbox::resolveProfileFor((int) $channelId, $departmentId ? (int) $departmentId : null),
             'assigned_user_id' => Auth::id(),
             'subject' => $subject,
             'status' => 'open',
@@ -849,12 +962,24 @@ class InboxController
             View::json(['error' => 'Conversa não é de grupo'], 404);
             return;
         }
+        $members = \App\Models\WhatsAppGroup::members($groupId);
+        if ($members) {
+            // Cache: o autocomplete não deve chamar o provedor a cada troca
+            // de conversa. Quem renova é o botão "Atualizar" da tela do grupo.
+            View::json([
+                'members' => $members,
+                'fetched_at' => \App\Models\WhatsAppGroup::membersSyncedAt($groupId),
+                'cached' => true,
+            ]);
+            return;
+        }
         $members = (new \App\Services\WhatsAppService())->fetchGroupMembersForDisplay($groupId);
         if ($members === null) {
             View::json(['error' => 'Lista de participantes indisponível no momento'], 502);
             return;
         }
-        View::json(['members' => $members, 'fetched_at' => date('c')]);
+        \App\Models\WhatsAppGroup::saveMembers($groupId, $members);
+        View::json(['members' => $members, 'fetched_at' => date('c'), 'cached' => false]);
     }
 
     /**
@@ -1058,7 +1183,7 @@ class InboxController
         $conv = Conversation::find($id);
         if ($conv) {
             $conv['csat'] = Conversation::getCsat($id);
-            $conv = self::attachSlaFields([$conv])[0];
+            $conv = self::attachSlaFields([$conv], true)[0];
         }
         View::json($conv ?: new \stdClass());
     }
@@ -1066,8 +1191,13 @@ class InboxController
     /**
      * Acrescenta os campos de SLA (primeira resposta e resolução) às
      * conversas, em UMA query para a lista inteira.
+     *
+     * @param bool $live Quando true, uma conversa sem linha medida recebe
+     *        a medição ao vivo (em memória, sem gravar). Usado só na tela
+     *        de UM atendimento: sem o worker rodando, a conversa nova na
+     *        fila ficaria sem nenhum dado de SLA no painel.
      */
-    private static function attachSlaFields(array $conversations): array
+    private static function attachSlaFields(array $conversations, bool $live = false): array
     {
         if (empty($conversations)) {
             return $conversations;
@@ -1077,6 +1207,25 @@ class InboxController
 
         foreach ($conversations as $i => $c) {
             $sla = $map[(int) ($c['id'] ?? 0)] ?? null;
+            if ($sla === null && $live) {
+                $measured = \App\Services\SlaMeasurement::forConversation((int) ($c['id'] ?? 0));
+                if ($measured) {
+                    $sla = [
+                        'sla_kind' => $measured['sla_kind'] ?? 'standard',
+                        'response_seconds' => $measured['response_seconds'] ?? null,
+                        'response_at' => $measured['response_at'] ?? null,
+                        'response_breached' => !empty($measured['response_breached']),
+                        'response_threshold' => $measured['response_threshold'] ?? null,
+                        'resolution_seconds' => $measured['resolution_seconds'] ?? null,
+                        'resolution_breached' => !empty($measured['resolution_breached']),
+                        'resolution_threshold' => $measured['resolution_threshold'] ?? null,
+                        'pending_seconds' => $measured['pending_seconds'] ?? null,
+                        'pending_breached' => !empty($measured['pending_breached']),
+                        'pending_threshold' => $measured['pending_threshold'] ?? null,
+                    ];
+                }
+            }
+            $conversations[$i]['sla_kind'] = (string) ($sla['sla_kind'] ?? 'standard');
             $conversations[$i]['sla_response_seconds'] = $sla['response_seconds'] ?? null;
             $conversations[$i]['sla_response_at'] = $sla['response_at'] ?? null;
             $conversations[$i]['sla_response_breached'] = (int) ($sla['response_breached'] ?? 0);
@@ -1084,6 +1233,10 @@ class InboxController
             $conversations[$i]['sla_resolution_seconds'] = $sla['resolution_seconds'] ?? null;
             $conversations[$i]['sla_resolution_breached'] = (int) ($sla['resolution_breached'] ?? 0);
             $conversations[$i]['sla_resolution_threshold'] = $sla['resolution_threshold'] ?? null;
+            // SLA da menção em grupo (o objeto do SLA no grupo).
+            $conversations[$i]['sla_pending_seconds'] = $sla['pending_seconds'] ?? null;
+            $conversations[$i]['sla_pending_breached'] = (int) ($sla['pending_breached'] ?? 0);
+            $conversations[$i]['sla_pending_threshold'] = $sla['pending_threshold'] ?? null;
         }
         return $conversations;
     }

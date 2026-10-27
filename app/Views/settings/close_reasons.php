@@ -99,7 +99,7 @@
                                     data-label="<?= e($r['label']) ?>"
                                     data-description="<?= e($r['description'] ?? '') ?>"
                                     data-icon="<?= e($r['icon'] ?? 'fa-tag') ?>"
-                                    data-color="<?= e($r['color'] ?? '#6c757d') ?>"
+                                    data-color="<?= e($r['color'] ?? '#5b6472') ?>"
                                     data-sort="<?= (int) $r['sort_order'] ?>"
                                     data-active="<?= !empty($r['is_active']) ? 1 : 0 ?>"
                                     onclick="editCloseReason(this)">
@@ -176,7 +176,7 @@ function editCloseReason(btn) {
     document.getElementById('editReasonLabel').value = d.label || '';
     document.getElementById('editReasonDescription').value = d.description || '';
     document.getElementById('editReasonIcon').value = d.icon || 'fa-tag';
-    document.getElementById('editReasonColor').value = /^#[0-9a-fA-F]{6}$/.test(d.color || '') ? d.color : '#6c757d';
+    document.getElementById('editReasonColor').value = /^#[0-9a-fA-F]{6}$/.test(d.color || '') ? d.color : '#5b6472';
     document.getElementById('editReasonOrder').value = d.sort || 0;
     document.getElementById('editReasonActive').checked = d.active === '1';
     document.getElementById('editCloseReasonModal').style.display = 'flex';

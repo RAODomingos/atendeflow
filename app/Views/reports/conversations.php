@@ -60,9 +60,9 @@
                         'new' => 'var(--info)',
                         'open' => 'var(--primary)',
                         'waiting_customer' => 'var(--warning)',
-                        'waiting_internal' => '#b45309',
+                        'waiting_internal' => '#9a3412',
                         'resolved' => 'var(--success)',
-                        'closed' => '#6c757d',
+                        'closed' => '#5b6472',
                         'spam' => 'var(--danger)',
                     ];
                     $labels = [
@@ -75,13 +75,13 @@
                         <?php $pct = $stTotal > 0 ? round($st['total'] / $stTotal * 100) : 0; ?>
                         <div class="hbar-row">
                             <div class="hbar-top">
-                                <span class="hbar-dot" style="background:<?= $colors[$st['status']] ?? '#6c757d' ?>"></span>
+                                <span class="hbar-dot" style="background:<?= $colors[$st['status']] ?? '#5b6472' ?>"></span>
                                 <span class="dept-bar-name"><?= $labels[$st['status']] ?? e(ucfirst(str_replace('_', ' ', $st['status']))) ?></span>
                                 <span class="hbar-pct"><?= $pct ?>%</span>
                                 <span class="dept-bar-count"><?= $st['total'] ?></span>
                             </div>
                             <div class="dept-bar-track">
-                                <div class="dept-bar-fill" style="width:<?= $pct ?>%;background:<?= $colors[$st['status']] ?? '#6c757d' ?>"></div>
+                                <div class="dept-bar-fill" style="width:<?= $pct ?>%;background:<?= $colors[$st['status']] ?? '#5b6472' ?>"></div>
                             </div>
                         </div>
                     <?php endforeach; ?>
@@ -132,13 +132,13 @@
                     <?php foreach ($deptData as $dp): ?>
                         <div class="hbar-row">
                             <div class="hbar-top">
-                                <span class="hbar-dot" style="background:<?= e($dp['color'] ?? '#6c757d') ?>"></span>
+                                <span class="hbar-dot" style="background:<?= e($dp['color'] ?? '#5b6472') ?>"></span>
                                 <span class="dept-bar-name"><?= e($dp['name']) ?></span>
                                 <span class="hbar-pct"><?= round($dp['total'] / $dpMax * 100) ?>%</span>
                                 <span class="dept-bar-count"><?= $dp['total'] ?></span>
                             </div>
                             <div class="dept-bar-track">
-                                <div class="dept-bar-fill" style="width:<?= ($dp['total'] / $dpMax) * 100 ?>%;background:<?= e($dp['color'] ?? '#6c757d') ?>"></div>
+                                <div class="dept-bar-fill" style="width:<?= ($dp['total'] / $dpMax) * 100 ?>%;background:<?= e($dp['color'] ?? '#5b6472') ?>"></div>
                             </div>
                         </div>
                     <?php endforeach; ?>

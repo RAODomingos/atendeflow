@@ -42,7 +42,7 @@
                                     </form>
                                     <form action="<?= url('channels/') ?><?= $w['channel_id'] ?>/delete" method="POST" style="display:inline" data-confirm="Excluir este canal?">
                                         <?= csrf_field() ?>
-                                        <button type="submit" class="btn btn-sm btn-danger" title="Excluir"><i class="fas fa-trash"></i></button>
+                                        <button type="submit" class="btn btn-sm btn-outline btn-icon btn-icon-danger" title="Excluir"><i class="fas fa-trash"></i></button>
                                     </form>
                                 </td>
                             </tr>
@@ -105,7 +105,7 @@
                                     <?php endif; ?>
                                     <form action="<?= url('channels/') ?><?= (int) $wc['channel_id'] ?>/delete" method="POST" style="display:inline" data-confirm="Excluir este canal?">
                                         <?= csrf_field() ?>
-                                        <button type="submit" class="btn btn-sm btn-danger" title="Excluir"><i class="fas fa-trash"></i></button>
+                                        <button type="submit" class="btn btn-sm btn-outline btn-icon btn-icon-danger" title="Excluir"><i class="fas fa-trash"></i></button>
                                     </form>
                                 </td>
                             </tr>
@@ -667,7 +667,7 @@ function closeQrModal() {
 .card-header.d-flex { display: flex; align-items: center; justify-content: space-between; }
 .card-header.d-flex h3 { margin: 0; }
 .mt-2 { margin-top: 16px; }
-.form-hint { font-size: 12px; color: #6c757d; margin-top: 4px; display: block; }
+.form-hint { font-size: 12px; color: var(--text-secondary); margin-top: 4px; display: block; }
 .action-cell { white-space: nowrap; }
 .action-cell .btn { margin: 0 2px; }
 .code-block { position: relative; }
@@ -695,7 +695,7 @@ code.copy-target { background: #f0f2f5; padding: 2px 6px; border-radius: 4px; fo
 }
 .af-drawer-head h3 { font-size: 17px; font-weight: 600; }
 .af-drawer-close {
-    background: none; border: none; font-size: 26px; line-height: 1; color: #6c757d;
+    background: none; border: none; font-size: 26px; line-height: 1; color: #5b6472;
     cursor: pointer; width: 34px; height: 34px; border-radius: 8px; transition: background .15s;
 }
 .af-drawer-close:hover { background: var(--bg-content, #f1f3f6); }
@@ -710,7 +710,7 @@ code.copy-target { background: #f0f2f5; padding: 2px 6px; border-radius: 4px; fo
 .af-type-tabs { display: flex; gap: 6px; background: var(--bg-content, #f1f3f6); padding: 4px; border-radius: 10px; margin-bottom: 20px; }
 .af-type-tab {
     flex: 1; border: none; background: transparent; padding: 9px; border-radius: 7px;
-    font-size: 13px; font-weight: 600; color: #6c757d; cursor: pointer; transition: all .15s;
+    font-size: 13px; font-weight: 600; color: var(--text-secondary); cursor: pointer; transition: all .15s;
 }
 .af-type-tab.active { background: var(--bg-card, #fff); color: var(--brand); box-shadow: 0 1px 3px rgba(0,0,0,.08); }
 
@@ -726,7 +726,7 @@ code.copy-target { background: #f0f2f5; padding: 2px 6px; border-radius: 4px; fo
 .af-field-row:last-child { border-bottom: none; }
 .af-field-info { display: flex; align-items: center; gap: 8px; }
 .af-field-name { font-size: 14px; font-weight: 600; color: var(--text-main, #1a2332); }
-.af-field-note { font-size: 10px; font-weight: 600; color: var(--brand-dark); background: var(--brand-soft); padding: 2px 7px; border-radius: 10px; }
+.af-field-note { font-size: 11px; font-weight: 600; color: var(--brand-dark); background: var(--brand-soft); padding: 2px 7px; border-radius: 10px; }
 .af-field-toggles { display: flex; align-items: center; gap: 14px; }
 
 /* switch */
@@ -751,7 +751,7 @@ code.copy-target { background: #f0f2f5; padding: 2px 6px; border-radius: 4px; fo
 
 /* ── QR modal ── */
 .qr-image-wrap { min-height: 200px; display: flex; align-items: center; justify-content: center; padding: 12px; }
-.qr-loading { color: #6c757d; }
+.qr-loading { color: #5b6472; }
 .qr-loading p { margin-top: 10px; font-size: 13px; }
 
 /* ── Dark mode overrides ── */

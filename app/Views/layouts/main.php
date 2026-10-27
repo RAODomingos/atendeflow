@@ -12,6 +12,9 @@
     <meta name="config-proactive-chat-enabled" content="<?= $config['proactive_chat_enabled'] ?? 'true' ?>">
     <meta name="csrf-token" content="<?= csrf_token() ?>">
     <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link rel="preload" href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" as="style" onload="this.onload=null;this.rel='stylesheet'">
+    <noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap"></noscript>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
     <link rel="icon" type="image/png" href="<?= asset('assets/img/favicon.png') ?>">
     <link rel="stylesheet" href="<?= asset('assets/css/app.css') ?>">
@@ -61,10 +64,12 @@ try {
                 <h1 class="topbar-title"><?= e($title ?? 'Dashboard') ?></h1>
             </div>
         </div>
-        <div class="m365-search">
-            <i class="fa-solid fa-magnifying-glass m365-search-icon"></i>
-            <input type="text" id="globalSearch" placeholder="Pesquisar" autocomplete="off" aria-label="Pesquisar">
-            <span class="m365-search-hint">Ctrl K</span>
+        <div class="global-search">
+            <i class="fa-solid fa-magnifying-glass global-search-icon"></i>
+            <input type="text" id="globalSearch" placeholder="Pesquisar" autocomplete="off" aria-label="Pesquisar"
+                   role="combobox" aria-expanded="false" aria-controls="globalSearchPanel" aria-haspopup="listbox" aria-autocomplete="list">
+            <span class="global-search-hint">Ctrl K</span>
+            <div class="global-search-panel" id="globalSearchPanel" role="listbox" aria-label="Resultados da pesquisa" hidden></div>
         </div>
         <div class="topbar-right">
             <div class="notif-wrapper">
@@ -121,8 +126,14 @@ try {
             $personalInboxes = \App\Models\Inbox::getOwnedPersonalInboxes(\App\Core\Auth::id());
             $allInboxIds = array_merge(array_column($catInboxes, 'id'), array_column($personalInboxes, 'id'));
             $openByInbox = \App\Models\Conversation::openCountsByInbox($allInboxIds);
-            $totalOpen = 0;
-            foreach ($catInboxes as $ib) { $totalOpen += $openByInbox[$ib['id']] ?? 0; }
+            // O total da Caixa de Entrada NÃO é a soma dos badges das caixas:
+            // as caixas se sobrepõem (a mesma conversa pode estar em duas),
+            // então somar contaria a mesma conversa duas vezes. É a contagem
+            // do escopo do usuário — exatamente o que a lista mostra.
+            $totalOpen = \App\Models\Conversation::openCountForSets(
+                \App\Models\Conversation::scopeSetsForUser(\App\Core\Auth::id())
+            );
+            $mineOpen = \App\Models\Conversation::openCountForMine(\App\Core\Auth::id());
             // Caixa de Entrada (todas) só fica ativa quando nenhuma caixa
             // específica está selecionada; senão só a caixa visível destaca.
             $selectedInbox = (string) ($_GET['inbox'] ?? '');
@@ -134,19 +145,20 @@ try {
             </a>
             <?php foreach ($catInboxes as $ib): ?>
                 <a href="<?= url('inbox?inbox=' . $ib['id']) ?>" class="nav-item nav-sub <?= ($activePage === 'inbox' && $selectedInbox === (string) $ib['id']) ? 'active' : '' ?>" data-inbox-link="<?= (int) $ib['id'] ?>">
-                    <i class="fa-solid fa-inbox" style="font-size:14px;width:17px;text-align:center"></i>
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 12h-6l-2 3h-4l-2-3H2"/><path d="M5.45 5.11L2 12v6a2 2 0 002 2h16a2 2 0 002-2v-6l-3.45-6.89A2 2 0 0016.76 4H7.24a2 2 0 00-1.79 1.11z"/></svg>
                     <span><?= e($ib['name']) ?></span>
                     <?php if (($openByInbox[$ib['id']] ?? 0) > 0): ?><span class="nav-badge" data-inbox-badge="<?= (int) $ib['id'] ?>"><?= $openByInbox[$ib['id']] ?></span><?php endif; ?>
                 </a>
             <?php endforeach; ?>
-            <a href="<?= route('inbox.mine') ?>" class="nav-item <?= $activePage === 'inbox_mine' ? 'active' : '' ?>">
+            <a href="<?= route('inbox.mine') ?>?mine=1" class="nav-item <?= $activePage === 'inbox_mine' ? 'active' : '' ?>">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M4 21v-1a7 7 0 0114 0v1"/></svg>
                 Minha Caixa
+                <?php if ($mineOpen > 0): ?><span class="nav-badge" data-mine-badge="1"><?= $mineOpen ?></span><?php endif; ?>
             </a>
 
             <?php foreach ($personalInboxes as $ib): ?>
                 <a href="<?= url('inbox?inbox=' . $ib['id']) ?>" class="nav-item nav-sub <?= ($activePage === 'inbox' && $selectedInbox === (string) $ib['id']) ? 'active' : '' ?>" data-inbox-link="<?= (int) $ib['id'] ?>">
-                    <i class="fa-solid fa-lock" style="font-size:14px;width:17px;text-align:center"></i>
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0110 0v4"/></svg>
                     <span><?= e($ib['name']) ?></span>
                     <?php if (($openByInbox[$ib['id']] ?? 0) > 0): ?><span class="nav-badge" data-inbox-badge="<?= (int) $ib['id'] ?>"><?= $openByInbox[$ib['id']] ?></span><?php endif; ?>
                 </a>
@@ -408,13 +420,15 @@ window.confirmModal = window.confirmModal || function(msg, title) {
     function esc(s){if(s==null)return'';var d=document.createElement('div');d.textContent=String(s);return d.innerHTML;}
     function timeAgo(dt){if(!dt)return'';var d=new Date(String(dt).replace(' ','T'));if(isNaN(d))return'';var n=new Date(),s=Math.floor((n-d)/1000);if(s<60)return'agora';var m=Math.floor(s/60);if(m<60)return m+'m';var h=Math.floor(m/60);if(h<24)return h+'h';var dy=Math.floor(h/24);if(dy<30)return dy+'d';return d.toLocaleDateString('pt-BR');}
     function trunc(s,l){if(!s)return'Sem mensagens';if(s.length<=l)return s;return s.substring(0,l)+'...';}
+    function previewText(s,l){var v=String(s==null?'':s).trim();if(!v)return'Sem mensagens';if(v.charAt(0)==='{'){try{var o=JSON.parse(v);var k=o.prompt||o.message||o.text||o.body||o.content||o.description||o.title;if(typeof k==='string'&&k)return trunc(k,l);var b=o.buttons||o.options||o.actions||o.items;if(b&&b.length&&b[0]&&b[0].label)return trunc(String(b[0].label),l);if(o.title)return trunc(String(o.title),l);return'Mensagem automática';}catch(e){}}return trunc(v,l);}
     function fetchUnreadConversations(){return fetch(baseUrl+'/api/unread-conversations',{headers:{'X-Requested-With':'XMLHttpRequest'}}).then(function(r){return r.json()}).catch(function(){return{conversations:[],total_unread:0}});}
     function fetchNotifications(){return fetch(baseUrl+'/api/notifications/dropdown',{headers:{'X-Requested-With':'XMLHttpRequest'}}).then(function(r){return r.json()}).catch(function(){return{notifications:[],unread_count:0}});}
     function renderConvItem(c){
-        var ci=channelIcons[c.channel_type]||'fas fa-comment-dots',cc=c.channel_type==='whatsapp'?'#25D366':c.channel_type==='webchat'?'#4361ee':c.channel_type==='email'?'#f59e0b':'#6c757d';
+        var ci=channelIcons[c.channel_type]||'fas fa-comment-dots',cc=c.channel_type==='whatsapp'?'#25D366':c.channel_type==='webchat'?'#4f46e5':c.channel_type==='email'?'#f59e0b':'#5b6472';
+        if(window.OminiColor){var pair=window.OminiColor.readablePair(cc);cc=pair[0];}
         var init=(c.contact_name||'?').charAt(0).toUpperCase();
         var av=c.contact_avatar?'<img class="notif-msg-avatar" src="'+(c.contact_avatar.indexOf('http')===0?'':baseUrl+'/uploads/')+esc(c.contact_avatar)+'" alt="">':'<div class="notif-msg-avatar">'+esc(init)+'</div>';
-        return '<a href="'+baseUrl+'/inbox?conv='+c.id+'" class="notif-msg-item">'+av+'<div class="notif-msg-content"><div class="notif-msg-header"><span class="notif-msg-name">'+esc(c.contact_name||'Cliente')+'</span><span class="notif-msg-channel" style="color:'+cc+'"><i class="'+ci+'"></i></span><span class="notif-msg-time">'+timeAgo(c.last_message_at||c.created_at)+'</span></div><div class="notif-msg-preview">'+esc(trunc(c.last_message,100))+'</div>'+(c.unread_count>1?'<span class="notif-msg-count">'+c.unread_count+' mensagens</span>':'')+'</div></a>';
+        return '<a href="'+baseUrl+'/inbox?conv='+c.id+'" class="notif-msg-item">'+av+'<div class="notif-msg-content"><div class="notif-msg-header"><span class="notif-msg-name">'+esc(c.contact_name||'Cliente')+'</span><span class="notif-msg-channel" style="color:'+cc+'"><i class="'+ci+'"></i></span><span class="notif-msg-time">'+timeAgo(c.last_message_at||c.created_at)+'</span></div><div class="notif-msg-preview">'+esc(previewText(c.last_message,100))+'</div>'+(c.unread_count>1?'<span class="notif-msg-count">'+c.unread_count+' mensagens</span>':'')+'</div></a>';
     }
     function renderNotifItem(n){
         var icon=typeIcons[n.notification_type]||'fa-bell';
@@ -575,40 +589,177 @@ window.confirmModal = window.confirmModal || function(msg, title) {
 (function(){
     var input=document.getElementById('globalSearch');
     if(!input)return;
+    var panel=document.getElementById('globalSearchPanel');
+    var base=(document.querySelector('meta[name="base-url"]')?.content||'').replace(/\/$/,'');
     var sidebar=document.querySelector('.sidebar');
-    if(!sidebar)return;
-    var items=Array.prototype.slice.call(sidebar.querySelectorAll('.nav-item'));
-    var sections=Array.prototype.slice.call(sidebar.querySelectorAll('.nav-section'));
-    var initialExpanded=sections.map(function(s){return s.classList.contains('expanded');});
+    var items=Array.prototype.slice.call(sidebar?sidebar.querySelectorAll('.nav-item'):[]);
     function normalize(s){
         return (s||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').trim();
     }
     var initialText=items.map(function(it){return normalize(it.textContent);});
-    function applyFilter(){
-        var q=normalize(input.value);
+
+    /* ---------- Busca global: clientes e atendimentos ---------- */
+    var timer=null, seq=0, active=-1;
+
+    function esc(s){
+        var d=document.createElement('div');
+        d.textContent=String(s==null?'':s);
+        return d.innerHTML;
+    }
+    function closePanel(){
+        if(!panel)return;
+        panel.hidden=true;panel.innerHTML='';
+        input.setAttribute('aria-expanded','false');
+        active=-1;
+    }
+    function showPanel(html){
+        if(!panel)return;
+        panel.innerHTML=html;panel.hidden=false;
+        input.setAttribute('aria-expanded','true');
+        active=-1;
+    }
+    function pageMatches(q){
+        var out=[];
         items.forEach(function(it,i){
-            var match=!q||initialText[i].indexOf(q)!==-1;
-            it.style.display=match?'':'none';
-            if(match&&q){
-                var sec=it.closest('.nav-section');
-                if(sec&&sec.querySelector('.nav-section-title'))sec.classList.add('expanded');
+            var href=it.getAttribute('href');
+            if(!href)return;
+            if(!q||initialText[i].indexOf(q)!==-1){
+                out.push({label:it.textContent.trim(),href:href});
             }
         });
-        sections.forEach(function(sec,si){
-            if(!q){ if(initialExpanded[si])sec.classList.add('expanded'); return; }
-            var visible=sec.querySelectorAll('.nav-item:not([style*="display: none"])').length;
-            sec.style.display=visible?'':'none';
-        });
-        if(!q)sections.forEach(function(sec){sec.style.display='';});
+        return out.slice(0,6);
     }
-    input.addEventListener('input',applyFilter);
+    function contactItem(c){
+        var initials=esc((c.name||'?').trim().charAt(0).toUpperCase());
+        var avatar=c.avatar
+            ? '<img src="'+esc(c.avatar.indexOf('http')===0?c.avatar:base+'/uploads/'+c.avatar)+'" alt="">'
+            : '<span>'+initials+'</span>';
+        var sub=[c.email,c.phone,c.stores].filter(Boolean).join(' · ');
+        var count=c.conversation_count
+            ? '<span class="gsp-badge">'+c.conversation_count+' atendimento'+(c.conversation_count>1?'s':'')+'</span>'
+            : '';
+        return '<a class="gsp-item" role="option" href="'+base+'/contacts/'+c.id+'">'
+            +'<span class="gsp-avatar">'+avatar+'</span>'
+            +'<span class="gsp-item-body">'
+            +'<span class="gsp-item-title"><span class="gsp-item-name">'+esc(c.name)+'</span>'+count+'</span>'
+            +'<span class="gsp-item-sub"><span class="gsp-item-text">'+(sub?esc(sub):'Sem contato preenchido')+'</span></span>'
+            +'</span></a>';
+    }
+    function conversationItem(c){
+        var sub=[c.contact_name,c.department_name].filter(Boolean).join(' · ');
+        return '<a class="gsp-item" role="option" href="'+base+'/inbox?conv='+c.id+'">'
+            +'<span class="gsp-avatar gsp-avatar-conv"><i class="'+esc(c.channel_icon)+'"></i></span>'
+            +'<span class="gsp-item-body">'
+            +'<span class="gsp-item-title"><span class="gsp-item-name">#'+esc(c.protocol)+(c.subject?' · '+esc(c.subject):'')+'</span></span>'
+            +'<span class="gsp-item-sub"><span class="gsp-item-text">'+esc(sub)+'</span>'
+            +'<span class="gsp-status" data-status="'+esc(c.status)+'">'+esc(c.status_label)+'</span></span>'
+            +'</span></a>';
+    }
+    function groupItem(g){
+        var initials=esc((g.name||'?').trim().charAt(0).toUpperCase());
+        var avatar=g.avatar
+            ? '<img src="'+esc(g.avatar.indexOf('http')===0?g.avatar:g.avatar)+'" alt="">'
+            : '<span>'+initials+'</span>';
+        var sub=[g.inbox_name,g.group_jid].filter(Boolean).join(' · ');
+        var parts=[];
+        if(g.participant_count)parts.push(g.participant_count+' participantes');
+        if(g.conversation_count)parts.push(g.conversation_count+' atendimento'+(g.conversation_count>1?'s':''));
+        var badges=parts.map(function(p){return '<span class="gsp-badge">'+esc(p)+'</span>';}).join('');
+        return '<a class="gsp-item" role="option" href="'+base+'/whatsapp/groups/'+g.id+'">'
+            +'<span class="gsp-avatar gsp-avatar-group">'+avatar+'</span>'
+            +'<span class="gsp-item-body">'
+            +'<span class="gsp-item-title"><span class="gsp-item-name">'+esc(g.name)+'</span>'+badges+'</span>'
+            +'<span class="gsp-item-sub"><span class="gsp-item-text">'+esc(sub)+'</span></span>'
+            +'</span></a>';
+    }
+    function pageItem(p){
+        return '<a class="gsp-item" role="option" href="'+esc(p.href)+'">'
+            +'<span class="gsp-avatar gsp-avatar-page"><i class="fas fa-grip"></i></span>'
+            +'<span class="gsp-item-body"><span class="gsp-item-title"><span class="gsp-item-name">'+esc(p.label)+'</span></span>'
+            +'<span class="gsp-item-sub"><span class="gsp-item-text">Ir para a tela</span></span></span></a>';
+    }
+    function render(q,data){
+        var contacts=data.contacts||[],convs=data.conversations||[],groups=data.groups||[],pages=pageMatches(normalize(q));
+        if(!contacts.length&&!convs.length&&!groups.length&&!pages.length){
+            showPanel('<div class="gsp-empty"><i class="fas fa-search"></i><span>Nada encontrado para “'+esc(q)+'”</span></div>');
+            return;
+        }
+        var html='';
+        if(groups.length){
+            html+='<div class="gsp-group"><div class="gsp-group-title">Grupos <span class="gsp-count">'+groups.length+'</span></div>'
+                +groups.map(groupItem).join('')+'</div>';
+        }
+        if(contacts.length){
+            html+='<div class="gsp-group"><div class="gsp-group-title">Clientes <span class="gsp-count">'+contacts.length+'</span></div>'
+                +contacts.map(contactItem).join('')+'</div>';
+        }
+        if(convs.length){
+            html+='<div class="gsp-group"><div class="gsp-group-title">Atendimentos <span class="gsp-count">'+convs.length+'</span></div>'
+                +convs.map(conversationItem).join('')+'</div>';
+        }
+        if(pages.length){
+            html+='<div class="gsp-group"><div class="gsp-group-title">Páginas</div>'
+                +pages.map(pageItem).join('')+'</div>';
+        }
+        showPanel(html);
+    }
+    function search(q){
+        if(q.length<2){closePanel();return;}
+        var mine=++seq;
+        showPanel('<div class="gsp-empty"><i class="fas fa-spinner fa-spin"></i><span>Buscando…</span></div>');
+        fetch(base+'/api/global-search?q='+encodeURIComponent(q),{headers:{'X-Requested-With':'XMLHttpRequest'}})
+            .then(function(r){return r.json();})
+            .then(function(j){
+                if(mine!==seq)return;
+                if(!j||j.success===false){closePanel();return;}
+                render(q,j);
+            })
+            .catch(function(){ if(mine===seq)closePanel(); });
+    }
+    function optionList(){
+        return panel?Array.prototype.slice.call(panel.querySelectorAll('.gsp-item')):[];
+    }
+    function moveActive(delta){
+        var opts=optionList();
+        if(!opts.length)return;
+        active+=delta;
+        if(active<0)active=opts.length-1;
+        if(active>=opts.length)active=0;
+        opts.forEach(function(o,i){o.classList.toggle('is-active',i===active);});
+        opts[active].scrollIntoView({block:'nearest'});
+    }
+
+    input.addEventListener('input',function(){
+        clearTimeout(timer);
+        var q=input.value.trim();
+        timer=setTimeout(function(){search(q);},220);
+    });
+    input.addEventListener('focus',function(){
+        if(input.value.trim().length>=2&&panel&&!panel.hidden)return;
+        if(input.value.trim().length>=2)search(input.value.trim());
+    });
     input.addEventListener('keydown',function(e){
-        if(e.key==='Escape'){input.value='';applyFilter();input.blur();}
+        if(e.key==='Escape'){
+            if(panel&&!panel.hidden){closePanel();return;}
+            input.value='';closePanel();input.blur();return;
+        }
+        if(e.key==='ArrowDown'){e.preventDefault();moveActive(1);return;}
+        if(e.key==='ArrowUp'){e.preventDefault();moveActive(-1);return;}
         if(e.key==='Enter'){
             e.preventDefault();
-            var first=items.find(function(it){return it.style.display!=='none';});
-            if(first&&first.href)window.location.href=first.href;
+            var opts=optionList();
+            if(opts.length){
+                var target=opts[active>=0?active:0];
+                window.location.href=target.getAttribute('href');
+                return;
+            }
+            var first=items.find(function(it){return it.getAttribute('href');});
+            if(first)window.location.href=first.getAttribute('href');
         }
+    });
+    document.addEventListener('click',function(e){
+        if(!panel||panel.hidden)return;
+        if(!e.target.closest('.global-search'))closePanel();
     });
     document.addEventListener('keydown',function(e){
         if((e.ctrlKey||e.metaKey)&&(e.key==='k'||e.key==='K')){

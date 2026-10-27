@@ -41,7 +41,7 @@ $tabs = [
     border-radius: 8px;
     font-size: 13px;
     font-weight: 600;
-    color: var(--text-muted, #6c757d);
+    color: var(--text-muted, #5b6472);
     text-decoration: none;
     transition: background-color .15s, color .15s;
     white-space: nowrap;
@@ -51,7 +51,7 @@ $tabs = [
     color: var(--text, #212529);
 }
 .settings-tab.active {
-    background: var(--primary, #0078d4);
+    background: var(--primary, #4f46e5);
     color: #fff;
     box-shadow: 0 1px 2px rgba(0,0,0,.08);
 }

@@ -3,9 +3,11 @@
         <div class="conv-drawer-header">
             <h4><i class="fas fa-user"></i> Cliente</h4>
             <div style="display:flex;align-items:center;gap:4px">
-                <button type="button" class="drawer-close" onclick="openContactEditModal()" title="Editar contato" style="font-size:14px;width:28px;height:28px">
+                <?php if (\App\Core\Auth::isManager()): ?>
+                <button type="button" class="drawer-close" onclick="openContactDrawer()" title="Editar contato" style="font-size:14px;width:28px;height:28px">
                     <i class="fas fa-pen"></i>
                 </button>
+                <?php endif; ?>
                 <button type="button" class="drawer-close" onclick="toggleClientDrawer()" title="Fechar">&times;</button>
             </div>
         </div>
@@ -80,7 +82,8 @@
                     <?php if (!empty($contact['tags'])): ?>
                         <div class="conv-tags" style="margin-top: 12px;">
                             <?php foreach ($contact['tags'] as $tag): ?>
-                                <span class="conv-tag" style="background:<?= e($tag['color'] ?? '#e9ecef') ?>;color:<?= e(contrast_color($tag['color'] ?? '#e9ecef')) ?>">
+                                <?php [$tagBg, $tagFg] = readable_pair($tag['color'] ?? '#e9ecef'); ?>
+                                <span class="conv-tag" style="background:<?= e($tagBg) ?>;color:<?= e($tagFg) ?>">
                                     <?= e($tag['name']) ?>
                                 </span>
                             <?php endforeach; ?>
@@ -155,7 +158,8 @@
                             <p class="text-muted tag-empty-msg">Nenhuma etiqueta.</p>
                         <?php else: ?>
                             <?php foreach ($conv['tags'] as $tag): ?>
-                                <span class="conv-tag-modern applied" data-tag-id="<?= $tag['id'] ?>" style="background:<?= e($tag['color'] ?? '#6c757d') ?>;color:<?= e(contrast_color($tag['color'] ?? '#6c757d')) ?>">
+                                <?php [$tagBg, $tagFg] = readable_pair($tag['color'] ?? '#5b6472'); ?>
+                                <span class="conv-tag-modern applied" data-tag-id="<?= $tag['id'] ?>" style="background:<?= e($tagBg) ?>;color:<?= e($tagFg) ?>">
                                     <?= e($tag['name']) ?>
                                     <button type="button" class="tag-remove-btn" data-tag-id="<?= $tag['id'] ?>" title="Remover">&times;</button>
                                 </span>
@@ -173,8 +177,8 @@
                                 <button type="button"
                                     class="tag-grid-item <?= $applied ? 'applied' : '' ?>"
                                     data-tag-id="<?= $t['id'] ?>"
-                                    data-color="<?= e($t['color'] ?? '#6c757d') ?>"
-                                    style="--tag-color:<?= e($t['color'] ?? '#6c757d') ?>">
+                                    data-color="<?= e($t['color'] ?? '#5b6472') ?>"
+                                    style="--tag-color:<?= e($t['color'] ?? '#5b6472') ?>">
                                     <?= e($t['name']) ?>
                                 </button>
                             <?php endforeach; ?>
@@ -231,3 +235,11 @@
         </div>
     </div>
 </div>
+
+<?php
+// Drawer de edição de contato — o mesmo da página do cliente (parcial compartilhado).
+$contactDrawerSuffix = 'I';
+$contactDrawerAjax   = true; // na caixa o envio é via fetch (sem sair da tela)
+$tags                = $allTags ?? [];
+include __DIR__ . '/../../contacts/_edit_drawer.php';
+?>

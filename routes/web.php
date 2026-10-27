@@ -115,6 +115,7 @@ $router->group('', function (Router $router) {
     $router->get('/departments/{id}', [DepartmentController::class, 'show'], ['admin']);
     $router->post('/departments/{id}/update', [DepartmentController::class, 'update'], ['admin']);
     $router->post('/departments/{id}/business-hours', [DepartmentController::class, 'saveBusinessHours'], ['admin']);
+    $router->post('/departments/{id}/sla-alerts', [DepartmentController::class, 'saveAlertPhones'], ['admin']);
     $router->post('/departments/{id}/users', [DepartmentController::class, 'addUser'], ['admin']);
     $router->post('/departments/{id}/users/{userId}/remove', [DepartmentController::class, 'removeUser'], ['admin']);
     $router->post('/departments/{id}/delete', [DepartmentController::class, 'destroy'], ['admin']);
@@ -162,6 +163,9 @@ $router->group('', function (Router $router) {
     $router->post('/whatsapp/groups/{id}/alert', [WhatsAppGroupController::class, 'toggleAlert'], ['manager']);
     $router->post('/whatsapp/groups/{id}/inbox', [WhatsAppGroupController::class, 'setInbox'], ['manager']);
     $router->post('/whatsapp/groups/{id}/send', [WhatsAppGroupController::class, 'send'], ['manager']);
+    $router->post('/whatsapp/groups/{id}/monitor', [WhatsAppGroupController::class, 'toggleMonitor'], ['manager']);
+    $router->post('/whatsapp/groups/{id}/topic-window', [WhatsAppGroupController::class, 'setTopicWindow'], ['manager']);
+    $router->post('/whatsapp/groups/{id}/refresh-members', [WhatsAppGroupController::class, 'refreshMembers'], ['manager']);
 
     // Inboxes management (admin)
     $router->get('/inboxes', [SettingsController::class, 'inboxes'], ['admin']);
@@ -247,6 +251,8 @@ $router->group('', function (Router $router) {
     $router->get('/api/health', [HealthController::class, 'details'], ['admin']);
     $router->get('/api/conversations', [InboxController::class, 'apiConversations']);
     $router->get('/api/conversations-list', [InboxController::class, 'conversationsListFragment']);
+    $router->get('/api/conversations-status', [InboxController::class, 'apiConversationsStatus']);
+    $router->get('/api/conversations-counts', [InboxController::class, 'apiConversationsCounts']);
     $router->post('/api/flows/upload-media', [FlowController::class, 'uploadMedia'], ['manager']);
     $router->post('/api/macros/upload', [InboxController::class, 'uploadMacroMedia'], ['manager']);
     $router->post('/api/wiki/upload', [WikiController::class, 'upload'], ['manager']);
@@ -254,6 +260,7 @@ $router->group('', function (Router $router) {
     $router->get('/api/conversations/{id}/messages', [InboxController::class, 'apiMessages']);
     $router->get('/api/departments/{id}/users', [DepartmentController::class, 'apiUsers']);
     $router->get('/api/contacts/search', [\App\Controllers\ContactController::class, 'apiSearch']);
+    $router->get('/api/global-search', [\App\Controllers\Api\GlobalSearchController::class, 'index']);
     $router->get('/api/guild/stores', [\App\Controllers\ContactController::class, 'apiGuildStores']);
     $router->get('/api/canned-responses', [InboxController::class, 'apiCanned']);
     $router->get('/api/wiki/suggest', [WikiController::class, 'suggest']);

@@ -94,7 +94,7 @@ $embedPath = 'wiki-frontend';
                         <?php foreach ($chatWidgets as $w): ?>
                             <option value="<?= e($w['widget_key']) ?>"
                                 data-title="<?= e($w['title']) ?>"
-                                data-color="<?= e($w['color_primary'] ?: '#0078d4') ?>"
+                                data-color="<?= e($w['color_primary'] ?: '#4f46e5') ?>"
                                 data-position="<?= e($w['position'] ?: 'right') ?>"
                                 <?= ($chat['widget_key'] ?? '') === $w['widget_key'] ? 'selected' : '' ?>>
                                 <?= e($w['title']) ?> · <?= e(substr($w['widget_key'], 0, 8)) ?>… <?= empty($w['is_active']) ? '(inativo)' : '' ?>
@@ -113,7 +113,7 @@ $embedPath = 'wiki-frontend';
                     </div>
                     <div>
                         <label style="font-size:12px;font-weight:600">Cor</label>
-                        <input type="color" id="chatColor" name="color" value="<?= e($chat['color'] ?? '#0078d4') ?>" style="margin-top:4px;width:100%;height:38px;padding:2px;border:1px solid var(--border-color);border-radius:8px;cursor:pointer">
+                        <input type="color" id="chatColor" name="color" value="<?= e($chat['color'] ?? '#4f46e5') ?>" style="margin-top:4px;width:100%;height:38px;padding:2px;border:1px solid var(--border-color);border-radius:8px;cursor:pointer">
                     </div>
                     <div>
                         <label style="font-size:12px;font-weight:600">Posição</label>
@@ -140,7 +140,7 @@ function fillWikiChatWidget(sel) {
     if (!opt || !opt.value) return;
     document.getElementById('chatWidgetKey').value = opt.value;
     document.getElementById('chatTitle').value = opt.getAttribute('data-title') || 'Atendimento';
-    document.getElementById('chatColor').value = opt.getAttribute('data-color') || '#0078d4';
+    document.getElementById('chatColor').value = opt.getAttribute('data-color') || '#4f46e5';
     var pos = opt.getAttribute('data-position') || 'right';
     document.querySelector('select[name="position"]').value = pos;
 }

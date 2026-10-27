@@ -290,20 +290,13 @@ class RealtimeController
     private function emitTyping(int $userId): void
     {
         try {
-            $rows = Database::getInstance()->fetchAll(
-                "SELECT c.id as conversation_id, c.last_typing_at
-                 FROM conversations c
-                 WHERE c.last_typing_at IS NOT NULL
-                   AND c.last_typing_at >= (NOW() - INTERVAL 6 SECOND)
-                   AND (c.assigned_user_id = ? OR c.inbox_id IN (
-                       SELECT inbox_id FROM inbox_users WHERE user_id = ?
-                       UNION
-                       SELECT inbox_id FROM inbox_departments idp
-                       JOIN department_users du ON du.department_id = idp.department_id
-                       WHERE du.user_id = ?
-                   ))",
-                [$userId, $userId, $userId]
-            );
+            $params = [];
+            $sql = "SELECT c.id as conversation_id, c.last_typing_at
+                    FROM conversations c
+                    WHERE c.last_typing_at IS NOT NULL
+                      AND c.last_typing_at >= (NOW() - INTERVAL 6 SECOND)
+                      AND " . \App\Models\Conversation::visibilitySql($userId, 'c.', $params);
+            $rows = Database::getInstance()->fetchAll($sql, $params);
             foreach ($rows as $r) {
                 $payload = [
                     'conversation_id' => (int) $r['conversation_id'],
@@ -322,15 +315,15 @@ class RealtimeController
     }
 
     /**
-     * Verifica se o usuário tem acesso à conversa (caixa, departamento,
-     * atribuição ou papel admin). Com cache estático por tick para evitar
+     * Verifica se o usuário tem acesso à conversa (departamento, atribuição,
+     * caixa pessoal ou papel admin). Mesmo critério de
+     * Conversation::userCanSee(). Com cache por usuário para evitar
      * 2-3 queries por mensagem em rajadas.
      */
     private static function userSeesConversation(int $userId, array $conv): bool
     {
         static $roleCache = [];
-        static $inboxCache = [];
-        static $deptCache = [];
+        static $scopeCache = [];
 
         if (!array_key_exists($userId, $roleCache)) {
             $row = Database::getInstance()->fetch(
@@ -348,36 +341,25 @@ class RealtimeController
         if (!empty($conv['assigned_user_id']) && (int) $conv['assigned_user_id'] === $userId) {
             return true;
         }
-        if (!empty($conv['inbox_id'])) {
-            $key = $userId . ':' . $conv['inbox_id'];
-            if (!array_key_exists($key, $inboxCache)) {
-                $own = Database::getInstance()->fetch(
-                    "SELECT 1 FROM inboxes i
-                     LEFT JOIN inbox_departments idp ON idp.inbox_id = i.id
-                     LEFT JOIN department_users du ON du.department_id = idp.department_id AND du.user_id = ?
-                     LEFT JOIN inbox_users iu ON iu.inbox_id = i.id AND iu.user_id = ?
-                     WHERE i.id = ? AND (du.id IS NOT NULL OR iu.id IS NOT NULL)
-                     LIMIT 1",
-                    [$userId, $userId, $conv['inbox_id']]
-                );
-                $inboxCache[$key] = (bool) $own;
-            }
-            if ($inboxCache[$key]) {
-                return true;
-            }
+
+        if (!array_key_exists($userId, $scopeCache)) {
+            $scopeCache[$userId] = \App\Models\Conversation::scopeSetsForUser($userId);
         }
-        if (!empty($conv['department_id'])) {
-            $key = $userId . ':' . $conv['department_id'];
-            if (!array_key_exists($key, $deptCache)) {
-                $dept = Database::getInstance()->fetch(
-                    "SELECT 1 FROM department_users WHERE department_id = ? AND user_id = ?",
-                    [$conv['department_id'], $userId]
-                );
-                $deptCache[$key] = (bool) $dept;
-            }
-            if ($deptCache[$key]) {
-                return true;
-            }
+        $sets = $scopeCache[$userId];
+        if (!empty($sets['all'])) {
+            return true;
+        }
+        if (!empty($conv['department_id'])
+            && in_array((int) $conv['department_id'], $sets['departments'], true)) {
+            return true;
+        }
+        if (!empty($conv['channel_id'])
+            && in_array((int) $conv['channel_id'], $sets['channels'], true)) {
+            return true;
+        }
+        if (!empty($conv['assigned_user_id'])
+            && in_array((int) $conv['assigned_user_id'], $sets['owners'], true)) {
+            return true;
         }
         return false;
     }

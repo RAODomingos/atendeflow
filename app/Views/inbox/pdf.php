@@ -94,7 +94,7 @@
     <div>
         <?php foreach ($allTags as $tag): ?>
             <?php if (in_array($tag['id'], array_column($conversation['tags'] ?? [], 'id'))): ?>
-            <span class="tag" style="background:<?= e($tag['color'] ?? '#6c757d') ?>;color:<?= e(contrast_color($tag['color'] ?? '#6c757d')) ?>"><?= e($tag['name']) ?></span>
+            <span class="tag" style="background:<?= e(readable_pair($tag['color'] ?? '#5b6472')[0]) ?>;color:<?= e(readable_pair($tag['color'] ?? '#5b6472')[1]) ?>"><?= e($tag['name']) ?></span>
             <?php endif; ?>
         <?php endforeach; ?>
     </div>

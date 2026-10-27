@@ -83,7 +83,7 @@ try {
         try {
             $measurement = SlaMeasurement::forConversation($conversationId);
             if ($measurement === null) {
-                return; // grupo de WhatsApp ou conversa inexistente
+                return; // conversa inexistente
             }
 
             $previous = ConversationSla::find($conversationId);
@@ -107,32 +107,73 @@ try {
                 SlaMeasurement::saveMeasurement($conversationId, $measurement);
                 $measured++;
 
-                if (!$claimed) {
-                    return; // outro worker ja escalonou
-                }
+                if ($claimed) {
+                    Conversation::addEvent(
+                        $conversationId,
+                        'sla_breached',
+                        'SLA de primeira resposta violado',
+                        null,
+                        [
+                            'response_seconds' => $measurement['response_seconds'],
+                            'threshold' => $measurement['response_threshold'],
+                        ]
+                    );
+                    $violations++;
 
-                Conversation::addEvent(
-                    $conversationId,
-                    'sla_breached',
-                    'SLA de primeira resposta violado',
-                    null,
-                    [
-                        'response_seconds' => $measurement['response_seconds'],
-                        'threshold' => $measurement['response_threshold'],
-                    ]
-                );
-                $violations++;
-
-                // Escalonamento (tag, gerentes, autoatribuição, WhatsApp).
-                $conv = Conversation::find($conversationId);
-                if ($conv) {
-                    SlaEscalation::escalate($conversationId, $measurement, $conv);
+                    // Escalonamento (tag, gerentes, autoatribuição, WhatsApp).
+                    $conv = Conversation::find($conversationId);
+                    if ($conv) {
+                        SlaEscalation::escalate($conversationId, $measurement, $conv);
+                    }
                 }
-                return;
+            } else {
+                SlaMeasurement::saveMeasurement($conversationId, $measurement);
+                $measured++;
             }
 
-            SlaMeasurement::saveMeasurement($conversationId, $measurement);
-            $measured++;
+            // Alerta de "cliente sem resposta": dispara uma vez por
+            // MENSAGEM do cliente que fica sem resposta — inclusive em
+            // conversas que ja foram atendidas antes. A escalonamento de
+            // 1a resposta so acontece uma vez por conversa, entao sozinha
+            // ela deixava passar o caso mais comum: o cliente escreve de
+            // novo e ninguem responde.
+            //
+            // Conversas que NUNCA tiveram resposta humana sao deixadas de
+            // fora: elas ja sao cobertas pela violacao de 1a resposta acima
+            // (e nao podem gerar dois alertas para o mesmo atraso).
+            $pendingId = (int) ($measurement['pending_message_id'] ?? 0);
+            $hadHumanReply = !empty($measurement['response_at']);
+            if (
+                $pendingId > 0
+                && $hadHumanReply
+                && !empty($measurement['pending_breached'])
+            ) {
+                $claimed = ConversationSla::claimPendingBreach($conversationId, $pendingId);
+                if ($claimed) {
+                    Conversation::addEvent(
+                        $conversationId,
+                        'sla_breached',
+                        'Cliente sem resposta',
+                        null,
+                        [
+                            'pending_seconds' => $measurement['pending_seconds'],
+                            'threshold' => $measurement['pending_threshold'],
+                            'message_id' => $pendingId,
+                        ]
+                    );
+                    $violations++;
+
+                    $conv = Conversation::find($conversationId);
+                    if ($conv) {
+                        SlaEscalation::escalate(
+                            $conversationId,
+                            $measurement,
+                            $conv,
+                            SlaEscalation::KIND_PENDING
+                        );
+                    }
+                }
+            }
         } catch (\Throwable $e) {
             // Uma conversa quebrada nao pode abortar a rodada inteira:
             // as demais ficariam sem medicao naquele minuto.
@@ -175,6 +216,54 @@ try {
             $backfilled++;
         } else {
             $finalized++;
+        }
+    }
+
+    // 5) conversas de GRUPO: SLA da MENÇÃO (da marcação até a 1ª resposta).
+    //    O grupo não tem "1ª resposta" nem "resolução": o que se mede é o
+    //    tempo que a menção ficou sem resposta. Cada menção tem o seu
+    //    próprio alerta (reserva por pending_alerted_message_id).
+    foreach (ConversationSla::groupsWithMentions(50) as $conversationId) {
+        try {
+            $measurement = SlaMeasurement::forConversation($conversationId);
+            if ($measurement === null || empty($measurement['pending_message_id'])) {
+                continue;
+            }
+            $mentionId = (int) $measurement['pending_message_id'];
+            $claimed = false;
+            if (!empty($measurement['pending_breached'])) {
+                $claimed = ConversationSla::claimPendingBreach($conversationId, $mentionId);
+            }
+            SlaMeasurement::saveMeasurement($conversationId, $measurement);
+            $measured++;
+
+            if ($claimed) {
+                Conversation::addEvent(
+                    $conversationId,
+                    'sla_breached',
+                    'Menção em grupo sem resposta',
+                    null,
+                    [
+                        'pending_seconds' => $measurement['pending_seconds'],
+                        'threshold' => $measurement['pending_threshold'],
+                        'message_id' => $mentionId,
+                    ]
+                );
+                $violations++;
+
+                $conv = Conversation::find($conversationId);
+                if ($conv) {
+                    SlaEscalation::escalate(
+                        $conversationId,
+                        $measurement,
+                        $conv,
+                        SlaEscalation::KIND_GROUP_MENTION
+                    );
+                }
+            }
+        } catch (\Throwable $e) {
+            $errors++;
+            echo '[' . date('Y-m-d H:i:s') . "] ERRO na conversa de grupo #{$conversationId}: " . $e->getMessage() . "\n";
         }
     }
 

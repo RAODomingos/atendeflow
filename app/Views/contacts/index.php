@@ -35,7 +35,7 @@ $newToday = $stats['new_today'] ?? 0;
         </div>
         <div class="contact-stat">
             <div class="contact-stat-icon" style="background:var(--info-soft);color:var(--info)">
-                <i class="fas fa-sparkles"></i>
+                <i class="fas fa-calendar-day"></i>
             </div>
             <div class="contact-stat-body">
                 <div class="contact-stat-value"><?= $newToday ?></div>
@@ -151,7 +151,7 @@ $newToday = $stats['new_today'] ?? 0;
         .contact-table .contact-list-avatar { width:36px;height:36px;border-radius:50%;overflow:hidden;flex-shrink:0;background:var(--brand-soft);display:flex;align-items:center;justify-content:center;font-weight:700;color:var(--brand); }
         .contact-table .contact-list-avatar img { width:100%;height:100%;object-fit:cover; }
         .contact-table .contact-row-name { font-weight:600; }
-        .contact-table .form-hint { font-size:12px;color:#6c757d; }
+        .contact-table .form-hint { font-size:12px;color:#5b6472; }
         .contact-table .action-cell { white-space:nowrap; }
         .contact-table tbody tr:hover { background:var(--bg-content); }
         .guild-group{border:1px solid var(--border-soft);border-radius:8px;padding:10px 12px;margin-top:8px;background:var(--bg-panel-alt)}

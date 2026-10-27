@@ -51,7 +51,7 @@
         </div>
     </div>
 
-    <div class="dashboard-grid" style="grid-template-columns:1fr 1fr">
+    <div class="dashboard-grid reports-charts" style="grid-template-columns:1fr 1fr">
         <!-- Conversas por canal -->
         <div class="card chart-card">
             <div class="card-header">
@@ -95,9 +95,9 @@
                         'new' => 'var(--info)',
                         'open' => 'var(--primary)',
                         'waiting_customer' => 'var(--warning)',
-                        'waiting_internal' => '#b45309',
+                        'waiting_internal' => '#9a3412',
                         'resolved' => 'var(--success)',
-                        'closed' => '#6c757d',
+                        'closed' => '#5b6472',
                         'spam' => 'var(--danger)',
                     ];
                     $labels = [
@@ -110,13 +110,13 @@
                         <?php $pct = $statusTotal > 0 ? round($st['total'] / $statusTotal * 100) : 0; ?>
                         <div class="hbar-row">
                             <div class="hbar-top">
-                                <span class="hbar-dot" style="background:<?= $colors[$st['status']] ?? '#6c757d' ?>"></span>
+                                <span class="hbar-dot" style="background:<?= $colors[$st['status']] ?? '#5b6472' ?>"></span>
                                 <span class="dept-bar-name"><?= $labels[$st['status']] ?? e(ucfirst(str_replace('_', ' ', $st['status']))) ?></span>
                                 <span class="hbar-pct"><?= $pct ?>%</span>
                                 <span class="dept-bar-count"><?= $st['total'] ?></span>
                             </div>
                             <div class="dept-bar-track">
-                                <div class="dept-bar-fill" style="width:<?= $pct ?>%;background:<?= $colors[$st['status']] ?? '#6c757d' ?>"></div>
+                                <div class="dept-bar-fill" style="width:<?= $pct ?>%;background:<?= $colors[$st['status']] ?? '#5b6472' ?>"></div>
                             </div>
                         </div>
                     <?php endforeach; ?>

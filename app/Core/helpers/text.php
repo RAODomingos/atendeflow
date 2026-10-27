@@ -102,8 +102,8 @@ function status_badge(string $status): string
     $labels = [
         'new' => 'Novo',
         'open' => 'Aberto',
-        'waiting_customer' => 'Em atendimento',
-        'waiting_internal' => 'Aguardando Interno',
+        'waiting_customer' => 'Aguardando cliente',
+        'waiting_internal' => 'Aguardando interno',
         'resolved' => 'Resolvido',
         'closed' => 'Fechado',
         'spam' => 'Spam',

@@ -20,13 +20,13 @@
         .stars.disabled { cursor: default; }
         textarea { width: 100%; margin-top: 14px; border: 1px solid #8a8886; border-radius: 4px;
                    padding: 10px; font: inherit; resize: vertical; min-height: 70px; color: #201f1e; }
-        textarea:focus { outline: none; border-color: #0078d4; box-shadow: 0 0 0 1px #0078d4; }
-        button.send { margin-top: 14px; width: 100%; background: #0078d4; color: #fff; border: 0;
+        textarea:focus { outline: none; border-color: #4f46e5; box-shadow: 0 0 0 1px #4f46e5; }
+        button.send { margin-top: 14px; width: 100%; background: #4f46e5; color: #fff; border: 0;
                       border-radius: 4px; padding: 12px; font-size: 15px; font-weight: 600; cursor: pointer;
                       transition: background .12s; }
-        button.send:hover { background: #106ebe; }
+        button.send:hover { background: #4338ca; }
         button.send:disabled { opacity: .5; cursor: not-allowed; }
-        .thanks { color: #107c10; font-weight: 600; font-size: 16px; margin-top: 10px; }
+        .thanks { color: #15803d; font-weight: 600; font-size: 16px; margin-top: 10px; }
         .existing { color: #605e5c; font-size: 14px; margin-top: 8px; }
         .csat-logo { margin: 0 0 12px; }
         .csat-logo img { height: 54px; width: auto; max-width: 230px; object-fit: contain; }

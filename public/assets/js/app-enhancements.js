@@ -854,6 +854,12 @@
       if (!list) return;
       this.list = list;
 
+      // A lista da caixa é renderizada inteira pelo servidor (sem paginação e
+      // sem endpoint ajax): o sentinela só disparava uma requisição inútil a
+      // cada visita e deixava "Carregando..." parado na tela. Só entra em cena
+      // se o servidor marcar a lista como paginada.
+      if (list.dataset.paginated !== '1') return;
+
       this.sentinel = document.createElement('div');
       this.sentinel.className = 'load-more-trigger';
       this.sentinel.textContent = 'Carregar mais...';
@@ -873,13 +879,15 @@
       this.loading = true;
       this.sentinel.classList.add('loading');
       this.sentinel.textContent = 'Carregando...';
+      if (this._abort) this._abort.abort();
+      this._abort = new AbortController();
 
       const params = new URLSearchParams(window.location.search);
       params.set('page', this.page + 1);
       params.set('per_page', this.pageSize);
       const url = window.location.pathname + '?ajax=1&' + params.toString();
 
-      fetch(url, { headers: { 'X-Requested-With': 'XMLHttpRequest' } })
+      fetch(url, { headers: { 'X-Requested-With': 'XMLHttpRequest' }, signal: this._abort.signal })
         .then((r) => r.json())
         .then((data) => {
           if (data && data.html) {
@@ -975,6 +983,12 @@
     _pollTimer: null,
     _polling: false,
     _ready: false,
+    /* Mapa {id: status} das conversas — distingue "saiu da aba" de
+       "foi finalizada" (necessário com as três abas da caixa). */
+    _statusMap: {},
+    _statusMapLoaded: false,
+    _statusPending: false,
+    _statusWaiters: [],
 
     init() {
       document.querySelectorAll('.conv-item').forEach(function(el) {
@@ -1041,9 +1055,166 @@
       this._poll();
     },
 
+    /**
+     * Remove da lista uma conversa que sumiu do filtro da aba atual.
+     *
+     * Com três abas, sair do filtro NÃO implica finalização: a conversa
+     * pode ter ido para "Aguardando". O status real vem de
+     * /api/conversations-status — uma requisição leve, feita só quando
+     * alguma conversa some. Sem ele, o cliente anunciava "Conversa
+     * finalizada" para um simples "aguardando cliente" e ainda fechava o
+     * painel de chat que o atendente estava lendo.
+     */
+    _removeVanished(container, id, existing, prev) {
+      var self = this;
+
+      if (!self._statusMapLoaded) {
+        self._fetchStatusMap(function () {
+          self._removeVanished(container, id, existing, prev);
+        });
+        return;
+      }
+
+      var status = self._statusMap[id];
+      var isFinal = status === 'closed' || status === 'resolved' || status === 'spam';
+
+      if (isFinal) {
+        // Finalizada de verdade: some da lista e avisa.
+        existing.remove();
+        if (window.__enhancements && window.__enhancements.SlaManager) {
+          window.__enhancements.SlaManager.forgetConversation(id);
+        }
+        var name = (prev && prev.contactName) || '';
+        self._flashToast('Conversa finalizada: ' + (name || '#' + id), null, {
+          icon: 'fa-solid fa-circle-check',
+          subText: 'Encerrada automaticamente',
+          noClick: true,
+          duration: 5000,
+        });
+        // Se o usuário estava visualizando esta conversa, mostra um banner
+        // no painel de chat e limpa a URL.
+        if (self._viewingId && String(id) === self._viewingId) {
+          self._closeViewingPanel('Conversa encerrada pelo sistema.');
+        }
+        return;
+      }
+
+      // Saiu da aba atual (ex.: foi para "Aguardando"): remove da lista
+      // sem anunciar finalização e sem fechar o painel em uso.
+      if (!self._viewingId || String(id) !== self._viewingId) {
+        existing.remove();
+        if (window.__enhancements && window.__enhancements.SlaManager) {
+          window.__enhancements.SlaManager.forgetConversation(id);
+        }
+      }
+    },
+
+    /**
+     * Busca o mapa {id: status} das conversas das caixas do usuário.
+     * Uma requisição por rodada, com as chamadas pendentes na fila.
+     */
+    _fetchStatusMap(cb) {
+      var self = this;
+      self._statusWaiters = self._statusWaiters || [];
+      self._statusWaiters.push(cb);
+      if (self._statusPending) return;
+      self._statusPending = true;
+
+      var baseUrl = self._baseUrl();
+      var url = baseUrl + '/api/conversations-status';
+      var p = new URLSearchParams(window.location.search);
+      var iv = p.get('inbox');
+      if (!iv) { var ih = document.querySelector('input[name="inbox"]'); if (ih) iv = ih.value; }
+      if (iv) url += '?inbox=' + encodeURIComponent(iv);
+
+      fetch(url, { headers: { 'X-Requested-With': 'XMLHttpRequest' } })
+        .then(function(r) { if (!r.ok) throw new Error(String(r.status)); return r.json(); })
+        .then(function(map) {
+          if (map && typeof map === 'object') self._statusMap = map;
+        })
+        .catch(function() {})
+        .then(function() {
+          self._statusPending = false;
+          self._statusMapLoaded = true;
+          var waiters = self._statusWaiters || [];
+          self._statusWaiters = [];
+          waiters.forEach(function(w) { try { w(); } catch (_) {} });
+        });
+    },
+
     _baseUrl() {
       var u = document.querySelector('meta[name="base-url"]');
       return u ? u.getAttribute('content') : (window.location.origin + '/atendeflow');
+    },
+
+    /**
+     * Valor de um filtro da barra: a URL primeiro, depois o controle.
+     * Checkbox desligado NÃO é filtro (o value existe de todo modo).
+     */
+    _filterValue(key) {
+      var p = new URLSearchParams(window.location.search);
+      var v = p.get(key);
+      if (v) return v;
+      var el = document.querySelector('[name="' + key + '"]');
+      if (!el) return '';
+      if (el.type === 'checkbox') return el.checked ? (el.value || '1') : '';
+      return el.value || '';
+    },
+
+    /**
+     * Recorte atual da listagem em query string.
+     *
+     * O poll e os contadores de aba precisam levar o MESMO recorte da
+     * página. Sem isso o poll reescreve a lista com conversas de fora do
+     * filtro e o filtro "não funciona" — some o que estava filtrando.
+     */
+    _filterQuery() {
+      var parts = [];
+      var self = this;
+      ['fstatus', 'inbox', 'search', 'channel_id', 'priority', 'assignee', 'unread', 'mine', 'unassigned'].forEach(function (k) {
+        var v = self._filterValue(k);
+        if (v) parts.push(k + '=' + encodeURIComponent(v));
+      });
+      return parts.length ? '?' + parts.join('&') : '';
+    },
+
+    /**
+     * A conversa pertence ao recorte atual da listagem?
+     *
+     * O poll já vem filtrado pelo servidor; o SSE não. Sem esta checagem,
+     * uma conversa de outro setor entra numa lista filtrada por setor.
+     * A aba (status) não entra na conta: quem chega pelo SSE é conversa
+     * nova, e ela precisa aparecer na aba que o atendente está olhando.
+     */
+    _matchesCurrentFilter(c) {
+      if (!c) return true;
+      var ch = this._filterValue('channel_id');
+      if (ch && String(c.channel_id || '') !== ch) return false;
+
+      var pr = this._filterValue('priority');
+      if (pr && String(c.priority || 'normal') !== pr) return false;
+
+      var me = window.__currentUserId || this._userId || '';
+
+      // "Minha Caixa": o recorte é o que está alocado a mim.
+      if (this._filterValue('mine') && String(c.assigned_user_id || '') !== String(me)) return false;
+
+      // "Não Atribuídas": só conversa sem responsável.
+      if (this._filterValue('unassigned') && c.assigned_user_id) return false;
+
+      var asg = this._filterValue('assignee');
+      if (asg === 'me') {
+        if (String(c.assigned_user_id || '') !== String(me)) return false;
+      } else if (asg === 'unassigned') {
+        if (c.assigned_user_id) return false;
+      } else if (asg) {
+        if (String(c.assigned_user_id || '') !== asg) return false;
+      }
+
+      var unread = this._filterValue('unread');
+      if (unread && parseInt(c.unread_count || '0', 10) <= 0) return false;
+
+      return true;
     },
 
     _poll() {
@@ -1051,21 +1222,41 @@
       this._polling = true;
 
       var baseUrl = this._baseUrl();
-      var url = baseUrl + '/api/conversations';
-
-      var p = new URLSearchParams(window.location.search);
-      var fv = p.get('fstatus');
-      if (!fv) { var h = document.querySelector('input[name="fstatus"]'); if (h) fv = h.value; }
-      if (fv) url += '?fstatus=' + encodeURIComponent(fv);
-      var iv = p.get('inbox');
-      if (!iv) { var ih = document.querySelector('input[name="inbox"]'); if (ih) iv = ih.value; }
-      if (iv) url += (fv ? '&' : '?') + 'inbox=' + encodeURIComponent(iv);
+      var url = baseUrl + '/api/conversations' + this._filterQuery();
 
       var self = this;
       fetch(url, { headers: { 'X-Requested-With': 'XMLHttpRequest' } })
         .then(function(r) { if (!r.ok) throw new Error(String(r.status)); return r.json(); })
         .then(function(data) { self._onData(data); self._polling = false; })
         .catch(function() { self._polling = false; });
+
+      this._fetchTabCounts();
+    },
+
+    /**
+     * Atualiza os contadores das abas ("Em atendimento" / "Aguardando").
+     * "Concluído" não tem contador. Endpoint leve (COUNT por status).
+     */
+    _fetchTabCounts() {
+      var baseUrl = this._baseUrl();
+      // Mesmo recorte da listagem: os números das abas precisam contar
+      // o que a lista mostra, não a fila inteira.
+      var url = baseUrl + '/api/conversations-counts' + this._filterQuery();
+
+      fetch(url, { headers: { 'X-Requested-With': 'XMLHttpRequest' } })
+        .then(function(r) { if (!r.ok) throw new Error(String(r.status)); return r.json(); })
+        .then(function(c) {
+          if (!c) return;
+          ['active', 'waiting'].forEach(function(tab) {
+            var el = document.querySelector('[data-tab-count="' + tab + '"]');
+            if (!el) return;
+            var n = parseInt(c[tab] || '0', 10) || 0;
+            el.textContent = String(n);
+            if (n > 0) el.classList.remove('is-empty');
+            else el.classList.add('is-empty');
+          });
+        })
+        .catch(function() {});
     },
 
     _onData(data) {
@@ -1159,41 +1350,17 @@
       knownIds.forEach(function(idStr) {
         var id = parseInt(idStr, 10);
         if (!data.find(function(c) { return parseInt(c.id, 10) === id; })) {
-          // A conversa não veio no response atual. Descobre o status anterior
-          // e decide se ela saiu da listagem por finalização automática.
+          // A conversa não veio no response atual: saiu do filtro da aba.
           var prev = self._known[id];
           var prevStatus = (prev && prev.status) || '';
-          var wasInActive = ['new', 'open', 'waiting_customer', 'waiting_internal'].indexOf(prevStatus) !== -1;
           var existing = container.querySelector('.conv-item[data-conv-id="' + id + '"]');
           if (!existing) return;
 
-          if (wasInActive) {
-            // Estava em "Em atendimento" e sumiu do response (filtro fstatus=active
-            // exclui closed/resolved/spam) → foi finalizada pelo sistema.
-            // Remove da lista mesmo se o usuário está visualizando, e mostra
-            // um toast para informar.
-            existing.remove();
-            if (window.__enhancements && window.__enhancements.SlaManager) {
-              window.__enhancements.SlaManager.forgetConversation(id);
-            }
-            var name = (prev && prev.contactName) || '';
-            self._flashToast('Conversa finalizada: ' + (name || '#' + id), null, {
-              icon: 'fa-solid fa-circle-check',
-              subText: 'Encerrada automaticamente',
-              noClick: true,
-              duration: 5000,
-            });
-            // Se o usuário estava visualizando esta conversa, mostra um banner
-            // no painel de chat e limpa a URL.
-            if (self._viewingId && String(id) === self._viewingId) {
-              self._closeViewingPanel('Conversa encerrada pelo sistema.');
-            }
-          } else if (!self._viewingId || String(id) !== self._viewingId) {
-            existing.remove();
-            if (window.__enhancements && window.__enhancements.SlaManager) {
-              window.__enhancements.SlaManager.forgetConversation(id);
-            }
-          }
+          // Com as três abas, sair da aba atual NÃO é o mesmo que ser
+          // finalizada (pode ter ido para "Aguardando"). O status real vem
+          // do endpoint de status; enquanto ele não chega, a conversa é
+          // apenas removida da lista, sem anunciar finalização.
+          self._removeVanished(container, id, existing, prev);
         }
       });
 
@@ -1230,7 +1397,8 @@
       var id = parseInt(c.id, 10);
       var existing = container.querySelector('.conv-item[data-conv-id="' + id + '"]');
       if (!existing) {
-        if (c.status !== 'closed' && c.status !== 'resolved' && c.status !== 'spam') {
+        if (c.status !== 'closed' && c.status !== 'resolved' && c.status !== 'spam'
+            && this._matchesCurrentFilter(c)) {
           this._prependItem(container, c, activeConvId);
         }
         return;
@@ -1249,7 +1417,12 @@
 
     _createItem(c, activeConvId) {
       var id = parseInt(c.id, 10);
-      var baseUrl = window.location.pathname + '?conv=';
+      // Mesmo link do PHP: preserva a aba e os filtros atuais (?fstatus,
+      // ?inbox, ?search) ao abrir a conversa.
+      var cur = new URLSearchParams(window.location.search);
+      cur.delete('conv');
+      var curQs = cur.toString();
+      var baseUrl = window.location.pathname + (curQs ? '?' + curQs + '&conv=' : '?conv=');
       var un = parseInt(c.unread_count || '0', 10);
       var chIcon = { whatsapp:'fab fa-whatsapp', webchat:'fas fa-comment-dots', email:'fas fa-envelope', telegram:'fab fa-telegram', facebook:'fab fa-facebook', instagram:'fab fa-instagram', phone:'fas fa-phone' }[c.channel_type] || 'fas fa-comment-dots';
 
@@ -1266,8 +1439,8 @@
         try {
           var tArr = JSON.parse(c.tags_json) || [];
           tArr.forEach(function(t) {
-            var tcolor = t.color || '#6c757d';
-            tagsChips += '<span class="chip conv-tag-chip" style="background:' + this._esc(tcolor) + '22;color:' + this._esc(tcolor) + '">' + this._esc(t.name) + '</span>';
+            var tcolor = t.color || '#5b6472';
+            tagsChips += '<span class="chip conv-tag-chip" style="--tag-color:' + this._esc(tcolor) + '">' + this._esc(t.name) + '</span>';
           }, this);
         } catch (_) {}
       }
@@ -1276,16 +1449,41 @@
       if (c.status === 'resolved' || c.status === 'closed') statusChipClass = 'chip-neutral';
       else if (c.status !== 'open' && c.status !== 'new') statusChipClass = 'chip-info';
 
-      var avatarHtml = '<div class="avatar">' + this._esc((c.contact_name || '?').charAt(0).toUpperCase()) + '</div>';
-      if (c.contact_avatar) {
-        var src = c.contact_avatar.indexOf('http') === 0 ? c.contact_avatar : this._baseUrl() + '/uploads/' + c.contact_avatar;
-        avatarHtml = '<div class="avatar"><img src="' + this._esc(src) + '" alt=""></div>';
+      var initial = (c.contact_name || '?').charAt(0).toUpperCase();
+      // Conversa de grupo: a foto do grupo (o contato sintético não tem avatar).
+      var avatarSrc = c.group_avatar || c.contact_avatar;
+      var avatarHtml = '<div class="avatar">' + this._esc(initial) + '</div>';
+      if (avatarSrc) {
+        var src = avatarSrc.indexOf('http') === 0 ? avatarSrc : this._baseUrl() + '/uploads/' + avatarSrc;
+        avatarHtml = '<div class="avatar"><img src="' + this._esc(src) + '" alt="" loading="lazy" onerror="this.parentNode.textContent=\'' + this._esc(initial) + '\'"></div>';
       }
 
       var statusDot = (c.status === 'open' || c.status === 'new') ? '<div class="status-dot"></div>' : '';
       var unreadBadge = un > 0 ? '<span class="nav-badge" style="position:absolute;top:-4px;right:-6px;font-size:10px;padding:1px 6px">' + (un > 99 ? '99+' : un) + '</span>' : '';
-      var previewText = this._previewText(c, 80);
+
+      // Protocolo: só dígitos, como format_protocol() do PHP.
+      var protocol = String(c.protocol || '').replace(/\D/g, '');
+      var protocolHtml = protocol
+        ? ' <span style="font-weight:400;color:var(--text-muted);font-size:12px;font-variant-numeric:tabular-nums" title="Protocolo do atendimento">#' + this._esc(protocol) + '</span>'
+        : '';
+
+      // Preview: mídia (ícone + rótulo) ou texto — igual ao PHP. A loja
+      // (unidade) da CONVERSA vem logo depois, também como no PHP.
+      var mediaIcons = {
+        image:['fa-image','Imagem'], video:['fa-video','Vídeo'], audio:['fa-volume-high','Áudio'],
+        file:['fa-paperclip','Arquivo'], sticker:['fa-smile','Sticker']
+      };
+      var lmType = c.last_message_type || '';
+      var isMedia = !!mediaIcons[lmType];
+      var previewInner = isMedia
+        ? '<i class="fas ' + mediaIcons[lmType][0] + ' conv-preview-icon" aria-hidden="true"></i>' + this._esc(mediaIcons[lmType][1])
+        : this._esc(this._previewText(c, 90));
       var subjectHtml = c.subject ? '<strong>' + this._esc(c.subject) + '</strong> — ' : '';
+      var unitHtml = c.unit ? '<span class="conv-preview-unit">| ' + this._esc(c.unit) + '</span>' : '';
+
+      var groupChip = c.group_id
+        ? '<span class="chip chip-info" title="Conversa de grupo WhatsApp"><i class="fas fa-users" style="font-size:11px"></i> Grupo</span>'
+        : '';
 
       var el = document.createElement('a');
       el.href = baseUrl + id;
@@ -1293,6 +1491,8 @@
       el.dataset.convId = id;
       el.dataset.msgCount = String(c.message_count || 0);
       el.dataset.unread = String(un);
+      el.dataset.flow = c.has_active_flow ? '1' : '0';
+      el.dataset.tags = c.tags_json || '';
       el.dataset.slaStatus = String(c.status || '');
       el.dataset.slaDir = String(c.last_message_direction || '');
       el.dataset.slaWaiting = String(parseInt(c.waiting_seconds, 10) || 0);
@@ -1306,12 +1506,15 @@
         '<div class="avatar-wrap">' + avatarHtml + statusDot + unreadBadge + '</div>' +
         '<div class="conv-body">' +
           '<div class="conv-top">' +
-            '<span class="conv-name">' + this._esc(c.contact_name) + (c.contact_company ? '<span style="font-weight:400;color:var(--text-muted);font-size:12px"> — ' + this._esc(c.contact_company) + '</span>' : '') + '</span>' +
+            '<span class="conv-name">' + this._esc(c.contact_name) + protocolHtml + '</span>' +
             '<span class="conv-time">' + this._timeAgo(c.last_message_at || c.created_at) + '</span>' +
           '</div>' +
-          '<div class="conv-preview">' + subjectHtml + this._esc(previewText) + '</div>' +
+          '<div class="conv-preview">' +
+            '<span class="conv-preview-text">' + subjectHtml + previewInner + '</span>' + unitHtml +
+          '</div>' +
           '<div class="conv-tags">' +
             '<span class="chip chip-neutral"><i class="' + chIcon + '" style="font-size:11px"></i> ' + this._esc(c.channel_name || '') + '</span>' +
+            groupChip +
             tagsChips +
             priorityChip +
             '<span class="chip ' + statusChipClass + '">' + this._statusLabel(c.status) + '</span>' +
@@ -1335,6 +1538,10 @@
       if (!container) return;
       var activeConvId = new URLSearchParams(window.location.search).get('conv');
       var initial = Object.assign({}, c, { unread_count: 0, message_count: 0, last_message_at: c.created_at });
+      // Fora do recorte atual (ex.: outro setor na lista filtrada por
+      // setor): não entra na lista. O poll traz a conversa se ela for do
+      // recorte, com os contadores certos.
+      if (!this._matchesCurrentFilter(initial)) return;
       this._prependItem(container, initial, activeConvId);
       if (window.__enhancements && window.__enhancements.KeyboardNav) {
         window.__enhancements.KeyboardNav.refreshItems();
@@ -1407,12 +1614,48 @@
     },
 
     _truncate(t, l) { if (!t) return 'Sem mensagens'; return t.length <= l ? t : t.substring(0, l) + '...'; },
+    /**
+     * Texto de preview da conversa — espelha conversation_preview_text() do
+     * PHP: payload JSON de webhook/fluxo vira o texto útil (nada de JSON
+     * cru na lista) e o corte é o mesmo.
+     */
     _previewText(m, l) {
-      var labels = { image: '🖼️ Imagem', video: '🎬 Vídeo', audio: '🎵 Áudio', file: '📎 Arquivo', sticker: '🖼️ Sticker' };
-      if (m.last_message_type && labels[m.last_message_type]) return labels[m.last_message_type];
-      return this._truncate(m.last_message, l);
+      var raw = String(m.last_message == null ? '' : m.last_message).trim();
+      var first = raw.charAt(0);
+      if (first === '{' || first === '[') {
+        try {
+          var decoded = JSON.parse(raw);
+          if (decoded && typeof decoded === 'object') {
+            var keys = ['prompt', 'message', 'text', 'body', 'content', 'description'];
+            for (var i = 0; i < keys.length; i++) {
+              var v = decoded[keys[i]];
+              if (typeof v === 'string' && v.trim() !== '') return this._truncate(v.trim(), l);
+            }
+            var arrKeys = ['buttons', 'options', 'actions', 'items'];
+            for (var j = 0; j < arrKeys.length; j++) {
+              var arr = decoded[arrKeys[j]];
+              if (Array.isArray(arr) && arr.length) {
+                var opt = arr[0];
+                if (opt && typeof opt === 'object') {
+                  var optKeys = ['title', 'label', 'text'];
+                  for (var k = 0; k < optKeys.length; k++) {
+                    if (typeof opt[optKeys[k]] === 'string' && opt[optKeys[k]].trim() !== '') {
+                      return this._truncate(opt[optKeys[k]].trim(), l);
+                    }
+                  }
+                }
+              }
+            }
+            if (typeof decoded.title === 'string' && decoded.title.trim() !== '') {
+              return this._truncate(decoded.title.trim(), l);
+            }
+            return 'Mensagem automática';
+          }
+        } catch (_) {}
+      }
+      return this._truncate(raw, l);
     },
-    _statusLabel(s) { return ({ new:'Novo', open:'Aberto', waiting_customer:'Em atendimento', waiting_internal:'Aguardando Interno', resolved:'Resolvido', closed:'Fechado', spam:'Spam' })[s] || s; },
+    _statusLabel(s) { return ({ new:'Novo', open:'Aberto', waiting_customer:'Aguardando cliente', waiting_internal:'Aguardando interno', resolved:'Resolvido', closed:'Fechado', spam:'Spam' })[s] || s; },
     _priorityLabel(p) { return ({ low:'Baixa', normal:'Normal', high:'Alta', urgent:'Urgente' })[p] || p; },
 
     _flashToast(body, c, opts) {
@@ -1972,11 +2215,39 @@
   };
 
   // ──────────────────────────────────────────
+  // Tabelas com rolagem horizontal
+  // ──────────────────────────────────────────
+  // Várias telas (contatos, tags, macros, canais, grupos…) renderizam a
+  // <table> direto dentro do card. Em telas estreitas a tabela estoura o
+  // cartão e é cortada sem rolagem (887px de conteúdo num cartão de 360px).
+  // Envolver em .table-wrap (overflow-x:auto) resolve todas de uma vez.
+  const ResponsiveTables = {
+    init() {
+      document.querySelectorAll('table.table').forEach((table) => {
+        const parent = table.parentElement;
+        if (!parent) return;
+        if (parent.classList.contains('table-wrap')) return;
+        if (parent.style && parent.style.overflowX === 'auto') return;
+        if (parent.closest('.table-wrap')) return;
+
+        const wrap = document.createElement('div');
+        wrap.className = 'table-wrap';
+        wrap.setAttribute('tabindex', '0');
+        wrap.setAttribute('role', 'region');
+        wrap.setAttribute('aria-label', 'Tabela — role horizontalmente para ver todas as colunas');
+        parent.insertBefore(wrap, table);
+        wrap.appendChild(table);
+      });
+    },
+  };
+
+  // ──────────────────────────────────────────
   // Init on DOM ready
   // ──────────────────────────────────────────
   function init() {
     SoundManager._initAudioOnGesture();
     GlobalNotifier.init();
+    ResponsiveTables.init();
 
     if (document.querySelector('.app-inbox')) {
       // SlaManager.init() injeta CSS e dispara a primeira repintura; roda
@@ -2007,6 +2278,79 @@
     KeyboardNav, InfiniteScroll, TagManagerEnhancer, MobileSearchFix,
     LiveFeed, SoundManager, GlobalNotifier, SlaManager,
   };
+})();
+
+/* ==========================================
+   OminiColor - contraste garantido (WCAG AA)
+   Espelha os helpers PHP readable_pair() e
+   readable_text_on_tint() para o que é montado
+   no navegador (chips criados por JS).
+   ========================================== */
+(function () {
+  'use strict';
+
+  function hexRgb(c) {
+    var h = String(c == null ? '' : c).trim().replace('#', '');
+    if (h.length === 3) h = h[0] + h[0] + h[1] + h[1] + h[2] + h[2];
+    if (!/^[0-9a-fA-F]{6}$/.test(h)) h = '6c757d';
+    return [parseInt(h.substr(0, 2), 16), parseInt(h.substr(2, 2), 16), parseInt(h.substr(4, 2), 16)];
+  }
+
+  function lum(rgb) {
+    var f = function (v) {
+      v /= 255;
+      return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4);
+    };
+    return 0.2126 * f(rgb[0]) + 0.7152 * f(rgb[1]) + 0.0722 * f(rgb[2]);
+  }
+
+  function ratio(l1, l2) {
+    var hi = Math.max(l1, l2), lo = Math.min(l1, l2);
+    return (hi + 0.05) / (lo + 0.05);
+  }
+
+  function toHex(n) {
+    var s = Math.max(0, Math.min(255, Math.round(n))).toString(16);
+    return s.length === 1 ? '0' + s : s;
+  }
+
+  /** [fundo, texto] com contraste >= 4,5:1 (escurece o fundo se preciso). */
+  function readablePair(c) {
+    var rgb = hexRgb(c);
+    var l = lum(rgb);
+    var darkL = lum([32, 31, 30]);
+    if (ratio(1, l) >= 4.5) return [String(c), '#ffffff'];
+    if (ratio(l, darkL) >= 4.5) return [String(c), '#0f172a'];
+    var f = 1;
+    for (var i = 0; i < 60; i++) {
+      f -= 0.01;
+      if (f <= 0.05) break;
+      var ll = lum([Math.round(rgb[0] * f), Math.round(rgb[1] * f), Math.round(rgb[2] * f)]);
+      if (ratio(1, ll) >= 4.6) break;
+    }
+    return ['#' + toHex(rgb[0] * f) + toHex(rgb[1] * f) + toHex(rgb[2] * f), '#ffffff'];
+  }
+
+  /** Cor de texto legível sobre fundo claro tingido com a cor informada. */
+  function readableTextOnTint(c, tint) {
+    tint = (tint === undefined) ? 0.125 : tint;
+    var rgb = hexRgb(c);
+    var bg = lum([
+      Math.round(rgb[0] * tint + 255 * (1 - tint)),
+      Math.round(rgb[1] * tint + 255 * (1 - tint)),
+      Math.round(rgb[2] * tint + 255 * (1 - tint)),
+    ]);
+    var f = 1;
+    for (var i = 0; i < 80; i++) {
+      var ll = lum([Math.round(rgb[0] * f), Math.round(rgb[1] * f), Math.round(rgb[2] * f)]);
+      if (ratio(ll, bg) >= 4.6) break;
+      f -= 0.01;
+      if (f <= 0.1) break;
+    }
+    return '#' + toHex(rgb[0] * f) + toHex(rgb[1] * f) + toHex(rgb[2] * f);
+  }
+
+  window.OminiColor = { readablePair: readablePair, readableTextOnTint: readableTextOnTint };
 })();
 
 /* ==========================================

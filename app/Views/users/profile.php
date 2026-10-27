@@ -135,15 +135,15 @@
 .profile-name{font-size:19px;font-weight:800;margin:0;letter-spacing:-.3px;color:var(--text-primary)}
 .profile-role{margin-top:6px;display:inline-flex}
 .profile-stats{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;padding:16px;border-top:1px solid var(--border-soft);border-bottom:1px solid var(--border-soft);margin-top:16px;text-align:center}
-.profile-stat{background:var(--bg-panel-alt);border-radius:12px;padding:10px 6px;min-height:62px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px}
+.profile-stat{background:var(--bg-panel-alt);border-radius:12px;padding:10px 6px;min-height:62px;min-width:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px}
 .profile-stat .stat-value{font-size:16px;font-weight:800;display:block;font-variant-numeric:tabular-nums;color:var(--text-primary)}
-.profile-stat .stat-label{font-size:10.5px;color:var(--text-muted);display:block;margin-top:2px;text-transform:uppercase;letter-spacing:.04em;line-height:1.3}
+.profile-stat .stat-label{font-size:11px;color:var(--text-muted);display:block;margin-top:2px;text-transform:uppercase;letter-spacing:.04em;line-height:1.3;overflow-wrap:anywhere}
 .profile-info{padding:14px 20px;display:flex;flex-direction:column;gap:10px}
 .profile-info-item{display:flex;align-items:center;gap:10px;font-size:13px;color:var(--text-secondary)}
 .profile-info-item i{width:32px;height:32px;border-radius:9px;background:var(--brand-soft);color:var(--brand-2);display:flex;align-items:center;justify-content:center;font-size:12px;flex-shrink:0}
 .profile-info-item.ci-mail i{background:var(--info-soft);color:var(--info)}
 .profile-info-item.ci-cal i{background:var(--success-soft);color:var(--success)}
-.profile-info-item.ci-clock i{background:var(--warning-soft);color:#b45309}
+.profile-info-item.ci-clock i{background:var(--warning-soft);color:#9a3412}
 .profile-depts{padding:0 20px 20px}
 .profile-depts-title{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--text-muted);display:flex;align-items:center;gap:6px;margin-bottom:8px}
 .profile-depts-list{display:flex;flex-wrap:wrap;gap:6px}

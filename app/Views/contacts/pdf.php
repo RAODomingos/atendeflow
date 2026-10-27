@@ -22,8 +22,8 @@
     .conv-footer { font-size: 8pt; color: #999; margin-top: 4px; padding-top: 4px; border-top: 1px solid #f0f0f0; display: flex; gap: 12px; }
     .badge { display: inline-block; padding: 1px 6px; border-radius: 3px; font-size: 7.5pt; font-weight: bold; }
     .badge-success { background: #e6f9ef; color: #12b76a; }
-    .badge-info { background: #eaf4ff; color: #2e90fa; }
-    .badge-warning { background: #fef3e2; color: #b45309; }
+    .badge-info { background: #eef0ff; color: #818cf8; }
+    .badge-warning { background: #fef3e2; color: #9a3412; }
     .badge-danger { background: #fee4e2; color: #f04438; }
     .badge-neutral { background: #f1f2f5; color: #6b7280; }
     .notes-box { background: #fef9e7; border: 1px solid #f9e79f; border-radius: 5px; padding: 8px 10px; font-size: 9pt; }
@@ -74,7 +74,7 @@
     <div class="section-title">Etiquetas</div>
     <div>
         <?php foreach ($contact['tags'] as $tag): ?>
-            <span class="tag" style="background:<?= e($tag['color'] ?? '#6c757d') ?>;color:<?= e(contrast_color($tag['color'] ?? '#6c757d')) ?>"><?= e($tag['name']) ?></span>
+            <span class="tag" style="background:<?= e(readable_pair($tag['color'] ?? '#5b6472')[0]) ?>;color:<?= e(readable_pair($tag['color'] ?? '#5b6472')[1]) ?>"><?= e($tag['name']) ?></span>
         <?php endforeach; ?>
     </div>
 </div>

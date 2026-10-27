@@ -9,10 +9,13 @@ $statusIcons = [
     'waiting_customer' => 'fa-headset', 'waiting_internal' => 'fa-pause',
     'resolved' => 'fa-check-circle', 'closed' => 'fa-archive', 'spam' => 'fa-ban',
 ];
+/* Cores em hex literal: o fundo do chip usa a cor com alfa (cor + '1a'),
+   o que não é possível concatenar em cima de var() — a declaração era
+   descartada e o chip ficava sem fundo. */
 $statusColors = [
-    'new' => 'var(--info)', 'open' => 'var(--primary)',
-    'waiting_customer' => 'var(--warning)', 'waiting_internal' => '#b45309',
-    'resolved' => 'var(--success)', 'closed' => '#6c757d', 'spam' => 'var(--danger)',
+    'new' => '#4f46e5', 'open' => '#4f46e5',
+    'waiting_customer' => '#ea580c', 'waiting_internal' => '#9a3412',
+    'resolved' => '#15803d', 'closed' => '#5b6472', 'spam' => '#dc2626',
 ];
 $priorityLabels = ['low' => 'Baixa', 'normal' => 'Normal', 'high' => 'Alta', 'urgent' => 'Urgente'];
 $weekdayNames = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
@@ -24,7 +27,7 @@ $totalAll = $stats['total'] ?? 0;
 
 // Helper de delta
 function renderDeltaBadge($delta) {
-    if ($delta === 'new') return '<span class="tl-delta tl-delta-new"><i class="fas fa-sparkles"></i>novo</span>';
+    if ($delta === 'new') return '<span class="tl-delta tl-delta-new"><i class="fas fa-star"></i>novo</span>';
     if (!is_numeric($delta)) return '';
     $cls = $delta > 0 ? 'tl-delta-up' : ($delta < 0 ? 'tl-delta-down' : 'tl-delta-flat');
     $icon = $delta > 0 ? 'fa-arrow-up' : ($delta < 0 ? 'fa-arrow-down' : 'fa-equals');
@@ -311,11 +314,12 @@ function renderDeltaBadge($delta) {
                                 </label>
                                 <div class="tl-conv-main">
                                     <div class="tl-conv-top">
-                                        <i class="<?= channel_icon($conv['channel_type'] ?? 'webchat') ?>" style="color:<?= ['whatsapp'=>'#25D366','webchat'=>'var(--brand)','email'=>'#f59e0b','telegram'=>'#0088cc','facebook'=>'#1877f2','instagram'=>'#e1306c','phone'=>'#6c757d'][$conv['channel_type'] ?? ''] ?? 'var(--text-muted)' ?>"></i>
+                                        <i class="<?= channel_icon($conv['channel_type'] ?? 'webchat') ?>" style="color:<?= ['whatsapp'=>'#25D366','webchat'=>'var(--brand)','email'=>'#f59e0b','telegram'=>'#0088cc','facebook'=>'#1877f2','instagram'=>'#e1306c','phone'=>'#5b6472'][$conv['channel_type'] ?? ''] ?? 'var(--text-muted)' ?>"></i>
                                         <strong class="tl-conv-subject">
                                             <?= e($conv['subject'] ?: truncate($conv['id'] . ' — sem assunto', 60)) ?>
                                         </strong>
-                                        <span class="tl-conv-status" style="background:<?= $statusColors[$conv['status']] ?? '#6c757d' ?>1a;color:<?= $statusColors[$conv['status']] ?? '#6c757d' ?>">
+                                        <?php $stColor = $statusColors[$conv['status']] ?? '#5b6472'; ?>
+                                        <span class="tl-conv-status" style="background:<?= $stColor ?>1a;color:<?= e(readable_text_on_tint($stColor, 0.10)) ?>">
                                             <i class="fas <?= $statusIcons[$conv['status']] ?? 'fa-circle' ?>"></i>
                                             <?= $statusLabels[$conv['status']] ?? $conv['status'] ?>
                                         </span>
@@ -325,8 +329,8 @@ function renderDeltaBadge($delta) {
                                             <span><i class="fas fa-user" style="font-size:9px"></i> <?= e($conv['contact_name']) ?></span>
                                         <?php endif; ?>
                                         <?php if (!empty($conv['department_name'])): ?>
-                                            <span class="tl-conv-dept" style="color:<?= e($conv['department_color'] ?? 'var(--text-muted)') ?>">
-                                                <i class="fas fa-layer-group" style="font-size:9px"></i> <?= e($conv['department_name']) ?>
+                                            <span class="tl-conv-dept" style="color:<?= e(readable_text_on_tint($conv['department_color'] ?? '#676560')) ?>">
+                                                <i class="fas fa-layer-group" style="font-size:11px"></i> <?= e($conv['department_name']) ?>
                                             </span>
                                         <?php endif; ?>
                                         <?php if (!empty($conv['assigned_user_name'])): ?>

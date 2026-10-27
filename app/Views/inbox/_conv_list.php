@@ -1,8 +1,17 @@
 <?php if (empty($conversations)): ?>
+    <?php
+    // Estado vazio por aba: "nada nesta aba" é diferente de "não há
+    // conversa nenhuma" — a segunda leitura faz o agente procurar erro.
+    $emptyState = [
+        'active' => ['Nenhum atendimento em andamento', 'Conversas abertas, aguardando o cliente ou aguardando outro setor aparecem aqui.'],
+        'waiting' => ['Nenhuma conversa aguardando', 'Conversas novas, as que saíram do bot e as transferidas de setor aparecem aqui.'],
+        'resolved_closed' => ['Nenhuma conversa concluída', 'Os atendimentos finalizados ficam arquivados aqui.'],
+    ][$fstatus ?? 'active'] ?? ['Nenhuma conversa encontrada', 'As conversas aparecerão aqui quando receberem mensagens.'];
+    ?>
     <div class="empty-state-enhanced">
         <div class="empty-icon"><svg width="52" height="52" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M22 12h-6l-2 3h-4l-2-3H2"/><path d="M5.45 5.11L2 12v6a2 2 0 002 2h16a2 2 0 002-2v-6l-3.45-6.89A2 2 0 0016.76 4H7.24a2 2 0 00-1.79 1.11z"/></svg></div>
-        <h3>Nenhuma conversa encontrada</h3>
-        <p>As conversas aparecerão aqui quando receberem mensagens.</p>
+        <h3><?= e($emptyState[0]) ?></h3>
+        <p><?= e($emptyState[1]) ?></p>
     </div>
 <?php else: ?>
     <?php
@@ -13,8 +22,8 @@
     $convBase = url('inbox') . $convQs;
     $activeConvId = !empty($activeConvId) ? $activeConvId : null;
     $channelColors = [
-        'whatsapp' => '#25D366', 'webchat' => '#4361ee', 'email' => '#f59e0b',
-        'telegram' => '#0088cc', 'facebook' => '#1877f2', 'instagram'=> '#e1306c', 'phone' => '#6c757d',
+        'whatsapp' => '#25D366', 'webchat' => '#4f46e5', 'email' => '#f59e0b',
+        'telegram' => '#0088cc', 'facebook' => '#1877f2', 'instagram'=> '#e1306c', 'phone' => '#5b6472',
     ];
     ?>
     <?php foreach ($conversations as $conv): ?>
@@ -51,8 +60,13 @@
            data-sla-boundary="<?= (int)($conv['sla_boundary_at'] ?? 0) ?>"
            data-group-id="<?= !empty($conv['group_id']) ? (int)$conv['group_id'] : '' ?>">
             <div class="avatar-wrap">
-                <?php if ($conv['contact_avatar']): ?>
-                    <div class="avatar"><img src="<?= e(str_starts_with($conv['contact_avatar'], 'http') ? $conv['contact_avatar'] : upload_url($conv['contact_avatar'])) ?>" alt="" loading="lazy" onerror="this.parentElement.textContent=<?= js(mb_strtoupper(mb_substr($conv['contact_name'] ?? '?', 0, 1))) ?>"></div>
+                <?php
+                // Conversa de grupo: mostra a foto do grupo (o contato
+                // sintético do grupo não tem avatar).
+                $convAvatar = $conv['group_avatar'] ?? null ?: ($conv['contact_avatar'] ?? null);
+                ?>
+                <?php if ($convAvatar): ?>
+                    <div class="avatar"><img src="<?= e(str_starts_with($convAvatar, 'http') ? $convAvatar : upload_url($convAvatar)) ?>" alt="" loading="lazy" onerror="this.parentElement.textContent=<?= js(mb_strtoupper(mb_substr($conv['contact_name'] ?? '?', 0, 1))) ?>"></div>
                 <?php else: ?>
                     <div class="avatar"><?= mb_strtoupper(mb_substr($conv['contact_name'] ?? '?', 0, 1)) ?></div>
                 <?php endif; ?>
@@ -70,37 +84,49 @@
                     <span class="conv-time"><?= time_elapsed($conv['last_message_at'] ?? $conv['created_at']) ?></span>
                 </div>
                 <div class="conv-preview">
-                    <?php if (!empty($conv['subject'])): ?>
-                        <strong><?= e($conv['subject']) ?></strong> —
-                    <?php endif; ?>
                     <?php
-                        $mediaLabels = ['image' => '🖼️ Imagem', 'video' => '🎬 Vídeo', 'audio' => '🎵 Áudio', 'file' => '📎 Arquivo', 'sticker' => '🖼️ Sticker'];
+                        $mediaIcons = [
+                            'image'   => ['fa-image', 'Imagem'],
+                            'video'   => ['fa-video', 'Vídeo'],
+                            'audio'   => ['fa-volume-high', 'Áudio'],
+                            'file'    => ['fa-paperclip', 'Arquivo'],
+                            'sticker' => ['fa-smile', 'Sticker'],
+                        ];
                         $lmType = $conv['last_message_type'] ?? '';
-                        if (isset($mediaLabels[$lmType])):
-                            echo $mediaLabels[$lmType];
-                        else:
-                            echo e(truncate($conv['last_message'] ?? 'Sem mensagens', 80));
-                        endif;
+                        $isMedia = isset($mediaIcons[$lmType]);
                     ?>
+                    <?php if ($isMedia): ?>
+                        <i class="fas <?= $mediaIcons[$lmType][0] ?> conv-preview-icon" aria-hidden="true"></i>
+                    <?php endif; ?>
+                    <span class="conv-preview-text">
+                        <?php if (!empty($conv['subject'])): ?>
+                            <strong><?= e($conv['subject']) ?></strong> —
+                        <?php endif; ?>
+                        <?php if ($isMedia): ?>
+                            <?= e($mediaIcons[$lmType][1]) ?>
+                        <?php else: ?>
+                            <?= e(conversation_preview_text($conv['last_message'] ?? '', 90)) ?>
+                        <?php endif; ?>
+                    </span>
                     <?php if (!empty($conv['unit'])): ?>
-                        <span style="font-size:11px;color:var(--text-muted);margin-left:6px">| <?= e($conv['unit']) ?></span>
+                        <span class="conv-preview-unit">| <?= e($conv['unit']) ?></span>
                     <?php endif; ?>
                 </div>
                 <div class="conv-tags">
                     <?php
-                    $chColor = $channelColors[$conv['channel_type'] ?? ''] ?? '#6c757d';
+                    $chColor = $channelColors[$conv['channel_type'] ?? ''] ?? '#5b6472';
                     ?>
                     <span class="chip chip-neutral"><i class="<?= channel_icon($conv['channel_type'] ?? 'webchat') ?>" style="font-size:11px"></i> <?= e($conv['channel_name'] ?? '') ?></span>
                     <?php if (!empty($conv['group_id'])): ?>
                         <span class="chip chip-info" title="Conversa de grupo WhatsApp"><i class="fas fa-users" style="font-size:11px"></i> Grupo</span>
                     <?php endif; ?>
                     <?php foreach ($convTagsList as $tagItem): ?>
-                        <span class="chip conv-tag-chip" style="background:<?= e($tagItem['color'] ?? '#6c757d') ?>22;color:<?= e($tagItem['color'] ?? '#6c757d') ?>"><?= e($tagItem['name'] ?? '') ?></span>
+                        <span class="chip conv-tag-chip" style="--tag-color:<?= e($tagItem['color'] ?? '#5b6472') ?>"><?= e($tagItem['name'] ?? '') ?></span>
                     <?php endforeach; ?>
                     <?php if (($conv['priority'] ?? 'normal') !== 'normal'): ?>
                         <span class="chip <?= $conv['priority'] === 'urgent' ? 'chip-danger' : 'chip-warning' ?>"><?= ucfirst($conv['priority']) ?></span>
                     <?php endif; ?>
-                    <span class="chip <?= $conv['status'] === 'open' || $conv['status'] === 'new' ? 'chip-success' : ($conv['status'] === 'resolved' || $conv['status'] === 'closed' ? 'chip-neutral' : 'chip-info') ?>"><?php $slabels = ['new'=>'Novo','open'=>'Aberto','waiting_customer'=>'Em atendimento','waiting_internal'=>'Aguard. Interno','resolved'=>'Resolvido','closed'=>'Fechado','spam'=>'Spam']; echo $slabels[$conv['status']] ?? $conv['status']; ?></span>
+                    <span class="chip <?= $conv['status'] === 'open' || $conv['status'] === 'new' ? 'chip-success' : ($conv['status'] === 'resolved' || $conv['status'] === 'closed' ? 'chip-neutral' : 'chip-info') ?>"><?php $slabels = ['new'=>'Novo','open'=>'Aberto','waiting_customer'=>'Aguardando cliente','waiting_internal'=>'Aguardando interno','resolved'=>'Resolvido','closed'=>'Fechado','spam'=>'Spam']; echo $slabels[$conv['status']] ?? $conv['status']; ?></span>
                 </div>
                 <div class="conv-footer">
                     <span class="conv-agent"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg> <?= e($conv['assigned_user_name'] ?? 'Não atribuído') ?></span>

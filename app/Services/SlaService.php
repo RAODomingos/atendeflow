@@ -61,6 +61,12 @@ class SlaService
         // Medição de compliance: limite da 1ª resposta e da resolução.
         'response_minutes' => '15',
         'resolution_minutes' => '1440',
+        // Limite do alerta de "cliente sem resposta" (bola com a gente em
+        // conversa já atendida). 0 = herda o limite de 1ª resposta.
+        'pending_response_minutes' => '0',
+        // Limite do SLA da MENÇÃO em grupo (da marcação até a 1ª resposta).
+        // 0 = herda o limite de 1ª resposta.
+        'group_mention_minutes' => '0',
         // Escalonamento na violação do SLA de 1ª resposta.
         'escalate_managers' => '1',
         'escalate_tag' => '1',
@@ -79,6 +85,7 @@ class SlaService
         'sla_color_normal_text', 'sla_color_attention_text', 'sla_color_alert_text',
         'sla_sound_attention', 'sla_sound_alert',
         'sla_response_minutes', 'sla_resolution_minutes', 'sla_business_hours',
+        'sla_pending_response_minutes', 'sla_group_mention_minutes',
         'sla_escalate_managers', 'sla_escalate_tag',
         'sla_escalate_autoassign', 'sla_escalate_whatsapp',
     ];
@@ -309,7 +316,7 @@ class SlaService
                 'created_at' => $row['created_at'] ?? null,
                 'last_inbound_at' => $row['sla_last_inbound_at'] ?? null,
                 'last_inbound_id' => $row['sla_last_inbound_id'] ?? null,
-                'last_public_id' => $row['sla_last_public_id'] ?? null,
+                'last_human_id' => $row['sla_last_human_id'] ?? null,
             ], $schedule, $scheduleTz, $nowTs, $appTz);
 
             $rows[$i]['waiting_seconds'] = $state['waiting_seconds'];
@@ -335,11 +342,19 @@ class SlaService
      *  - Status fora de ACTIVE_STATUSES (encerrada) => relógio zerado.
      *  - `waiting_internal` => relógio zerado (a bola está com outro
      *    setor/atendente).
-     *  - Atendente falou depois do cliente => relógio zerado (a bola
+     *  - ATENDENTE falou depois do cliente => relógio zerado (a bola
      *    está com o cliente).
      *  - Caso contrário, conta desde a última mensagem do cliente (ou
      *    desde a criação, se o cliente nunca escreveu) apenas o tempo
      *    dentro das janelas abertas do departamento.
+     *
+     * "Atendente falou" = resposta HUMANA (mensagem `outbound` com
+     * `user_id` preenchido). Mensagem de bot/fluxo, de automação ou de
+     * sistema NÃO conta: o SLA de 1ª resposta mede até a 1ª resposta
+     * humana (a mesma regra do motor de medição, SlaMeasurement).
+     * Sem essa distinção, uma conversa que chegou na fila por um fluxo
+     * de bot ficava com o relógio congelado desde a última fala do bot
+     * e nunca entrava no estado "SLA estourado".
      *
      * @param array|null $schedule Grade do departamento; null = sem
      *        grade => conta tempo de relógio puro.
@@ -360,9 +375,9 @@ class SlaService
         }
 
         $inboundId = (int) ($row['last_inbound_id'] ?? 0);
-        $publicId = (int) ($row['last_public_id'] ?? 0);
+        $humanId = (int) ($row['last_human_id'] ?? 0);
 
-        if ($inboundId > 0 && $publicId > $inboundId) {
+        if ($inboundId > 0 && $humanId > $inboundId) {
             // O atendente falou depois do cliente: a bola está com o cliente.
             return self::frozen(self::PAUSED_CUSTOMER);
         }

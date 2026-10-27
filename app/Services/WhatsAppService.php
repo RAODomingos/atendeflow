@@ -634,6 +634,14 @@ class WhatsAppService
             'participant_count' => $extra['participant_count'] ?? null,
         ]);
 
+        // Grupo arquivado: continua registrado (nome/JID/avatar), mas não
+        // espelha mensagem na caixa nem dispara alerta. O histórico já
+        // espelhado continua consultável.
+        if (!\App\Models\WhatsAppGroup::isMonitored($group)) {
+            $this->logWebhook('GROUP_ARCHIVED', ['group_id' => $group['id'] ?? null]);
+            return;
+        }
+
         $connDigits = preg_replace('/\D/', '', (string) ($connection['phone_number'] ?? ''));
         $senderDigits = \App\Models\WhatsAppLidMap::resolve((string) $message->from) ?? '';
         $isSelf = $connDigits !== '' && $senderDigits !== '' && self::samePhoneDigits($connDigits, $senderDigits);
@@ -692,6 +700,7 @@ class WhatsAppService
         // 1) Espelha na caixa selecionada (toda msg de grupo vira mensagem da
         // conversa do grupo — é assim que aparece no inbox).
         $conversation = null;
+        $groupMessageId = 0;
         try {
             $conversation = $this->ensureGroupConversation($connection, $group, $text);
         } catch (\Throwable $e) {
@@ -757,11 +766,16 @@ class WhatsAppService
                         // Só menção fica não-lida (contador/sino). Comum = lida.
                         'is_read' => ($isMention && !$isSelf) ? 0 : 1,
                         'read_at' => ($isMention && !$isSelf) ? null : date('Y-m-d H:i:s'),
+                        // Marca a menção na mensagem: base do SLA da menção
+                        // (da menção até a 1ª resposta) e do chip na caixa.
+                        'is_mention' => ($isMention && !$isSelf) ? 1 : 0,
                     ];
                     if ($groupReplyTo) {
                         $groupMsgData['reply_to'] = $groupReplyTo;
                     }
-                    Conversation::addMessage((int) $conversation['id'], $groupMsgData);
+                    $groupMessageId = Conversation::addMessage((int) $conversation['id'], $groupMsgData);
+                } else {
+                    $groupMessageId = (int) $dup['id'];
                 }
             } catch (\Throwable $e) {
                 $this->logWebhook('GROUP_MSG_ERROR', ['error' => $e->getMessage()]);
@@ -789,6 +803,9 @@ class WhatsAppService
             'mentioned_digits' => $connDigits,
             'conversation_id' => $conversation ? (int) $conversation['id'] : null,
             'mention_kind' => $mentionEveryone ? 'everyone' : 'direct',
+            // Ligação com a mensagem espelhada: o histórico de menções passa
+            // a ter "ver na conversa" (vai direto ao balão).
+            'message_id' => $groupMessageId ?: null,
         ];
         $mentionId = \App\Models\WhatsAppGroup::logMention((int) $group['id'], $mention);
         if (!$mentionId) {
@@ -888,19 +905,35 @@ class WhatsAppService
         $groupName = trim((string) ($group['name'] ?? '')) !== '' ? (string) $group['name'] : 'Grupo WhatsApp';
         $groupJid = (string) ($group['group_jid'] ?? '');
 
-        $targetInbox = !empty($group['inbox_id'])
-            ? (int) $group['inbox_id']
-            : \App\Models\Inbox::resolveInboxForChannel($channelId);
+        $explicitInbox = !empty($group['inbox_id']) ? (int) $group['inbox_id'] : 0;
+        // Caixa padrão do grupo: a caixa do canal (ou do departamento do
+        // canal). Antes usava Inbox::resolveInboxForChannel(), método que
+        // não existe — sem caixa escolhida na gestão, o grupo NÃO criava
+        // conversa nenhuma (erro engolido no webhook).
+        $targetInbox = $explicitInbox ?: (int) (\App\Models\Inbox::resolveProfileFor($channelId) ?: 0);
 
         // Contato sintético do grupo (phone = JID para não colidir com 1:1).
         $contact = $groupJid !== '' ? $db->fetch("SELECT * FROM contacts WHERE phone = ? LIMIT 1", [$groupJid]) : null;
         if (!$contact) {
-            $contactId = Contact::create(['name' => $groupName, 'phone' => $groupJid ?: null]);
+            $contactId = Contact::create([
+                'name' => $groupName,
+                'phone' => $groupJid ?: null,
+                // Grupo não é cliente: o marcador tira ele da lista de
+                // contatos e da busca por cliente.
+                'is_group' => 1,
+            ]);
             $contact = Contact::find($contactId);
-        } elseif (!empty($group['name']) && ($contact['name'] === null || $contact['name'] === '' || $contact['name'] !== $group['name'])) {
-            // Mantém o nome do contato sincronizado com o nome do grupo.
-            Contact::update((int) $contact['id'], ['name' => $groupName]);
-            $contact['name'] = $groupName;
+        } else {
+            if ((int) ($contact['is_group'] ?? 0) !== 1) {
+                // Contato criado antes do marcador: passa a ser grupo.
+                Contact::update((int) $contact['id'], ['is_group' => 1]);
+                $contact['is_group'] = 1;
+            }
+            if (!empty($group['name']) && ($contact['name'] === null || $contact['name'] === '' || $contact['name'] !== $group['name'])) {
+                // Mantém o nome do contato sincronizado com o nome do grupo.
+                Contact::update((int) $contact['id'], ['name' => $groupName]);
+                $contact['name'] = $groupName;
+            }
         }
         if (!$contact) {
             return null;
@@ -910,10 +943,25 @@ class WhatsAppService
             "SELECT * FROM conversations WHERE group_id = ? AND status NOT IN ('closed','resolved','spam') ORDER BY COALESCE(last_message_at, created_at) DESC LIMIT 1",
             [$groupId]
         );
+
+        // Janela de silêncio: se a conversa do grupo parou há mais que X horas,
+        // a mensagem nova abre OUTRA conversa (novo tópico) em vez de
+        // entulhar a conversa antiga. 0 = uma conversa só por grupo.
+        $topicWindow = (int) ($group['topic_window_hours'] ?? 0);
+        if ($conv && $topicWindow > 0) {
+            $lastAt = $conv['last_message_at'] ?: $conv['created_at'];
+            if ($lastAt && (time() - (int) strtotime((string) $lastAt)) > $topicWindow * 3600) {
+                $conv = null;
+            }
+        }
+
         if ($conv) {
             $upd = [];
-            if ($targetInbox && (int) ($conv['inbox_id'] ?? 0) !== $targetInbox) {
-                $upd['inbox_id'] = $targetInbox;
+            // Só a caixa ESCOLHIDA na gestão de grupos sobrescreve a
+            // conversa: sem caixa explícita, uma transferência manual da
+            // conversa não seria desfeita na mensagem seguinte.
+            if ($explicitInbox && (int) ($conv['inbox_id'] ?? 0) !== $explicitInbox) {
+                $upd['inbox_id'] = $explicitInbox;
             }
             if (!empty($group['name']) && ($conv['subject'] ?? '') !== $group['name']) {
                 $upd['subject'] = $group['name'];
@@ -937,10 +985,18 @@ class WhatsAppService
             'inbox_id' => $targetInbox,
             'group_id' => $groupId,
             'subject' => $groupName,
-            'status' => 'new',
+            // Conversa de grupo nasce "em aberto" e sem responsável: não é
+            // atendimento individual, o alerta é a menção no grupo.
+            'status' => 'open',
             'source' => 'whatsapp_group',
         ]);
-        Conversation::addEvent($conversationId, 'created', 'Conversa do grupo criada automaticamente (' . $groupName . ')');
+        Conversation::addEvent(
+            $conversationId,
+            'created',
+            $topicWindow > 0
+                ? 'Novo tópico no grupo ' . $groupName . ' (silêncio maior que ' . $topicWindow . 'h)'
+                : 'Conversa do grupo criada automaticamente (' . $groupName . ')'
+        );
         Contact::touchActivity((int) $contact['id']);
         return Conversation::find($conversationId);
     }
@@ -2061,7 +2117,7 @@ class WhatsAppService
             'contact_id' => $contactId,
             'channel_id' => $channelId,
             'department_id' => $departmentId,
-            'inbox_id' => \App\Models\Inbox::resolveInboxForChannel($channelId),
+            'inbox_id' => \App\Models\Inbox::resolveProfileFor((int) $channelId, $departmentId ? (int) $departmentId : null),
             'subject' => null,
             'status' => 'new',
             'source' => 'whatsapp',

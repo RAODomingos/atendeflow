@@ -31,7 +31,9 @@
             </div>
             <div class="fb-minimap" id="fbMinimap">
                 <div class="fb-minimap-title">Visão Geral</div>
-                <div class="fb-minimap-canvas" id="fbMinimapCanvas"></div>
+                <div class="fb-minimap-canvas" id="fbMinimapCanvas">
+                    <canvas id="fbMinimapView" title="Clique para navegar pelo fluxo"></canvas>
+                </div>
             </div>
         </div>
     </div>
@@ -101,10 +103,10 @@ const NODE_TYPES = {
     condition:          { label: 'Condição', icon: 'fa-code-branch', color: '#FD7E14', group: 'logic' },
     day_of_week:        { label: 'Dia da Semana', icon: 'fa-calendar-day', color: '#0891B2', group: 'logic' },
     time_range:         { label: 'Horário', icon: 'fa-clock', color: '#7C3AED', group: 'logic' },
-    delay:              { label: 'Aguardar', icon: 'fa-hourglass', color: '#6C757D', group: 'logic' },
+    delay:              { label: 'Aguardar', icon: 'fa-hourglass', color: '#5b6472', group: 'logic' },
     assign_department:  { label: 'Definir Depto', icon: 'fa-layer-group', color: '#E83E8C', group: 'action' },
     assign_user:        { label: 'Atribuir', icon: 'fa-user-check', color: '#20C997', group: 'action' },
-    add_tag:            { label: 'Etiqueta', icon: 'fa-tag', color: '#6C757D', group: 'action' },
+    add_tag:            { label: 'Etiqueta', icon: 'fa-tag', color: '#5b6472', group: 'action' },
     handoff:            { label: 'Encaminhar', icon: 'fa-forward', color: '#DC3545', group: 'action' },
     notify:             { label: 'Notificar', icon: 'fa-bell', color: '#E83E8C', group: 'action' },
     end:                { label: 'Encerrar', icon: 'fa-stop-circle', color: '#343A40', group: 'flow' },
@@ -132,6 +134,8 @@ let editNodeId = null;
 let nextZIndex = 1;
 const CANVAS_W = 6000;
 const CANVAS_H = 4000;
+/* Altura medida de cada nó (px de mundo) — usada pelo minimapa */
+const nodeHeights = {};
 
 <?php if ($flow && !empty($flow['nodes'])): ?>
 <?php
@@ -196,6 +200,7 @@ function init() {
     setupCanvasDrag();
     setupPaletteDrag();
     setupKeyboard();
+    setupMinimap();
 }
 
 function genId() { return 'n' + (++nodeIdCounter); }
@@ -446,6 +451,9 @@ function renderAll() {
         el.addEventListener('dblclick', () => editNode(node.id));
 
         canvas.appendChild(el);
+        // Altura real do nó (após anexar) para desenhar o minimapa com
+        // proporção fiel. Medida única por nó, não por conexão.
+        nodeHeights[node.id] = el.offsetHeight || 140;
     });
 
     // Render connections using actual DOM positions
@@ -581,6 +589,177 @@ function updateTransform() {
     canvas.style.transform = 'translate(' + panX + 'px, ' + panY + 'px) scale(' + zoom + ')';
     svg.setAttribute('width', CANVAS_W);
     svg.setAttribute('height', CANVAS_H);
+    scheduleMinimap();
+}
+
+/* -------- Minimap (Visão Geral) -------- */
+/* O minimapa antes existia só como moldura: o #fbMinimapCanvas ficava
+   permanentemente branco. Aqui ele é desenhado de verdade — nós,
+   conexões e o retângulo da área visível — e serve para navegar. */
+const MINIMAP_NODE_W = 300;   /* largura fixa do .fb-node */
+let minimapRaf = 0;
+let minimapView = null;      /* { scale, ox, oy, bounds } p/ converter px -> mundo */
+
+function scheduleMinimap() {
+    if (minimapRaf) return;
+    minimapRaf = requestAnimationFrame(() => {
+        minimapRaf = 0;
+        renderMinimap();
+    });
+}
+
+function minimapBounds() {
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    nodes.forEach(n => {
+        const h = nodeHeights[n.id] || 140;
+        minX = Math.min(minX, n.x);
+        minY = Math.min(minY, n.y);
+        maxX = Math.max(maxX, n.x + MINIMAP_NODE_W);
+        maxY = Math.max(maxY, n.y + h);
+    });
+    if (!isFinite(minX)) return { x: 0, y: 0, w: CANVAS_W, h: CANVAS_H };
+    const pad = 140;
+    minX = Math.max(0, minX - pad);
+    minY = Math.max(0, minY - pad);
+    maxX = Math.min(CANVAS_W, maxX + pad);
+    maxY = Math.min(CANVAS_H, maxY + pad);
+    /* Extensão mínima: com poucos nós o mapa não fica "esticado" */
+    const MIN_W = 900, MIN_H = 600;
+    if (maxX - minX < MIN_W) {
+        const cx = (minX + maxX) / 2;
+        minX = Math.max(0, Math.min(cx - MIN_W / 2, CANVAS_W - MIN_W));
+        maxX = minX + MIN_W;
+    }
+    if (maxY - minY < MIN_H) {
+        const cy = (minY + maxY) / 2;
+        minY = Math.max(0, Math.min(cy - MIN_H / 2, CANVAS_H - MIN_H));
+        maxY = minY + MIN_H;
+    }
+    return { x: minX, y: minY, w: maxX - minX, h: maxY - minY };
+}
+
+function renderMinimap() {
+    const host = document.getElementById('fbMinimapCanvas');
+    if (!host) return;
+    const cv = host.querySelector('canvas');
+    if (!cv) return;
+
+    const b = minimapBounds();
+    /* A moldura acompanha a proporção do fluxo: um fluxo alto fica com
+       moldura estreita (sem faixa vazia), um fluxo largo com moldura
+       horizontal. Limitada para não cobrir o canvas. */
+    const frame = document.getElementById('fbMinimap');
+    if (frame) {
+        const narrow = window.innerWidth < 700;
+        const H = narrow ? 118 : 150;
+        const maxW = narrow ? 150 : 260;
+        const W = Math.round(Math.max(120, Math.min(maxW, H * (b.w / b.h))));
+        frame.style.width = W + 'px';
+        frame.style.height = H + 'px';
+    }
+
+    const w = host.clientWidth, h = host.clientHeight;
+    if (w < 4 || h < 4) return;
+    const dpr = window.devicePixelRatio || 1;
+    const pw = Math.round(w * dpr), ph = Math.round(h * dpr);
+    if (cv.width !== pw || cv.height !== ph) { cv.width = pw; cv.height = ph; }
+    const ctx = cv.getContext('2d');
+    if (!ctx) return;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, w, h);
+
+    const scale = Math.min(w / b.w, h / b.h);
+    const ox = (w - b.w * scale) / 2 - b.x * scale;
+    const oy = (h - b.h * scale) / 2 - b.y * scale;
+    minimapView = { scale, ox, oy, bounds: b };
+
+    /* Conexões */
+    ctx.strokeStyle = 'rgba(0,120,212,.5)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    connections.forEach(conn => {
+        const s = nodes.find(n => n.id === conn.source);
+        const t = nodes.find(n => n.id === conn.target);
+        if (!s || !t) return;
+        ctx.moveTo(ox + (s.x + MINIMAP_NODE_W / 2) * scale, oy + (s.y + (nodeHeights[s.id] || 140) / 2) * scale);
+        ctx.lineTo(ox + (t.x + MINIMAP_NODE_W / 2) * scale, oy + (t.y + (nodeHeights[t.id] || 140) / 2) * scale);
+    });
+    ctx.stroke();
+
+    /* Nós */
+    nodes.forEach(n => {
+        const nt = NODE_TYPES[n.type] || { color: '#666' };
+        const nh = nodeHeights[n.id] || 140;
+        ctx.fillStyle = nt.color;
+        ctx.globalAlpha = (selectedNode === n.id) ? 1 : 0.85;
+        ctx.fillRect(
+            ox + n.x * scale,
+            oy + n.y * scale,
+            Math.max(3, MINIMAP_NODE_W * scale),
+            Math.max(2, nh * scale)
+        );
+    });
+    ctx.globalAlpha = 1;
+
+    /* Retângulo da área visível no canvas */
+    const wrap = document.getElementById('fbCanvas').parentElement;
+    if (!wrap) return;
+    const wx0 = -panX / zoom, wy0 = -panY / zoom;
+    const wx1 = wx0 + wrap.clientWidth / zoom, wy1 = wy0 + wrap.clientHeight / zoom;
+    const vx = ox + wx0 * scale, vy = oy + wy0 * scale;
+    const vw = (wx1 - wx0) * scale, vh = (wy1 - wy0) * scale;
+    const rx0 = Math.max(0, Math.min(w, vx));
+    const ry0 = Math.max(0, Math.min(h, vy));
+    const rx1 = Math.max(0, Math.min(w, vx + vw));
+    const ry1 = Math.max(0, Math.min(h, vy + vh));
+    if (rx1 > rx0 && ry1 > ry0) {
+        ctx.fillStyle = 'rgba(0,120,212,.12)';
+        ctx.fillRect(rx0, ry0, rx1 - rx0, ry1 - ry0);
+        ctx.strokeStyle = 'rgba(0,120,212,.9)';
+        ctx.lineWidth = 1;
+        ctx.strokeRect(rx0 + .5, ry0 + .5, Math.max(1, rx1 - rx0 - 1), Math.max(1, ry1 - ry0 - 1));
+    } else {
+        /* Visão totalmente fora do conteúdo: marca um ponto na borda. */
+        const px = Math.max(0, Math.min(w, vx + vw / 2));
+        const py = Math.max(0, Math.min(h, vy + vh / 2));
+        ctx.fillStyle = 'rgba(0,120,212,.9)';
+        ctx.beginPath();
+        ctx.arc(px, py, 3, 0, Math.PI * 2);
+        ctx.fill();
+    }
+}
+
+function minimapNavigate(cv, ev) {
+    if (!minimapView) return;
+    const rect = cv.getBoundingClientRect();
+    const px = ev.clientX - rect.left;
+    const py = ev.clientY - rect.top;
+    const wx = (px - minimapView.ox) / minimapView.scale;
+    const wy = (py - minimapView.oy) / minimapView.scale;
+    const wrap = document.getElementById('fbCanvas').parentElement;
+    if (!wrap) return;
+    panX = wrap.clientWidth / 2 - wx * zoom;
+    panY = wrap.clientHeight / 2 - wy * zoom;
+    clampPan();
+    updateTransform();
+}
+
+function setupMinimap() {
+    const host = document.getElementById('fbMinimapCanvas');
+    if (!host) return;
+    const cv = host.querySelector('canvas');
+    if (!cv) return;
+    let dragging = false;
+    cv.addEventListener('mousedown', e => {
+        e.preventDefault();
+        dragging = true;
+        minimapNavigate(cv, e);
+    });
+    document.addEventListener('mousemove', e => {
+        if (dragging) minimapNavigate(cv, e);
+    });
+    document.addEventListener('mouseup', () => { dragging = false; });
+    window.addEventListener('resize', scheduleMinimap);
 }
 
 /* -------- CRUD -------- */

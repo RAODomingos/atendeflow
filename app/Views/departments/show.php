@@ -17,6 +17,7 @@ $totalConvsAll = array_sum(array_filter($statusCounts, fn($_, $k) => $k !== '_to
 $members = is_array($users) ? count($users) : 0;
 $managers = is_array($users) ? count(array_filter($users, fn($u) => !empty($u['is_manager']))) : 0;
 $filterBase = url('departments/' . (int) $department['id']);
+$alertPhones = is_array($alertPhones ?? null) ? $alertPhones : [];
 ?>
 <div class="department-detail">
     <div class="page-toolbar">
@@ -94,11 +95,11 @@ $filterBase = url('departments/' . (int) $department['id']);
                 Horário de Funcionamento
             </span>
             <?php if ($bhIsOpen): ?>
-                <span class="badge" style="background:var(--success-soft);color:var(--success);font-size:11px;padding:4px 10px;border-radius:20px">
+                <span class="badge" style="background:var(--success-soft);color:var(--success-text);font-size:11px;padding:4px 10px;border-radius:20px">
                     <i class="fas fa-circle" style="font-size:8px"></i> Aberto agora
                 </span>
             <?php else: ?>
-                <span class="badge" style="background:var(--danger-soft);color:var(--danger);font-size:11px;padding:4px 10px;border-radius:20px">
+                <span class="badge" style="background:var(--danger-soft);color:var(--danger-text);font-size:11px;padding:4px 10px;border-radius:20px">
                     <i class="fas fa-circle" style="font-size:8px"></i> Fechado agora
                 </span>
             <?php endif; ?>
@@ -146,7 +147,7 @@ $filterBase = url('departments/' . (int) $department['id']);
                             $isToday = $d === $today;
                         ?>
                             <tr style="<?= $isToday ? 'background:var(--primary-light);font-weight:600' : '' ?>">
-                                <td style="padding-left:0"><?= $name ?> <?= $isToday ? '<span style="font-size:10px;color:var(--primary)">(Hoje)</span>' : '' ?></td>
+                                <td style="padding-left:0"><?= $name ?> <?= $isToday ? '<span style="font-size:11px;color:var(--brand-text)">(Hoje)</span>' : '' ?></td>
                                 <td style="text-align:center">
                                     <input type="checkbox" name="bh[<?= $d ?>][is_open]" value="1" <?= $open ? 'checked' : '' ?> style="width:16px;height:16px;accent-color:var(--primary)">
                                 </td>
@@ -160,6 +161,48 @@ $filterBase = url('departments/' . (int) $department['id']);
             <div style="margin-top:12px;display:flex;justify-content:flex-end">
                 <button type="submit" class="btn btn-primary"><i class="fas fa-save"></i> Salvar Horário</button>
             </div>
+        </form>
+    </div>
+
+    <div class="dept-info-card" style="margin-bottom:20px">
+        <div class="dept-info-header" style="flex-wrap:wrap;gap:12px">
+            <span>
+                <i class="fas fa-bell" style="color:var(--brand)"></i>
+                Telefones de Alerta do SLA
+            </span>
+            <?php if ($alertPhones): ?>
+                <span class="badge" style="background:var(--success-soft);color:var(--success-text);font-size:11px;padding:4px 10px;border-radius:20px">
+                    <i class="fas fa-circle" style="font-size:8px"></i>
+                    <?= count($alertPhones) ?> telefone<?= count($alertPhones) !== 1 ? 's' : '' ?>
+                </span>
+            <?php else: ?>
+                <span class="badge" style="background:var(--warning-soft);color:var(--warning-text);font-size:11px;padding:4px 10px;border-radius:20px">
+                    <i class="fas fa-circle" style="font-size:8px"></i>
+                    Nenhum telefone
+                </span>
+            <?php endif; ?>
+        </div>
+        <form action="<?= url('departments/') ?><?= (int) $department['id'] ?>/sla-alerts" method="POST">
+            <?= csrf_field() ?>
+            <div class="form-group">
+                <label>Quem recebe o aviso por WhatsApp</label>
+                <textarea name="sla_escalation_phone" class="form-control" rows="3"
+                          placeholder="+55 11 99999-9999"><?= e(implode("\n", $alertPhones)) ?></textarea>
+                <small class="text-muted" style="display:block;margin-top:4px;font-size:12px">
+                    Um número por linha (vírgula também separa). Use DDI + DDD + número.
+                    Sem telefone aqui o aviso por WhatsApp não é enviado — a notificação in-app
+                    para os gestores do departamento continua funcionando.
+                </small>
+            </div>
+            <div style="margin-top:12px;display:flex;justify-content:flex-end;align-items:center;gap:10px;flex-wrap:wrap">
+                <a href="<?= url('settings/notifications') ?>" class="btn btn-sm btn-outline">
+                    <i class="fas fa-sliders"></i> Configurar alertas
+                </a>
+                <button type="submit" class="btn btn-primary"><i class="fas fa-save"></i> Salvar Telefones</button>
+            </div>
+            <small class="text-muted" style="display:block;margin-top:8px;font-size:12px">
+                O envio por WhatsApp precisa estar ligado em Configurações → Notificações.
+            </small>
         </form>
     </div>
 
@@ -298,7 +341,7 @@ $filterBase = url('departments/' . (int) $department['id']);
                                 <div class="timeline-content">
                                     <div class="timeline-top">
                                         <div class="timeline-channel">
-                                            <i class="<?= channel_icon($conv['channel_type'] ?? 'webchat') ?>" style="color:<?= ['whatsapp'=>'#25D366','webchat'=>'var(--brand)','email'=>'#f59e0b','telegram'=>'#0088cc','facebook'=>'#1877f2','instagram'=>'#e1306c','phone'=>'#6c757d'][$conv['channel_type'] ?? ''] ?? 'var(--text-muted)' ?>"></i>
+                                            <i class="<?= channel_icon($conv['channel_type'] ?? 'webchat') ?>" style="color:<?= ['whatsapp'=>'#25D366','webchat'=>'var(--brand)','email'=>'#f59e0b','telegram'=>'#0088cc','facebook'=>'#1877f2','instagram'=>'#e1306c','phone'=>'#5b6472'][$conv['channel_type'] ?? ''] ?? 'var(--text-muted)' ?>"></i>
                                             <?= e($conv['channel_name'] ?? '') ?>
                                             <span class="timeline-contact">
                                                 <i class="fas fa-user"></i> <?= e($conv['contact_name'] ?? '-') ?>

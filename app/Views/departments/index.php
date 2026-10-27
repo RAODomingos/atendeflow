@@ -131,6 +131,14 @@ $stats = $stats ?? ['total' => 0, 'users' => 0, 'open' => 0, 'closed' => 0];
                         <input type="text" name="color_hex" id="deptColorHex" value="#4A90D9" class="form-control" style="flex:1;font-family:monospace;font-size:12px" maxlength="7" placeholder="#4A90D9">
                     </div>
                 </div>
+                <div class="form-group">
+                    <label>Telefones de alerta do SLA <span class="text-muted" style="font-weight:400">(opcional)</span></label>
+                    <textarea name="sla_escalation_phone" class="form-control" rows="2" placeholder="+55 11 99999-9999"></textarea>
+                    <small class="text-muted" style="display:block;margin-top:4px;font-size:12px">
+                        Um número por linha. Recebem o aviso de WhatsApp quando o SLA é violado —
+                        também dá para editar depois, no detalhe do departamento.
+                    </small>
+                </div>
             </div>
             <div class="modal-footer" style="justify-content:flex-end;display:flex;gap:8px;padding:14px 18px;border-top:1px solid var(--border-soft)">
                 <button type="button" class="btn btn-outline" onclick="closeCreateDeptModal()">Cancelar</button>
