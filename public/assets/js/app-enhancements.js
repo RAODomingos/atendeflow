@@ -1171,7 +1171,7 @@
     _filterQuery() {
       var parts = [];
       var self = this;
-      ['fstatus', 'inbox', 'search', 'channel_id', 'priority', 'assignee', 'unread', 'mine', 'unassigned'].forEach(function (k) {
+      ['fstatus', 'inbox', 'search', 'channel_id', 'priority', 'assignee', 'unread', 'unassigned'].forEach(function (k) {
         var v = self._filterValue(k);
         if (v) parts.push(k + '=' + encodeURIComponent(v));
       });
@@ -1195,9 +1195,6 @@
       if (pr && String(c.priority || 'normal') !== pr) return false;
 
       var me = window.__currentUserId || this._userId || '';
-
-      // "Minha Caixa": o recorte é o que está alocado a mim.
-      if (this._filterValue('mine') && String(c.assigned_user_id || '') !== String(me)) return false;
 
       // "Não Atribuídas": só conversa sem responsável.
       if (this._filterValue('unassigned') && c.assigned_user_id) return false;

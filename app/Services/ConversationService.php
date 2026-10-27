@@ -588,9 +588,6 @@ class ConversationService
         $filters = [];
 
         switch ($view) {
-            case 'mine':
-                $userId = Auth::id();
-                break;
             case 'department':
                 $departmentId = $departmentId ?: (Auth::user()['department_id'] ?? null);
                 break;

@@ -183,7 +183,7 @@ CREATE TABLE webchat_widgets (
 CREATE TABLE inboxes (
     id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
     name VARCHAR(150) NOT NULL,
-    type ENUM('general', 'department', 'personal') NOT NULL DEFAULT 'department',
+    type ENUM('general', 'department') NOT NULL DEFAULT 'department',
     is_active TINYINT(1) NOT NULL DEFAULT 1,
     sla_response_minutes INT NULL DEFAULT NULL,
     sla_resolution_minutes INT NULL DEFAULT NULL,

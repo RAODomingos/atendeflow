@@ -21,8 +21,7 @@ class InboxController
 {
     /**
      * Checagem central de acesso a conversa: admin vê tudo; demais precisam
-     * ser responsável, membro do departamento ou dono de caixa pessoal que
-     * contenha a conversa.
+     * ser responsável ou membro do departamento.
      */
     private function canUserSeeConversation(int $conversationId, int $userId): bool
     {
@@ -79,21 +78,13 @@ class InboxController
             $filters['unread'] = true;
         }
 
-        // Escopos da URL: "minhas conversas" e "sem responsável" são
-        // recortes do mesmo escopo, e precisam viajar na URL porque o
-        // live-feed refaz a consulta periodicamente — se ficarem só no
-        // servidor, o poll reescreve a lista sem eles.
-        //
-        // "Minha Caixa" é o filtro por responsável: quando o escopo mine está
-        // ligado, ele é o dono do recorte — um "responsável" diferente na
-        // URL viria de link antigo e zeraria a lista.
-        if ($request->input('mine')) {
-            $filters['mine'] = true;
-        } else {
-            $assignee = trim((string) $request->input('assignee', ''));
-            if ($assignee !== '') {
-                $filters['assignee'] = $assignee;
-            }
+        // Escopos da URL: "sem responsável" é um recorte do mesmo escopo, e
+        // precisa viajar na URL porque o live-feed refaz a consulta
+        // periodicamente — se ficar só no servidor, o poll reescreve a
+        // lista sem ele.
+        $assignee = trim((string) $request->input('assignee', ''));
+        if ($assignee !== '') {
+            $filters['assignee'] = $assignee;
         }
 
         if ($request->input('unassigned')) {
@@ -203,12 +194,9 @@ class InboxController
             $view['tabCounts'] = Conversation::countsByTabForSets($scopeSets, Auth::id(), $filters);
         }
 
-        // Os escopos "minhas" e "sem responsável" são recortes da caixa
-        // unificada: mudam o rótulo e o item do menu, não a lista.
-        if (!empty($filters['mine'])) {
-            $view['title'] = 'Minha Caixa';
-            $view['activePage'] = 'inbox_mine';
-        } elseif (!empty($filters['unassigned'])) {
+        // O escopo "sem responsável" é recorte da caixa unificada: muda o
+        // rótulo e o item do menu, não a lista.
+        if (!empty($filters['unassigned'])) {
             $view['title'] = 'Não Atribuídas';
             $view['activeTab'] = 'unassigned';
         }
@@ -295,43 +283,6 @@ class InboxController
     }
 
     /**
-     * "Minha Caixa": as conversas atribuídas a mim.
-     *
-     * Não depende de caixa pessoal criada: é o filtro por responsável sobre
-     * o mesmo escopo da caixa de entrada. O recorte é autoritativo — a
-     * página é sempre "o que está alocado a mim", e o filtro de responsável
-     * da barra fica travado em "Atribuídas a mim".
-     */
-    public function mine(Request $request): void
-    {
-        $filters = self::filtersFromRequest($request, 'active');
-        $filters['mine'] = true;
-        unset($filters['assignee']);
-
-        $scopeSets = Conversation::scopeSetsForUser(Auth::id());
-        $conversations = Conversation::getConversationsForSets($scopeSets, Auth::id(), $filters);
-
-        View::renderWithLayout('inbox/index', 'main', [
-            'title' => 'Minha Caixa',
-            'activePage' => 'inbox_mine',
-            'conversations' => $conversations,
-            'tabCounts' => Conversation::countsByTabForSets($scopeSets, Auth::id(), $filters),
-            'counts' => Conversation::countByStatus(Auth::id()),
-            'unread' => Conversation::getUnreadCount(Auth::id()),
-            'departments' => Department::all(),
-            'contacts' => Contact::all(['limit' => 200]),
-            'inboxes' => Inbox::getUserInboxes(Auth::id()),
-            'activeTab' => 'mine',
-            'filters' => $filters,
-            'fstatus' => (string) ($request->input('fstatus', 'active')),
-            'search' => trim((string) $request->input('search', '')),
-            'channels' => \App\Models\Channel::getWhatsapp(),
-            'filterChannels' => \App\Models\Channel::listForFilter(),
-            'filterUsers' => \App\Models\User::listForFilter(),
-        ]);
-    }
-
-    /**
      * Conversas sem responsável dentro do meu escopo.
      *
      * Usa o mesmo caminho da caixa de entrada (filtro "sem responsável")
@@ -373,23 +324,6 @@ class InboxController
     public function chatbot(Request $request): void
     {
         View::redirect('/inbox');
-    }
-
-    public function createPersonal(Request $request): void
-    {
-        $name = trim((string) $request->post('name'));
-        if (!$name) {
-            $name = 'Caixa de ' . (Auth::user()['name'] ?? 'usuario');
-        }
-        $id = Inbox::create([
-            'name' => $name,
-            'type' => 'personal',
-            'is_active' => 1,
-        ]);
-        Inbox::setUsers($id, [Auth::id()]);
-
-        Session::setFlash('success', 'Caixa pessoal criada com sucesso.');
-        View::redirect('/inbox?inbox=' . $id);
     }
 
     public function show(Request $request, int $id): void

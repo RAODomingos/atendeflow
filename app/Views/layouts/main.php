@@ -119,12 +119,10 @@ try {
         <div class="nav-section">
             <div class="nav-label">Atendimento</div>
             <?php
-            $catInboxes = [];
-            foreach (\App\Models\Inbox::getUserInboxes(\App\Core\Auth::id()) as $ib) {
-                if ($ib['type'] !== 'personal') $catInboxes[] = $ib;
-            }
-            $personalInboxes = \App\Models\Inbox::getOwnedPersonalInboxes(\App\Core\Auth::id());
-            $allInboxIds = array_merge(array_column($catInboxes, 'id'), array_column($personalInboxes, 'id'));
+            // O menu da caixa de entrada tem só as caixas por categoria:
+            // cada uma é uma visão salva do mesmo escopo.
+            $catInboxes = \App\Models\Inbox::getUserInboxes(\App\Core\Auth::id());
+            $allInboxIds = array_column($catInboxes, 'id');
             $openByInbox = \App\Models\Conversation::openCountsByInbox($allInboxIds);
             // O total da Caixa de Entrada NÃO é a soma dos badges das caixas:
             // as caixas se sobrepõem (a mesma conversa pode estar em duas),
@@ -133,7 +131,6 @@ try {
             $totalOpen = \App\Models\Conversation::openCountForSets(
                 \App\Models\Conversation::scopeSetsForUser(\App\Core\Auth::id())
             );
-            $mineOpen = \App\Models\Conversation::openCountForMine(\App\Core\Auth::id());
             // Caixa de Entrada (todas) só fica ativa quando nenhuma caixa
             // específica está selecionada; senão só a caixa visível destaca.
             $selectedInbox = (string) ($_GET['inbox'] ?? '');
@@ -146,19 +143,6 @@ try {
             <?php foreach ($catInboxes as $ib): ?>
                 <a href="<?= url('inbox?inbox=' . $ib['id']) ?>" class="nav-item nav-sub <?= ($activePage === 'inbox' && $selectedInbox === (string) $ib['id']) ? 'active' : '' ?>" data-inbox-link="<?= (int) $ib['id'] ?>">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 12h-6l-2 3h-4l-2-3H2"/><path d="M5.45 5.11L2 12v6a2 2 0 002 2h16a2 2 0 002-2v-6l-3.45-6.89A2 2 0 0016.76 4H7.24a2 2 0 00-1.79 1.11z"/></svg>
-                    <span><?= e($ib['name']) ?></span>
-                    <?php if (($openByInbox[$ib['id']] ?? 0) > 0): ?><span class="nav-badge" data-inbox-badge="<?= (int) $ib['id'] ?>"><?= $openByInbox[$ib['id']] ?></span><?php endif; ?>
-                </a>
-            <?php endforeach; ?>
-            <a href="<?= route('inbox.mine') ?>?mine=1" class="nav-item <?= $activePage === 'inbox_mine' ? 'active' : '' ?>">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M4 21v-1a7 7 0 0114 0v1"/></svg>
-                Minha Caixa
-                <?php if ($mineOpen > 0): ?><span class="nav-badge" data-mine-badge="1"><?= $mineOpen ?></span><?php endif; ?>
-            </a>
-
-            <?php foreach ($personalInboxes as $ib): ?>
-                <a href="<?= url('inbox?inbox=' . $ib['id']) ?>" class="nav-item nav-sub <?= ($activePage === 'inbox' && $selectedInbox === (string) $ib['id']) ? 'active' : '' ?>" data-inbox-link="<?= (int) $ib['id'] ?>">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0110 0v4"/></svg>
                     <span><?= e($ib['name']) ?></span>
                     <?php if (($openByInbox[$ib['id']] ?? 0) > 0): ?><span class="nav-badge" data-inbox-badge="<?= (int) $ib['id'] ?>"><?= $openByInbox[$ib['id']] ?></span><?php endif; ?>
                 </a>

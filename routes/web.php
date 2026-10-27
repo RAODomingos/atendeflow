@@ -57,7 +57,6 @@ $router->group('', function (Router $router) {
 
     // Inbox
     $router->get('/inbox', [InboxController::class, 'index']);
-    $router->get('/inbox/mine', [InboxController::class, 'mine']);
     $router->get('/inbox/unassigned', [InboxController::class, 'unassigned']);
     $router->get('/inbox/chatbot', [InboxController::class, 'chatbot']); // redireciona para /inbox
     $router->get('/inbox/new', [InboxController::class, 'newConversation']);
@@ -174,9 +173,6 @@ $router->group('', function (Router $router) {
     $router->get('/inboxes/{id}/edit', [SettingsController::class, 'inboxForm'], ['admin']);
     $router->post('/inboxes/{id}', [SettingsController::class, 'updateInbox'], ['admin']);
     $router->post('/inboxes/{id}/delete', [SettingsController::class, 'deleteInbox'], ['admin']);
-
-    // Personal inbox (any user)
-    $router->post('/inbox/personal', [InboxController::class, 'createPersonal']);
 
     // Macros (criação é gerente+)
     $router->get('/macros', [InboxController::class, 'macros']);

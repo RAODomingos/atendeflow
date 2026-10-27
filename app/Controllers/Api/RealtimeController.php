@@ -315,8 +315,8 @@ class RealtimeController
     }
 
     /**
-     * Verifica se o usuário tem acesso à conversa (departamento, atribuição,
-     * caixa pessoal ou papel admin). Mesmo critério de
+     * Verifica se o usuário tem acesso à conversa (departamento, atribuição
+     * ou papel admin). Mesmo critério de
      * Conversation::userCanSee(). Com cache por usuário para evitar
      * 2-3 queries por mensagem em rajadas.
      */

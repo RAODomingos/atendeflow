@@ -385,43 +385,26 @@ class SettingsController
     public function createInbox(Request $request): void
     {
         $name = trim((string) $request->post('name'));
-        $type = $request->post('type') ?: 'department';
 
         if (empty($name)) {
             Session::setFlash('error', 'Informe o nome da caixa.');
             View::redirect('/inboxes/create');
         }
 
-        if (!in_array($type, ['department', 'personal'])) {
-            $type = 'department';
-        }
-
         $data = [
             'name' => $name,
-            'type' => $type,
+            'type' => 'department',
             'is_active' => 1,
         ];
         // Natureza das conversas (grupo do WhatsApp x mensagem geral).
         if (Inbox::hasScopeColumn()) {
-            $data['conversation_scope'] = $type === 'personal'
-                ? 'all'
-                : self::inboxScope($request, 'all');
+            $data['conversation_scope'] = self::inboxScope($request, 'all');
         }
         $data = array_merge($data, $this->collectInboxSla($request));
         $inboxId = Inbox::create($data);
         \App\Services\SlaService::forgetConfig();
 
         $this->syncInboxLinks($inboxId, $request);
-
-        if ($type === 'personal') {
-            // O criador é sempre dono da caixa pessoal.
-            $selected = $request->post('users');
-            $owners = array_merge(
-                [(int) Auth::id()],
-                is_array($selected) ? array_map('intval', $selected) : []
-            );
-            Inbox::setUsers($inboxId, array_values(array_unique($owners)));
-        }
 
         Session::setFlash('success', 'Caixa criada com sucesso.');
         View::redirect('/inboxes');
@@ -441,20 +424,13 @@ class SettingsController
             View::redirect('/inboxes/' . $id . '/edit');
         }
 
-        $type = $request->post('type') ?: $inbox['type'];
-        if (!in_array($type, ['department', 'personal'])) {
-            $type = $inbox['type'];
-        }
-
         $data = [
             'name' => $name,
-            'type' => $type,
+            'type' => 'department',
         ];
         // Natureza das conversas (grupo do WhatsApp x mensagem geral).
         if (Inbox::hasScopeColumn()) {
-            $data['conversation_scope'] = $type === 'personal'
-                ? 'all'
-                : self::inboxScope($request, (string) ($inbox['conversation_scope'] ?? 'all'));
+            $data['conversation_scope'] = self::inboxScope($request, (string) ($inbox['conversation_scope'] ?? 'all'));
         }
         $data = array_merge($data, $this->collectInboxSla($request));
         Inbox::update($id, $data);
@@ -506,15 +482,6 @@ class SettingsController
         $users = $request->post('users') ?: [];
         if (!is_array($users)) {
             $users = [];
-        }
-
-        $inbox = Inbox::find($inboxId);
-        $type = (string) ($inbox['type'] ?? 'department');
-
-        if ($type === 'personal') {
-            // Caixa pessoal: a pertinência é por dono (a conversa atribuída)
-            // e por canal. Setor não entra — quem responde é o responsável.
-            $departments = [];
         }
 
         Inbox::setDepartments($inboxId, array_map('intval', $departments));

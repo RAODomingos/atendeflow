@@ -190,9 +190,11 @@ try {
         } catch (PDOException $e) {
             // Re-run seguro: objeto já existe / já removido / seed já inserido.
             // 1050 tabela existe, 1060 coluna existe, 1061 índice existe,
-            // 1062 seed duplicado, 1091 não existe p/ drop, 1826 FK duplicada.
+            // 1062 seed duplicado, 1091 não existe p/ drop, 1826 FK duplicada,
+            // 1146 tabela opcional não existe (ex.: whatsapp_groups em base
+            // instalada antes dos grupos).
             $code = (int) ($e->errorInfo[1] ?? $e->getCode());
-            if (in_array($code, [1050, 1060, 1061, 1062, 1091, 1826], true)) return;
+            if (in_array($code, [1050, 1060, 1061, 1062, 1091, 1826, 1146], true)) return;
             throw $e;
         }
     };

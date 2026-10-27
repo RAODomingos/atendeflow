@@ -66,7 +66,6 @@ function route(string $name): string
         'logout' => '/logout',
         'dashboard' => '/',
         'inbox' => '/inbox',
-        'inbox.mine' => '/inbox/mine',
         'inbox.unassigned' => '/inbox/unassigned',
         'inbox.new' => '/inbox/new',
         'contacts' => '/contacts',

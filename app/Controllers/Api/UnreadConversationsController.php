@@ -37,24 +37,9 @@ class UnreadConversationsController
         $inboxConditions = [];
         $params = [$userId];
         foreach ($inboxIds as $iid) {
-            $inbox = Inbox::find($iid);
-            if ($inbox && $inbox['type'] === 'personal') {
-                $owners = Inbox::getUsers($iid);
-                $ownerIds = array_column($owners, 'id');
-                if ($ownerIds) {
-                    $phs = rtrim(str_repeat('?,', count($ownerIds)), ',');
-                    $inboxConditions[] = "(c.assigned_user_id IN ({$phs}) OR c.channel_id IN (SELECT channel_id FROM inbox_channels WHERE inbox_id = ?))";
-                    foreach ($ownerIds as $oid) { $params[] = $oid; }
-                    $params[] = $iid;
-                } else {
-                    $inboxConditions[] = "c.channel_id IN (SELECT channel_id FROM inbox_channels WHERE inbox_id = ?)";
-                    $params[] = $iid;
-                }
-            } else {
-                $inboxConditions[] = "(c.inbox_id = ? OR (c.inbox_id IS NULL AND c.channel_id IN (SELECT channel_id FROM inbox_channels WHERE inbox_id = ?)))";
-                $params[] = $iid;
-                $params[] = $iid;
-            }
+            $inboxConditions[] = "(c.inbox_id = ? OR (c.inbox_id IS NULL AND c.channel_id IN (SELECT channel_id FROM inbox_channels WHERE inbox_id = ?)))";
+            $params[] = $iid;
+            $params[] = $iid;
         }
 
         $inboxWhere = '(' . implode(' OR ', $inboxConditions) . ')';

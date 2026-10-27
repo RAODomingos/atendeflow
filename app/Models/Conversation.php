@@ -137,9 +137,8 @@ class Conversation
     }
 
     /**
-     * Conversas de uma caixa específica, respeitando o tipo da caixa:
-     * - department: conversas do departamento coberto OU do canal vinculado
-     * - personal: conversas atribuídas aos donos OU do canal vinculado
+     * Conversas de uma caixa específica: setor coberto, canal vinculado ou
+     * grupo de WhatsApp ligado à caixa.
      */
     public static function getConversationsForInbox(int $inboxId, ?int $userId = null, array $filters = []): array
     {
@@ -298,10 +297,6 @@ class Conversation
         if (!empty($filters['unassigned'])) {
             $sql .= " AND {$c}assigned_user_id IS NULL AND {$c}status IN ('new', 'open')";
         }
-        if (!empty($filters['mine']) && $userId) {
-            $sql .= " AND {$c}assigned_user_id = ?";
-            $params[] = $userId;
-        }
         // Responsável: id do atendente, "me" ou "unassigned".
         if (!empty($filters['assignee'])) {
             $assignee = (string) $filters['assignee'];
@@ -423,10 +418,9 @@ class Conversation
      * Predicado SQL de pertinência.
      *
      * A conversa pertence a um conjunto de caixas quando casa com um dos
-     * eixos: departamento coberto, canal vinculado, dono de caixa pessoal
-     * ou grupo de WhatsApp ligado à caixa. Devolve só a expressão (sem "AND")
-     * para poder ser reaproveitada dentro de CASE WHEN, nas contagens por
-     * caixa.
+     * eixos: departamento coberto, canal vinculado ou grupo de WhatsApp
+     * ligado à caixa. Devolve só a expressão (sem "AND") para poder ser
+     * reaproveitada dentro de CASE WHEN, nas contagens por caixa.
      *
      * A natureza da conversa é o filtro final: cada caixa declara quais
      * conversas quer (inboxes.conversation_scope) e a conversa é de grupo
@@ -458,7 +452,7 @@ class Conversation
     }
 
     /**
-     * Eixos de pertinência de um balde (departamento / canal / dono / grupo).
+     * Eixos de pertinência de um balde (departamento / canal / grupo).
      *
      * $natureza restringe o balde: 'groups' só conversa de grupo,
      * 'nonGroups' só mensagem geral, null = qualquer natureza.
@@ -477,13 +471,6 @@ class Conversation
             $ph = rtrim(str_repeat('?,', count($bucket['channels'])), ',');
             $axes[] = "{$c}channel_id IN ({$ph})";
             foreach ($bucket['channels'] as $id) {
-                $params[] = $id;
-            }
-        }
-        if (!empty($bucket['users'])) {
-            $ph = rtrim(str_repeat('?,', count($bucket['users'])), ',');
-            $axes[] = "{$c}assigned_user_id IN ({$ph})";
-            foreach ($bucket['users'] as $id) {
                 $params[] = $id;
             }
         }
@@ -568,7 +555,6 @@ class Conversation
             $pred = self::membershipPredicate($sets, 'c.', $params);
             // Caixa de grupo: só conta conversa com menção não lida.
             $isGroupBox = $entry
-                && ($entry['type'] ?? 'department') !== 'personal'
                 && \App\Models\Inbox::normalizeScope($entry['scope'] ?? 'all') === 'groups';
             $gate = $isGroupBox
                 ? " AND EXISTS (SELECT 1 FROM messages m WHERE m.conversation_id = c.id"
@@ -587,24 +573,6 @@ class Conversation
             $result[$id] = (int) ($row['c' . $i] ?? 0);
         }
         return $result;
-    }
-
-    /**
-     * Conversas em aberto atribuídas a mim (badge da "Minha Caixa").
-     *
-     * Conta o mesmo que a aba "Em atendimento" da Minha Caixa: aqui o
-     * badge precisa bater com a lista, senão o menu mente sobre o que há
-     * para o atendente fazer.
-     */
-    public static function openCountForMine(int $userId): int
-    {
-        $row = Database::getInstance()->fetch(
-            "SELECT COUNT(*) as total FROM conversations c
-             WHERE c.assigned_user_id = ?
-               AND c.status IN ('new', 'open', 'waiting_customer', 'waiting_internal')",
-            [$userId]
-        );
-        return (int) ($row['total'] ?? 0);
     }
 
     /**
@@ -1442,30 +1410,16 @@ class Conversation
     /**
      * Fragmento SQL das conversas visíveis a um usuário (não-admin).
      *
-     * Espelha userCanSee(): responsável pela conversa, membro do
-     * departamento, ou conversa de uma caixa pessoal do usuário (atribuída
-     * a um dos donos ou vinda de um canal que ele trata sozinho).
+     * Espelha userCanSee(): responsável pela conversa ou membro do
+     * departamento.
      */
     public static function visibilitySql(int $userId, string $c = 'c.', array &$params = []): string
     {
         $params[] = $userId;
         $params[] = $userId;
-        $params[] = $userId;
         return "(
                     {$c}assigned_user_id = ?
                     OR {$c}department_id IN (SELECT department_id FROM department_users WHERE user_id = ?)
-                    OR EXISTS (
-                        SELECT 1
-                        FROM inbox_users iu
-                        JOIN inboxes i ON i.id = iu.inbox_id
-                        WHERE iu.user_id = ?
-                          AND i.type = 'personal'
-                          AND i.is_active = 1
-                          AND (
-                              iu.user_id = {$c}assigned_user_id
-                              OR EXISTS (SELECT 1 FROM inbox_channels ic WHERE ic.inbox_id = i.id AND ic.channel_id = {$c}channel_id)
-                          )
-                    )
                 )";
     }
 
@@ -1476,8 +1430,6 @@ class Conversation
      * - admin: enxerga tudo
      * - responsável pela conversa
      * - membro do departamento da conversa
-     * - conversa atribuída a um dono de uma caixa pessoal do usuário
-     * - conversa de um canal de uma caixa pessoal do usuário
      */
     public static function userCanSee(int $conversationId, int $userId): bool
     {

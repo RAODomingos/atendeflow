@@ -10,13 +10,10 @@ $hasFilters = !empty($filters['channel_id'])
     || !empty($filters['channel']) || !empty($filters['priority'])
     || !empty($filters['assignee']) || !empty($filters['unread']);
 
-// "Minha Caixa" e "Não Atribuídas" são páginas do mesmo recorte: os
-// formulários precisam voltar para a mesma rota, senão o filtro se perde.
-$isMineScope = !empty($filters['mine']);
+// "Não Atribuídas" é uma página do mesmo recorte: os formulários precisam
+// voltar para a mesma rota, senão o filtro se perde.
 $isUnassignedScope = !empty($filters['unassigned']);
-$scopeAction = $isMineScope
-    ? url('inbox/mine')
-    : ($isUnassignedScope ? url('inbox/unassigned') : url('inbox'));
+$scopeAction = $isUnassignedScope ? url('inbox/unassigned') : url('inbox');
 
 /**
  * Inputs ocultos que carregam o filtro atual para dentro de outro form
@@ -38,9 +35,6 @@ $filterHiddenFields = function (array $filters): string {
     }
     if (!empty($filters['unread'])) {
         $html .= '<input type="hidden" name="unread" value="1">';
-    }
-    if (!empty($filters['mine'])) {
-        $html .= '<input type="hidden" name="mine" value="1">';
     }
     if (!empty($filters['unassigned'])) {
         $html .= '<input type="hidden" name="unassigned" value="1">';
@@ -78,9 +72,6 @@ $filterHiddenFields = function (array $filters): string {
         <?php if (!empty($activeInbox)): ?>
             <input type="hidden" name="inbox" value="<?= (int)$activeInbox ?>">
         <?php endif; ?>
-        <?php if ($isMineScope): ?>
-            <input type="hidden" name="mine" value="1">
-        <?php endif; ?>
         <?php if ($isUnassignedScope): ?>
             <input type="hidden" name="unassigned" value="1">
         <?php endif; ?>
@@ -100,12 +91,10 @@ $filterHiddenFields = function (array $filters): string {
         </select>
 
         <?php
-        // Em "Minha Caixa" o responsável é o próprio recorte: a opção fica
-        // travada em "Atribuídas a mim" para ninguém achar que o filtro
-        // está solto.
-        $assigneeSelected = $isMineScope ? 'me' : (string) ($filters['assignee'] ?? '');
+        // O responsável é um filtro da caixa: vale em qualquer visão.
+        $assigneeSelected = (string) ($filters['assignee'] ?? '');
         ?>
-        <select name="assignee" class="filter-select" onchange="this.form.submit()" title="Filtrar por responsável" <?= $isMineScope ? 'disabled' : '' ?>>
+        <select name="assignee" class="filter-select" onchange="this.form.submit()" title="Filtrar por responsável">
             <option value="">Qualquer responsável</option>
             <option value="me" <?= $assigneeSelected === 'me' ? 'selected' : '' ?>>Atribuídas a mim</option>
             <option value="unassigned" <?= $assigneeSelected === 'unassigned' ? 'selected' : '' ?>>Sem responsável</option>
@@ -131,7 +120,6 @@ $filterHiddenFields = function (array $filters): string {
         'priority'   => $filters['priority'] ?? null,
         'assignee'   => $filters['assignee'] ?? null,
         'unread'     => !empty($filters['unread']) ? '1' : null,
-        'mine'       => !empty($filters['mine']) ? '1' : null,
         'unassigned' => !empty($filters['unassigned']) ? '1' : null,
     ], fn($v) => $v !== null && $v !== ''));
     // Sufixo de query com os filtros ativos: as abas mantêm o recorte.
@@ -444,10 +432,10 @@ function refreshConversationList() {
     var sw = p.get('search');
     if (!sw) { var si = document.querySelector('input[name="search"]'); if (si) sw = si.value; }
     if (sw) params.set('search', sw);
-    // Filtros da barra (canal, prioridade, responsável, não lidas) e os
-    // escopos da URL (minhas / sem responsável): o refresh tem de respeitar
-    // o mesmo recorte da página.
-    ['channel_id', 'channel', 'priority', 'assignee', 'unread', 'mine', 'unassigned'].forEach(function(k) {
+    // Filtros da barra (canal, prioridade, responsável, não lidas) e o
+    // escopo da URL (sem responsável): o refresh tem de respeitar o mesmo
+    // recorte da página.
+    ['channel_id', 'channel', 'priority', 'assignee', 'unread', 'unassigned'].forEach(function(k) {
         var v = p.get(k);
         if (!v) {
             var el = document.querySelector('[name="' + k + '"]');

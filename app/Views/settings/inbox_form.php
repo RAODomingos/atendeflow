@@ -20,17 +20,9 @@ $useGlobal = $sf['use_global'];
                     <label><i class="fas fa-tag"></i> Nome da caixa *</label>
                     <input type="text" name="name" class="form-control" required
                            value="<?= e($inbox['name'] ?? '') ?>" placeholder="Ex.: Suporte Avançado">
-                </div>
-
-                <div class="form-group">
-                    <label><i class="fas fa-cog"></i> Tipo de caixa</label>
-                    <select name="type" class="form-control" id="inboxType">
-                        <option value="department" <?= ($inbox['type'] ?? 'department') === 'department' ? 'selected' : '' ?>>Time (conversas de setores e canais)</option>
-                        <option value="personal" <?= ($inbox['type'] ?? '') === 'personal' ? 'selected' : '' ?>>Pessoal (conversas de quem é dono)</option>
-                    </select>
                     <p class="form-hint">
                         A caixa de entrada é única: o recorte vem dos filtros da listagem.
-                        A caixa é uma visão salva — e, nos tipos de time, o perfil de SLA do setor.
+                        A caixa é uma visão salva — e o perfil de SLA do time.
                     </p>
                 </div>
 
@@ -90,8 +82,8 @@ $useGlobal = $sf['use_global'];
                 </div>
 
                 <div class="form-group" id="inboxUsersGroup">
-                    <label id="inboxUsersLabel"><i class="fas fa-users"></i> Usuários com acesso</label>
-                    <p class="form-hint" id="inboxUsersHint">
+                    <label><i class="fas fa-users"></i> Usuários com acesso</label>
+                    <p class="form-hint">
                         Atendentes que enxergam esta caixa além dos membros dos setores.
                     </p>
                     <div class="inbox-check-grid">
@@ -300,32 +292,6 @@ $useGlobal = $sf['use_global'];
         if (hint) hint.style.display = on ? '' : 'none';
     }
     toggle.addEventListener('change', apply);
-    apply();
-})();
-
-/* Caixa pessoal: a pertinência é por dono (conversa atribuída) e por canal.
-   Setor não entra — quem responde é o responsável. */
-(function() {
-    var type = document.getElementById('inboxType');
-    var deptGroup = document.getElementById('inboxDepartmentsGroup');
-    var usersLabel = document.getElementById('inboxUsersLabel');
-    var usersHint = document.getElementById('inboxUsersHint');
-    if (!type) return;
-    function apply() {
-        var personal = type.value === 'personal';
-        if (deptGroup) deptGroup.style.display = personal ? 'none' : '';
-        if (usersLabel) {
-            usersLabel.innerHTML = personal
-                ? '<i class="fas fa-user-check"></i> Donos desta caixa'
-                : '<i class="fas fa-users"></i> Usuários com acesso';
-        }
-        if (usersHint) {
-            usersHint.textContent = personal
-                ? 'As conversas atribuídas a estes donos aparecem nesta caixa.'
-                : 'Atendentes que enxergam esta caixa além dos membros dos setores.';
-        }
-    }
-    type.addEventListener('change', apply);
     apply();
 })();
 </script>

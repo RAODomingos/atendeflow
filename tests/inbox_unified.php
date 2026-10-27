@@ -22,6 +22,8 @@ $jsSrc     = file_get_contents(__DIR__ . '/../public/assets/js/app-enhancements.
 $migSrc    = file_get_contents(__DIR__ . '/../database/migrations/2026_10_24_caixa_unificada.sql');
 $migGrupos = file_get_contents(__DIR__ . '/../database/migrations/2026_10_24_caixa_grupos.sql');
 $settingsSrc = file_get_contents(__DIR__ . '/../app/Controllers/SettingsController.php');
+$routesSrc   = file_get_contents(__DIR__ . '/../routes/web.php');
+$migSemPessoal = file_get_contents(__DIR__ . '/../database/migrations/2026_10_27_sem_caixa_pessoal.sql') ?: '';
 
 // ── A pertinência NÃO é mais pelo ponteiro da conversa ───────────────────
 // c.inbox_id = ? era o roteamento antigo; com ele, a mesma conversa
@@ -41,8 +43,9 @@ check(
     && str_contains($inboxSrc, 'function setsFromMap')
 );
 check(
-    'caixa unificada: a caixa pessoal usa os donos declarados',
-    str_contains($inboxSrc, 'function getExplicitUsers')
+    'caixa unificada: o dono da caixa nao define pertinencia',
+    !str_contains($inboxSrc, 'function getExplicitUsers')
+    && !str_contains($convSrc, "\$bucket['users']")
 );
 
 // ── A listagem é uma query só ────────────────────────────────────────────
@@ -65,25 +68,52 @@ check(
     str_contains($convSrc, 'COUNT(DISTINCT CASE WHEN')
 );
 
-// ── "Minha Caixa" é filtro por responsável ───────────────────────────────
-// Antes ela dependia de existir uma caixa pessoal; um atendente sem
-// caixa pessoal viajava as conversas que tinha atribuídas.
+// ── A caixa pessoal e a "Minha Caixa" saíram do sistema ──────────────────
+// O que resta: a caixa de entrada unificada (recorte pelos filtros, com o
+// filtro de responsável "Atribuídas a mim") e as caixas por categoria.
 check(
-    'caixa unificada: minha caixa usa o filtro por responsavel',
-    str_contains($ctlSrc, "\$filters['mine'] = true")
+    'caixa unificada: o tipo pessoal saiu do enum do banco',
+    str_contains($migSemPessoal, "type = 'personal'")
+    && str_contains($migSemPessoal, "ENUM('general', 'department')")
 );
 check(
-    'caixa unificada: minha caixa nao depende de caixa pessoal',
-    !str_contains($ctlSrc, 'getOwnedPersonalInboxes')
+    'caixa unificada: a caixa pessoal nao e mais criada nem editada',
+    !str_contains($ctlSrc, "'personal'")
+    && !str_contains($settingsSrc, "'personal'")
+    && !str_contains($formSrc, 'value="personal"')
 );
 check(
-    'caixa unificada: minha caixa filtra so o que esta alocado a mim',
-    str_contains($convSrc, "\$filters['mine']")
-    && str_contains($convSrc, "assigned_user_id = ?")
+    'caixa unificada: a caixa pessoal nao aparece no menu',
+    !str_contains($mainSrc, 'getOwnedPersonalInboxes')
+    && !str_contains($inboxSrc, 'function getOwnedPersonalInboxes')
 );
 check(
-    'caixa unificada: o escopo mine ganha do filtro de responsavel',
-    str_contains($ctlSrc, "if (\$request->input('mine'))")
+    'caixa unificada: a rota da caixa pessoal saiu',
+    !str_contains($routesSrc, '/inbox/personal')
+    && !str_contains($routesSrc, "'mine'")
+);
+check(
+    'caixa unificada: a minha caixa saiu do menu',
+    !str_contains($mainSrc, 'Minha Caixa')
+    && !str_contains($mainSrc, "route('inbox.mine')")
+);
+check(
+    'caixa unificada: o escopo mine saiu do servidor, da tela e do live-feed',
+    !str_contains($ctlSrc, "\$filters['mine']")
+    && !str_contains($ctlSrc, "input('mine')")
+    && !str_contains($viewSrc, 'name="mine"')
+    && !str_contains($jsSrc, "'mine'")
+    && !str_contains($convSrc, "\$filters['mine']")
+);
+check(
+    'caixa unificada: o filtro de responsavel continua existindo',
+    str_contains($ctlSrc, "input('assignee'")
+    && str_contains($ctlSrc, "\$filters['assignee']")
+    && str_contains($convSrc, "\$filters['assignee']")
+);
+check(
+    'caixa unificada: a visibilidade nao depende mais de caixa pessoal',
+    !str_contains($convSrc, "i.type = 'personal'")
 );
 
 // ── Os filtros existem no modelo e na tela ───────────────────────────────
@@ -195,31 +225,26 @@ check(
 
 // ── O formulario de caixa reflecte a semantica nova ─────────────────────
 check(
-    'caixa unificada: o formulario separa setor de dono',
-    str_contains($formSrc, 'Donos desta caixa')
+    'caixa unificada: o formulario so conhece a caixa de time',
+    !str_contains($formSrc, 'Donos desta caixa')
     && str_contains($formSrc, 'inboxDepartmentsGroup')
+    && str_contains($formSrc, 'Usuários com acesso')
 );
 
-// ── Os escopos "minhas" e "sem responsável" viajam na URL ───────────────
-// Sao recortes do mesmo escopo. Se ficarem so no servidor, o poll do
-// live-feed reescreve a lista sem eles e a pagina volta a mostrar tudo.
+// ── O escopo "sem responsável" viaja na URL ──────────────────────────────
+// É um recorte do mesmo escopo. Se ficar só no servidor, o poll do
+// live-feed reescreve a lista sem ele e a página volta a mostrar tudo.
 check(
-    'caixa unificada: o escopo mine e lido da url',
-    str_contains($ctlSrc, "input('mine')")
-    && str_contains($ctlSrc, "input('unassigned')")
-);
-check(
-    'caixa unificada: o link da minha caixa leva o escopo',
-    str_contains($mainSrc, "route('inbox.mine') ?>?mine=1")
+    'caixa unificada: o escopo unassigned e lido da url',
+    str_contains($ctlSrc, "input('unassigned')")
 );
 check(
     'caixa unificada: o poll leva os escopos',
-    str_contains($jsSrc, "'unread', 'mine', 'unassigned'")
+    str_contains($jsSrc, "'unread', 'unassigned'")
 );
 check(
     'caixa unificada: a tela preserva o escopo nos formularios',
-    str_contains($viewSrc, 'name="mine"')
-    && str_contains($viewSrc, 'name="unassigned"')
+    str_contains($viewSrc, 'name="unassigned"')
 );
 
 // ── A migracao cria os indices dos eixos de pertinencia ─────────────────

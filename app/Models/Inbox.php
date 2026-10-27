@@ -99,24 +99,6 @@ class Inbox
     }
 
     /**
-     * Donos explícitos da caixa (linhas de inbox_users).
-     *
-     * getUsers() devolve o time expandido (donos + membros dos departamentos
-     * vinculados + admins). Para definir a pertinência de uma caixa pessoal
-     * vale apenas quem foi declarado dono.
-     */
-    public static function getExplicitUsers(int $inboxId): array
-    {
-        return array_map('intval', array_column(
-            Database::getInstance()->fetchAll(
-                "SELECT user_id FROM inbox_users WHERE inbox_id = ?",
-                [$inboxId]
-            ),
-            'user_id'
-        ));
-    }
-
-    /**
      * Escopo de conversa aceito por uma caixa.
      *
      * A natureza da conversa é o eixo que separa a caixa de grupos da caixa
@@ -148,7 +130,6 @@ class Inbox
         $bucket = static fn (): array => [
             'departments' => [],
             'channels'    => [],
-            'users'       => [],
             'groups'      => [],
         ];
         return [
@@ -163,19 +144,17 @@ class Inbox
      * Mapa de pertinência das caixas informadas.
      *
      * A caixa é uma visão sobre as conversas, não um container: uma conversa
-     * pertence à caixa pelo departamento, pelo canal, pelo responsável ou pelo
-     * grupo de WhatsApp ligado a ela — nunca por um ponteiro guardado na
-     * própria conversa. Por isso o mapa é derivado das caixas (e não das
+     * pertence à caixa pelo departamento, pelo canal ou pelo grupo de
+     * WhatsApp ligado a ela — nunca por um ponteiro guardado na própria
+     * conversa. Por isso o mapa é derivado das caixas (e não das
      * conversas).
      *
      * - departamental: cobre os departamentos vinculados e os canais vinculados
-     * - pessoal:      cobre as conversas atribuídas aos donos e os canais
-     *                 vinculados (a linha que o atendende trata sozinho)
      *
      * O scope (natureza) decide em que balde a caixa entra: 'all' (padrão),
      * 'groups' (só grupo) ou 'non_groups' (só mensagem geral).
      *
-     * @return array<int, array{type:string, scope:string, departments:int[], channels:int[], users:int[], groups:int[]}>
+     * @return array<int, array{scope:string, departments:int[], channels:int[], groups:int[]}>
      */
     public static function loadMembershipMap(array $inboxIds): array
     {
@@ -189,15 +168,13 @@ class Inbox
         $map = [];
         $hasScope = self::hasScopeColumn();
         $sql = $hasScope
-            ? "SELECT id, type, conversation_scope FROM inboxes WHERE id IN ({$ph})"
-            : "SELECT id, type FROM inboxes WHERE id IN ({$ph})";
+            ? "SELECT id, conversation_scope FROM inboxes WHERE id IN ({$ph})"
+            : "SELECT id FROM inboxes WHERE id IN ({$ph})";
         foreach ($db->fetchAll($sql, $ids) as $row) {
             $map[(int) $row['id']] = [
-                'type'        => (string) ($row['type'] ?? 'department'),
                 'scope'       => self::normalizeScope($row['conversation_scope'] ?? 'all'),
                 'departments' => [],
                 'channels'    => [],
-                'users'       => [],
                 'groups'      => [],
             ];
         }
@@ -212,12 +189,6 @@ class Inbox
             $iid = (int) $row['inbox_id'];
             if (isset($map[$iid])) {
                 $map[$iid]['channels'][] = (int) $row['channel_id'];
-            }
-        }
-        foreach ($db->fetchAll("SELECT inbox_id, user_id FROM inbox_users WHERE inbox_id IN ({$ph})", $ids) as $row) {
-            $iid = (int) $row['inbox_id'];
-            if (isset($map[$iid])) {
-                $map[$iid]['users'][] = (int) $row['user_id'];
             }
         }
         // Grupos de WhatsApp ligados explicitamente a cada caixa: é o vínculo
@@ -242,10 +213,10 @@ class Inbox
      * Conjuntos de pertinência de um conjunto de caixas, já achatados.
      *
      * "Achatar" é o que permite listar várias caixas numa única query: em vez
-     * de um OR por caixa, vira um IN por eixo (departamento / canal / dono /
-     * grupo). As caixas caem em três baldes conforme a natureza das
-     * conversas que elas querem (all / groups / non_groups), para que o
-     * predicado continue sendo uma query só.
+     * de um OR por caixa, vira um IN por eixo (departamento / canal / grupo).
+     * As caixas caem em três baldes conforme a natureza das conversas que
+     * elas querem (all / groups / non_groups), para que o predicado continue
+     * sendo uma query só.
      *
      * @return array{all:bool, any:array, groups:array, nonGroups:array}
      */
@@ -257,24 +228,12 @@ class Inbox
             if (!$entry) {
                 continue;
             }
-            $isPersonal = ($entry['type'] ?? 'department') === 'personal';
-            // Caixa pessoal é sempre "qualquer conversa atribuída aos donos":
-            // a natureza não muda o que é uma caixa pessoal.
-            $bucket = 'any';
-            if (!$isPersonal) {
-                $bucket = match (self::normalizeScope($entry['scope'] ?? 'all')) {
-                    'groups'     => 'groups',
-                    'non_groups' => 'nonGroups',
-                    default      => 'any',
-                };
-            }
-            if ($isPersonal) {
-                // Caixa pessoal: pertence a ela a conversa atribuída a um
-                // dos donos declarados.
-                $sets[$bucket]['users'] = array_merge($sets[$bucket]['users'], $entry['users']);
-            } else {
-                $sets[$bucket]['departments'] = array_merge($sets[$bucket]['departments'], $entry['departments']);
-            }
+            $bucket = match (self::normalizeScope($entry['scope'] ?? 'all')) {
+                'groups'     => 'groups',
+                'non_groups' => 'nonGroups',
+                default      => 'any',
+            };
+            $sets[$bucket]['departments'] = array_merge($sets[$bucket]['departments'], $entry['departments']);
             $sets[$bucket]['channels'] = array_merge($sets[$bucket]['channels'], $entry['channels']);
             $sets[$bucket]['groups'] = array_merge($sets[$bucket]['groups'], $entry['groups']);
         }
@@ -346,7 +305,7 @@ class Inbox
         $row = Database::getInstance()->fetch(
             "SELECT ic.inbox_id FROM inbox_channels ic
              JOIN inboxes i ON i.id = ic.inbox_id
-             WHERE ic.channel_id = ? AND i.is_active = 1 AND i.type <> 'personal'
+             WHERE ic.channel_id = ? AND i.is_active = 1
              ORDER BY i.id ASC
              LIMIT 1",
             [$channelId]
@@ -356,14 +315,13 @@ class Inbox
 
     /**
      * Caixa departamental que dá o perfil de SLA de um departamento.
-     * Caixas pessoais nunca são escolhidas: perfil é regra de equipe.
      */
     public static function resolveProfileForDepartment(int $departmentId): ?int
     {
         $row = Database::getInstance()->fetch(
             "SELECT i.id FROM inboxes i
               JOIN inbox_departments idp ON idp.inbox_id = i.id AND idp.department_id = ?
-              WHERE i.is_active = 1 AND i.type <> 'personal'
+              WHERE i.is_active = 1
               ORDER BY i.id ASC
               LIMIT 1",
             [$departmentId]
@@ -373,7 +331,8 @@ class Inbox
 
     /**
      * Caixas que o usuário pode ver.
-     * Admin vê todas; demais veem departamento (membro) + pessoal (dono).
+     * Admin vê todas; demais veem as caixas do departamento (membro) ou as
+     * que têm o usuário como acesso explícito.
      */
     public static function getUserInboxes(int $userId): array
     {
@@ -407,20 +366,5 @@ class Inbox
             [$userId, $userId, $inboxId]
         );
         return (bool) $row;
-    }
-
-    /**
-     * Caixas pessoais criadas pelo usuário (onde ele é o dono),
-     * independente de ser admin. Usado em "Minha Caixa".
-     */
-    public static function getOwnedPersonalInboxes(int $userId): array
-    {
-        return Database::getInstance()->fetchAll(
-            "SELECT i.* FROM inboxes i
-             JOIN inbox_users iu ON iu.inbox_id = i.id AND iu.user_id = ?
-             WHERE i.type = 'personal' AND i.is_active = 1
-             ORDER BY i.name",
-            [$userId]
-        );
     }
 }

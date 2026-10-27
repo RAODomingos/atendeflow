@@ -274,7 +274,7 @@ $newWaiting = (int) ($globalCounts['new'] ?? 0);
     </div>
 
     <!-- Personal stats -->
-    <div class="dash-section-title"><span>Minha fila</span><a href="<?= url('inbox/mine') ?>?mine=1" class="dash-section-link">Ver minha caixa <i class="fas fa-arrow-right"></i></a></div>
+    <div class="dash-section-title"><span>Minha fila</span></div>
     <div class="dash-myrow">
         <div class="dash-myhead">
             <span class="dash-myicon"><i class="fas fa-user"></i></span>

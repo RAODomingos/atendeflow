@@ -28,10 +28,10 @@
                             <tr>
                                 <td><strong><?= e($ib['name']) ?></strong></td>
                                 <td>
-                                    <?php if ($ib['type'] === 'department'): ?>
-                                        <span class="badge badge-info">Departamento</span>
+                                    <?php if ($ib['type'] === 'general'): ?>
+                                        <span class="badge badge-secondary">Geral</span>
                                     <?php else: ?>
-                                        <span class="badge badge-secondary">Pessoal</span>
+                                        <span class="badge badge-info">Departamento</span>
                                     <?php endif; ?>
                                 </td>
                                 <td>
