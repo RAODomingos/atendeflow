@@ -233,7 +233,7 @@ $renderReceipts = function (array $msg) {
             <input type="text" id="convUnitInput" style="font-size:12px;padding:4px 8px;border:1px solid var(--brand);border-radius:6px;outline:none;width:160px;max-width:100%" value="<?= e($conv['unit'] ?? '') ?>" placeholder="Unidade" onblur="saveUnit(this.value)" onkeydown="if(event.key==='Enter')saveUnit(this.value);if(event.key==='Escape')cancelUnitEdit()">
             <?php endif; ?>
         </div>
-        <div class="chat-header-right">
+        <div class="chat-header-meta">
             <?php
             $slabels = ['new'=>'Novo','open'=>'Aberto','waiting_customer'=>'Em atendimento','waiting_internal'=>'Aguard. Interno','resolved'=>'Resolvido','closed'=>'Fechado','spam'=>'Spam'];
             $scls = $conv['status'] === 'open' || $conv['status'] === 'new' ? 'chip-success' : ($conv['status'] === 'waiting_customer' ? 'chip-info' : ($conv['status'] === 'resolved' || $conv['status'] === 'closed' ? 'chip-neutral' : 'chip-warning'));
@@ -378,6 +378,8 @@ $renderReceipts = function (array $msg) {
                 </div>
             </div>
             <script>var CONTACT_ID = <?= (int)($contact['id'] ?? 0) ?>;</script>
+            </div><!-- /.chat-header-meta -->
+            <div class="chat-header-right">
             <div class="conv-quick-actions">
                 <button class="icon-btn" onclick="toggleMsgSearch()" title="Buscar na conversa"><i class="fas fa-search"></i></button>
                 <button class="icon-btn" id="convSnoozeBtn" onclick="openSnoozeModal()" title="Agendar"><i class="fas fa-clock"></i></button>
@@ -588,14 +590,6 @@ $renderReceipts = function (array $msg) {
                 <button type="button" class="quote-close" onclick="clearQuote()">&times;</button>
             </div>
             <div class="input-toolbar">
-                <label class="icon-btn" title="Anexar arquivo" style="cursor:pointer">
-                    <i class="fas fa-paperclip"></i>
-                    <input type="file" name="file" id="attachInput"
-                           accept="image/*,audio/*,video/*,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.zip" hidden <?= $panelFinished ? 'disabled' : '' ?>>
-                </label>
-                <button type="button" class="icon-btn" id="micToggle" title="Gravar áudio" <?= $panelFinished ? 'disabled' : '' ?>>
-                    <i class="fas fa-microphone"></i>
-                </button>
                 <button type="button" class="icon-btn" title="Resposta pronta" onclick="openCannedModal()" <?= $panelFinished ? 'disabled' : '' ?>><i class="fas fa-bookmark"></i></button>
                 <button type="button" class="icon-btn" title="Macro" onclick="openMacroModal()" <?= $panelFinished ? 'disabled' : '' ?>><i class="fas fa-bolt"></i></button>
                 <button type="button" class="icon-btn" title="Sugerir artigo da Wiki (envia o link do portal do cliente)" onclick="openWikiModal()" <?= $panelFinished ? 'disabled' : '' ?>><i class="fas fa-book-open"></i></button>
@@ -603,7 +597,6 @@ $renderReceipts = function (array $msg) {
                 <button type="button" class="icon-btn" title="Enviar contato" onclick="openContactModal()" <?= $panelFinished ? 'disabled' : '' ?>><i class="fas fa-address-card"></i></button>
                 <?php endif; ?>
                 <div style="flex:1"></div>
-                <button type="button" class="icon-btn" id="emojiToggle" title="Emoji" <?= $panelFinished ? 'disabled' : '' ?>><i class="fas fa-smile"></i></button>
                 <button type="button" class="icon-btn" id="internalToggle"
                         onclick="toggleInternal()" title="Mensagem interna (não enviada ao cliente)" <?= $panelFinished ? 'disabled' : '' ?>>
                     <i class="fas fa-lock"></i>
@@ -616,10 +609,19 @@ $renderReceipts = function (array $msg) {
                 <?php endif; ?>
             </div>
             <div class="input-row">
+                <label class="icon-btn" title="Anexar arquivo" style="cursor:pointer">
+                    <i class="fas fa-paperclip"></i>
+                    <input type="file" name="file" id="attachInput"
+                           accept="image/*,audio/*,video/*,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.zip" hidden <?= $panelFinished ? 'disabled' : '' ?>>
+                </label>
+                <button type="button" class="icon-btn" id="emojiToggle" title="Emoji" <?= $panelFinished ? 'disabled' : '' ?>><i class="fas fa-smile"></i></button>
                 <textarea name="content" id="messageInput" class="input-box" rows="1"
                           placeholder="<?= $panelFinished ? 'Conversa finalizada' : "Digite sua mensagem... Enter envia, Shift+Enter quebra linha" ?>"
                           <?= $panelFinished ? 'disabled' : '' ?>></textarea>
                 <input type="hidden" name="reply_to" id="replyToInput" value="">
+                <button type="button" class="icon-btn" id="micToggle" title="Gravar áudio" <?= $panelFinished ? 'disabled' : '' ?>>
+                    <i class="fas fa-microphone"></i>
+                </button>
                 <button type="submit" class="send-btn" id="sendBtn" title="Enviar (Enter)" <?= $panelFinished ? 'disabled' : '' ?>>
                     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/></svg>
                 </button>
