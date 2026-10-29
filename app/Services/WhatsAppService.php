@@ -2108,6 +2108,28 @@ class WhatsAppService
             return $existing;
         }
 
+        // Nenhuma conversa aberta para este contato neste canal: a regra de
+        // reabertura decide se o atendimento ANTERIOR volta para a fila em
+        // vez de abrir um atendimento novo.
+        //
+        // A regra vigente é a da CAIXA do atendimento anterior (é ela que
+        // volta para a fila e que tem SLA).
+        $previous = \App\Models\AtendimentoPolicy::previousConversation($channelId, $contactId);
+        if ($previous) {
+            $policy = \App\Models\AtendimentoPolicy::forInbox(
+                $previous['inbox_id'] !== null ? (int) $previous['inbox_id'] : null
+            );
+            if (\App\Models\AtendimentoPolicy::shouldReopen($previous, $policy)) {
+                $reopened = (new ConversationService())->reopenConversation(
+                    (int) $previous['id'],
+                    'Atendimento reaberto por nova mensagem do cliente'
+                );
+                if (!empty($reopened['id'])) {
+                    return $reopened;
+                }
+            }
+        }
+
         $channel = Database::getInstance()->fetch("SELECT * FROM channels WHERE id = ?", [$channelId]);
         $departmentId = $channel['department_id'] ?? null;
 

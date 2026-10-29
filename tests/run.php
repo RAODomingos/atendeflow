@@ -738,5 +738,11 @@ check(
     preg_match('/changeStatus[\s\S]{0,4000}reopenConversation/', $convServiceSrc) === 1
 );
 
+$waServicePath = __DIR__ . '/../app/Services/WhatsAppService.php';
+$waServiceSrc = is_file($waServicePath) ? (string) file_get_contents($waServicePath) : '';
+check('atendimento: o whatsapp consulta a politica antes de criar conversa', str_contains($waServiceSrc, 'AtendimentoPolicy::shouldReopen'));
+check('atendimento: o whatsapp acha o atendimento anterior', str_contains($waServiceSrc, 'AtendimentoPolicy::previousConversation'));
+check('atendimento: o whatsapp reabre a conversa anterior', str_contains($waServiceSrc, 'reopenConversation'));
+
 echo "\n$passes passed, $failures failed\n";
 exit($failures > 0 ? 1 : 0);
