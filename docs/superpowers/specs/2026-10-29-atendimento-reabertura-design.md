@@ -238,8 +238,13 @@ ON DUPLICATE KEY UPDATE `key` = `key`;
 
 ### 6.2 `database/schema.sql`
 
-- `inboxes`: as duas colunas novas (a tabela está em `database/schema.sql:183`);
-- `settings`: as duas chaves padrão com os mesmos valores da migração.
+- `inboxes`: as duas colunas novas (a tabela está em `database/schema.sql:183`).
+
+A tabela `settings` **não existe** no `schema.sql` — ela é criada pela migração
+`2026_07_23_fix_missing_tables.sql`. Por isso os valores padrão de reabertura
+(`unique` / `120`) ficam só na migração acima e no fallback do código
+(`AtendimentoPolicy::globalConfig()`), que devolve `unique`/`120` mesmo numa base
+sem as linhas em `settings`.
 
 ### 6.3 Compatibilidade
 

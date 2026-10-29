@@ -192,6 +192,9 @@ CREATE TABLE inboxes (
     sla_escalate_tag TINYINT(1) NULL DEFAULT NULL,
     sla_escalate_autoassign TINYINT(1) NULL DEFAULT NULL,
     sla_escalate_whatsapp TINYINT(1) NULL DEFAULT NULL,
+    -- Reabertura de atendimento (NULL = usar o padrão do sistema).
+    atendimento_modo VARCHAR(20) NULL DEFAULT NULL,
+    atendimento_janela_minutos INT NULL DEFAULT NULL,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 );
