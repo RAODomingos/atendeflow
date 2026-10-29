@@ -758,5 +758,8 @@ $generalPath = __DIR__ . '/../app/Views/settings/general.php';
 $generalSrc = is_file($generalPath) ? (string) file_get_contents($generalPath) : '';
 check('atendimento: as configuracoes gerais tem o padrao', str_contains($generalSrc, 'atendimento_reabertura_modo'));
 
+// 15) Reabertura de atendimento: regra por caixa (único / sempre / janela)
+require_once __DIR__ . '/e2e_atendimento_reabertura.php';
+
 echo "\n$passes passed, $failures failed\n";
 exit($failures > 0 ? 1 : 0);
