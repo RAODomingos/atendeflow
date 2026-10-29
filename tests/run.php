@@ -694,5 +694,38 @@ check(
 // 14) Dashboard com SLA: fila em risco, compliance, violacoes e permissao
 require_once __DIR__ . '/e2e_dashboard_sla.php';
 
+// ─────────────────────────────────────────────────────────────
+// Reabertura de atendimento: a decisão é pura (sem banco)
+// ─────────────────────────────────────────────────────────────
+if (file_exists(__DIR__ . '/../app/Models/AtendimentoPolicy.php')) {
+    require_once __DIR__ . '/../app/Models/AtendimentoPolicy.php';
+}
+
+function atendPolicy(array $args): bool
+{
+    if (!class_exists('App\Models\AtendimentoPolicy') || !method_exists('App\Models\AtendimentoPolicy', 'decide')) {
+        return false;
+    }
+    $r = \App\Models\AtendimentoPolicy::decide(...$args);
+    return $r === true;
+}
+
+$atendimentoAgora = '2026-10-29 12:00:00';
+$atendimentoTs = strtotime($atendimentoAgora);
+
+check('atendimento: modo unique nunca reabre', atendPolicy(['unique', 120, $atendimentoAgora, $atendimentoTs]) === false);
+check('atendimento: modo always reabre sem olhar o tempo', atendPolicy(['always', 120, '2020-01-01 00:00:00', $atendimentoTs]) === true);
+check('atendimento: modo window reabre dentro da janela', atendPolicy(['window', 120, '2026-10-29 11:00:00', $atendimentoTs]) === true);
+check('atendimento: modo window reabre no limite exato', atendPolicy(['window', 120, '2026-10-29 10:00:00', $atendimentoTs]) === true);
+check('atendimento: modo window cria novo fora da janela', atendPolicy(['window', 120, '2026-10-29 09:00:00', $atendimentoTs]) === false);
+check('atendimento: modo window sem referencia nao reabre', atendPolicy(['window', 120, null, $atendimentoTs]) === false);
+check('atendimento: modo desconhecido cai em unique', atendPolicy(['modo_bizarro', 120, $atendimentoAgora, $atendimentoTs]) === false);
+
+$policyPath = __DIR__ . '/../app/Models/AtendimentoPolicy.php';
+$policySrc = is_file($policyPath) ? (string) file_get_contents($policyPath) : '';
+check('atendimento: a politica ignora conversa de grupo', str_contains($policySrc, 'group_id IS NULL'));
+check('atendimento: a politica ignora spam', str_contains($policySrc, "'resolved', 'closed'"));
+check('atendimento: a politica tem guarda de coluna ausente', str_contains($policySrc, 'hasColumns'));
+
 echo "\n$passes passed, $failures failed\n";
 exit($failures > 0 ? 1 : 0);
