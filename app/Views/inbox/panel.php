@@ -332,8 +332,8 @@ $renderReceipts = function (array $msg) {
             foreach (($contact['stores'] ?? []) as $us) { $unitNets[$us['network_name']] = $us['customer_id']; }
             ksort($unitNets);
             ?>
-            <label class="header-field" title="Loja">
-                <span class="header-field-label">Loja</span>
+            <label class="header-chip header-chip-select" title="Loja">
+                <i class="fas fa-store"></i>
                 <select id="convUnitNetwork" onchange="unitNetworkChanged(this)" aria-label="Loja">
                     <?php if (!$unitNets): ?><option value="">Loja…</option><?php endif; ?>
                     <?php foreach ($unitNets as $un => $uc): ?>
@@ -341,15 +341,15 @@ $renderReceipts = function (array $msg) {
                     <?php endforeach; ?>
                     <option value="__new">+ Nova loja…</option>
                 </select>
-                <i class="fas fa-chevron-down"></i>
+                <i class="fas fa-chevron-down chevron" style="font-size:9px;opacity:.5"></i>
             </label>
             <?php if (empty($conv['group_id'])): ?>
-            <label class="header-field" title="Unidade">
-                <span class="header-field-label">Unidade</span>
+            <label class="header-chip header-chip-select" title="Unidade">
+                <i class="fas fa-tag"></i>
                 <select id="convUnitStore" onchange="saveUnit(this.value)" aria-label="Unidade" data-current-unit="<?= e($conv['unit'] ?? '') ?>" <?= $unitNets ? '' : 'disabled' ?>>
                     <?php if (!$unitNets): ?><option value="">Unidade…</option><?php endif; ?>
                 </select>
-                <i class="fas fa-chevron-down"></i>
+                <i class="fas fa-chevron-down chevron" style="font-size:9px;opacity:.5"></i>
             </label>
             <?php endif; ?>
             <div class="modal" id="newStoreModal" style="display:none">

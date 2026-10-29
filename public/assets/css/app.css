@@ -2828,7 +2828,7 @@ body > .app{height:auto;flex:1;min-height:0;}
 /* Prioridade de leitura: status, loja e unidade ficam sempre visíveis;
    o resto (assunto, prioridade, SLA) rola na horizontal. */
 .chat-header-meta .status-chip{order:-2}
-.chat-header-meta .header-field{order:-1}
+.chat-header-meta .header-chip-select{order:-1}
 .chat-header-meta::-webkit-scrollbar{display:none}
 .chat-header-right{
   flex:0 0 auto;
@@ -2838,34 +2838,12 @@ body > .app{height:auto;flex:1;min-height:0;}
 /* Chips compactos para caberem na linha única */
 .chat-header-meta .header-chip{max-width:138px}
 .chat-header-meta .header-chip .chip-text{max-width:92px}
-.chat-header-meta .header-chip-select select{max-width:100px}
+.chat-header-meta .header-chip-select{max-width:186px}
+.chat-header-meta .header-chip-select select{max-width:112px}
 
-/* --- Campos de loja e unidade: formulário, não chip --- */
-.header-field{
-  position:relative;
-  display:inline-flex;align-items:center;gap:7px;flex-shrink:0;
-  height:30px;padding:0 26px 0 10px;
-  border:1px solid var(--border-input);border-radius:9px;
-  background:var(--bg-panel);
-}
-.header-field-label{
-  font-size:10px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;
-  color:var(--text-muted);flex-shrink:0;line-height:1;
-}
-.header-field select{
-  appearance:none;-webkit-appearance:none;border:none;background:transparent;
-  font:inherit;font-size:12.5px;font-weight:600;color:var(--text-primary);
-  outline:none;cursor:pointer;padding:0;
-  max-width:84px;min-width:0;text-overflow:ellipsis;white-space:nowrap;overflow:hidden;
-}
-.header-field select:disabled{opacity:.55;cursor:wait}
-.header-field option{font-weight:400;color:var(--text-primary);background:var(--bg-panel)}
-.header-field > i.fa-chevron-down{
-  position:absolute;right:9px;top:50%;transform:translateY(-50%);
-  font-size:9px;opacity:.5;pointer-events:none;
-}
-.header-field:focus-within{border-color:var(--brand);box-shadow:0 0 0 3px var(--brand-soft)}
-
+/* --- Campos de loja e unidade: mesmo chip do assunto --- */
+.header-chip-select select{max-width:112px}
+.header-chip-select .chevron{margin-left:auto}
 
 /* --- Composer: pílula com os ícones dentro (WhatsApp) --- */
 .chat-input{padding:10px 16px 14px}
