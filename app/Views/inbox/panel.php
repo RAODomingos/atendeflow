@@ -332,8 +332,8 @@ $renderReceipts = function (array $msg) {
             foreach (($contact['stores'] ?? []) as $us) { $unitNets[$us['network_name']] = $us['customer_id']; }
             ksort($unitNets);
             ?>
-            <label class="header-chip header-chip-select" title="Loja">
-                <i class="fas fa-store"></i>
+            <label class="header-field" title="Loja">
+                <span class="header-field-label">Loja</span>
                 <select id="convUnitNetwork" onchange="unitNetworkChanged(this)" aria-label="Loja">
                     <?php if (!$unitNets): ?><option value="">Loja…</option><?php endif; ?>
                     <?php foreach ($unitNets as $un => $uc): ?>
@@ -341,15 +341,15 @@ $renderReceipts = function (array $msg) {
                     <?php endforeach; ?>
                     <option value="__new">+ Nova loja…</option>
                 </select>
-                <i class="fas fa-chevron-down" style="font-size:9px;opacity:.5"></i>
+                <i class="fas fa-chevron-down"></i>
             </label>
             <?php if (empty($conv['group_id'])): ?>
-            <label class="header-chip header-chip-select" title="Unidade">
-                <i class="fas fa-tag"></i>
+            <label class="header-field" title="Unidade">
+                <span class="header-field-label">Unidade</span>
                 <select id="convUnitStore" onchange="saveUnit(this.value)" aria-label="Unidade" data-current-unit="<?= e($conv['unit'] ?? '') ?>" <?= $unitNets ? '' : 'disabled' ?>>
                     <?php if (!$unitNets): ?><option value="">Unidade…</option><?php endif; ?>
                 </select>
-                <i class="fas fa-chevron-down" style="font-size:9px;opacity:.5"></i>
+                <i class="fas fa-chevron-down"></i>
             </label>
             <?php endif; ?>
             <div class="modal" id="newStoreModal" style="display:none">
@@ -615,6 +615,7 @@ $renderReceipts = function (array $msg) {
                            accept="image/*,audio/*,video/*,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.zip" hidden <?= $panelFinished ? 'disabled' : '' ?>>
                 </label>
                 <button type="button" class="icon-btn" id="emojiToggle" title="Emoji" <?= $panelFinished ? 'disabled' : '' ?>><i class="fas fa-smile"></i></button>
+                <div class="emoji-popover" id="emojiPopover" style="display:none"></div>
                 <textarea name="content" id="messageInput" class="input-box" rows="1"
                           placeholder="<?= $panelFinished ? 'Conversa finalizada' : "Digite sua mensagem... Enter envia, Shift+Enter quebra linha" ?>"
                           <?= $panelFinished ? 'disabled' : '' ?>></textarea>
@@ -648,7 +649,6 @@ $renderReceipts = function (array $msg) {
                     <i class="fas fa-stop"></i>
                 </button>
             </div>
-            <div class="emoji-popover" id="emojiPopover" style="display:none"></div>
         </form>
     </div>
     </div><!-- /.conv-main -->
