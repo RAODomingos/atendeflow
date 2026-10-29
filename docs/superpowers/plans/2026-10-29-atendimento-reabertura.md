@@ -1052,7 +1052,7 @@ Criar `tests/e2e_atendimento_reabertura.php`:
  *  - modo unique: a mensagem nova abre um atendimento novo;
  *  - modo always: a mensagem nova reabre o atendimento anterior;
  *  - modo window: reabre dentro da janela, cria novo fora dela;
- *  - spam e grupo nunca são reabertos;
+ *  - spam, grupo e outro canal nunca são reabertos;
  *  - a caixa sobrepõe o padrão global; sem override, herda o global.
  *
  * Roda junto do runner principal (tests/run.php) e também standalone:
@@ -1066,17 +1066,22 @@ require_once __DIR__ . '/../lib/autoload.php';
 require_once __DIR__ . '/../app/Core/Helper.php';
 \App\Config\Environment::load();
 
-// Mesmo fuso do app: o banco guarda os horários em America/Sao_Paulo.
+// Mesmo fuso do app: o banco guarda os horários em America/Sao_Paulo e o
+// relógio do SLA interpreta os timestamps nesse fuso. Sem esta linha o
+// fixture sai 3h fora e a janela de reabertura lê errado.
 $appConfig = require __DIR__ . '/../config/app.php';
 date_default_timezone_set($appConfig['timezone'] ?? 'America/Sao_Paulo');
 
 use App\Core\Database;
 use App\Models\AtendimentoPolicy;
 use App\Models\Conversation;
+use App\Models\ConversationSla;
 use App\Services\WhatsAppService;
 
 // Modo do arquivo, decidido ANTES de definir o check(): em standalone o
-// próprio arquivo define o helper.
+// próprio arquivo define o helper, e um `function_exists('check')` testado
+// no fim do arquivo já estaria true — o resumo e o exit() nunca rodariam
+// e o script sairia com 0 mesmo com todos os checks em FALHOU.
 $standalone = !function_exists('check');
 
 if ($standalone) {
@@ -1106,18 +1111,17 @@ if (!AtendimentoPolicy::hasColumns()) {
 }
 
 $inboxId = null;
-$contactId = null;
 $channelId = null;
 $otherChannelId = null;
 $createdConvIds = [];
+$createdContactIds = [];
 
-// Backup do estado global e do override das caixas: o e2e mexe neles e
-// precisa devolver tudo como estava.
+// Backup do estado global: o e2e mexe no padrão do sistema e precisa
+// devolver tudo como estava.
 $globalBackup = [
     'mode' => \App\Models\Setting::get(AtendimentoPolicy::SETTING_MODE),
     'window' => \App\Models\Setting::get(AtendimentoPolicy::SETTING_WINDOW),
 ];
-$inboxOverridesBackup = [];
 
 try {
     // ── Fixture ──────────────────────────────────────────────────
@@ -1137,23 +1141,28 @@ try {
         'created_at' => date('Y-m-d H:i:s'),
         'updated_at' => date('Y-m-d H:i:s'),
     ]);
-    $inboxOverridesBackup[$inboxId] = null;
-
-    $contactId = (int) $db->insert('contacts', [
-        'name' => 'TESTE REABERTURA',
-        'created_at' => date('Y-m-d H:i:s'),
-        'updated_at' => date('Y-m-d H:i:s'),
-    ]);
 
     /**
-     * Cria uma conversa encerrada (o "atendimento anterior").
+     * Cada cenário usa um contato novo: a conversa ABERTA de um cenário
+     * seria reutilizada pelo próximo (findOrCreateConversation devolve
+     * a conversa aberta antes de olhar a política) e o teste passaria
+     * a exercitar o caminho errado.
      *
      * A conversa anterior SEMPRE leva a caixa do teste (inbox_id): é a
      * caixa do atendimento anterior que define a regra vigente — sem
      * inbox, a política cairia no padrão global e o override da caixa
      * nunca seria exercitado.
+     *
+     * @return array{0:int, 1:int} [conversationId, contactId]
      */
-    $makePrevious = function (string $status, ?string $lastMessageAt, ?int $channel = null) use ($db, $contactId, $channelId, $inboxId, &$createdConvIds) {
+    $makePrevious = function (string $status, ?string $lastMessageAt, ?int $channel = null) use ($db, $channelId, $inboxId, &$createdConvIds, &$createdContactIds) {
+        $contactId = (int) $db->insert('contacts', [
+            'name' => 'TESTE REABERTURA',
+            'created_at' => date('Y-m-d H:i:s'),
+            'updated_at' => date('Y-m-d H:i:s'),
+        ]);
+        $createdContactIds[] = $contactId;
+
         $id = (int) $db->insert('conversations', [
             'public_id' => bin2hex(random_bytes(16)),
             'contact_id' => $contactId,
@@ -1169,7 +1178,8 @@ try {
             'created_at' => $lastMessageAt ?? date('Y-m-d H:i:s'),
         ]);
         $createdConvIds[] = $id;
-        return $id;
+
+        return [$id, $contactId];
     };
 
     $service = new WhatsAppService();
@@ -1179,8 +1189,8 @@ try {
     \App\Models\Setting::set(AtendimentoPolicy::SETTING_WINDOW, '120');
     $db->update('inboxes', ['atendimento_modo' => null, 'atendimento_janela_minutos' => null], 'id = ?', [$inboxId]);
 
-    $prev1 = $makePrevious('closed', date('Y-m-d H:i:s', time() - 60));
-    $result = $service->findOrCreateConversation($channelId, $contactId);
+    [$prev1, $contact1] = $makePrevious('closed', date('Y-m-d H:i:s', time() - 60));
+    $result = $service->findOrCreateConversation($channelId, $contact1);
     check('reabertura: unique abre um atendimento novo', (int) $result['id'] !== $prev1, 'id=' . $result['id']);
     $createdConvIds[] = (int) $result['id'];
     $stillClosed = Conversation::find($prev1);
@@ -1188,8 +1198,8 @@ try {
 
     // ── 2) modo always: reabre o anterior ────────────────────────
     $db->update('inboxes', ['atendimento_modo' => 'always'], 'id = ?', [$inboxId]);
-    $prev2 = $makePrevious('resolved', date('Y-m-d H:i:s', time() - 60));
-    $result = $service->findOrCreateConversation($channelId, $contactId);
+    [$prev2, $contact2] = $makePrevious('resolved', date('Y-m-d H:i:s', time() - 60));
+    $result = $service->findOrCreateConversation($channelId, $contact2);
     check('reabertura: always reabre o atendimento anterior', (int) $result['id'] === $prev2, 'id=' . $result['id']);
     $reopened = Conversation::find($prev2);
     check('reabertura: a conversa reaberta volta para a fila', ($reopened['status'] ?? '') === 'new', 'status=' . ($reopened['status'] ?? ''));
@@ -1199,37 +1209,44 @@ try {
         [$prev2]
     );
     check('reabertura: a reabertura deixa rastro no historico', (int) $event['c'] === 1, 'eventos=' . $event['c']);
+    $sla = ConversationSla::find($prev2);
+    $metadata = json_decode((string) ($sla['metadata'] ?? '{}'), true);
+    check(
+        'reabertura: a reabertura reinicia o ciclo do sla',
+        $sla !== null && !empty($metadata['cycle_started_at']),
+        'metadata=' . json_encode($metadata)
+    );
 
     // ── 3) modo window: dentro da janela reabre ──────────────────
     $db->update('inboxes', ['atendimento_modo' => 'window', 'atendimento_janela_minutos' => 120], 'id = ?', [$inboxId]);
-    $prev3 = $makePrevious('closed', date('Y-m-d H:i:s', time() - 60));
-    $result = $service->findOrCreateConversation($channelId, $contactId);
+    [$prev3, $contact3] = $makePrevious('closed', date('Y-m-d H:i:s', time() - 60));
+    $result = $service->findOrCreateConversation($channelId, $contact3);
     check('reabertura: window reabre dentro da janela', (int) $result['id'] === $prev3, 'id=' . $result['id']);
 
     // ── 4) modo window: fora da janela abre novo ─────────────────
-    $prev4 = $makePrevious('closed', date('Y-m-d H:i:s', time() - 3 * 3600));
-    $result = $service->findOrCreateConversation($channelId, $contactId);
+    [$prev4, $contact4] = $makePrevious('closed', date('Y-m-d H:i:s', time() - 3 * 3600));
+    $result = $service->findOrCreateConversation($channelId, $contact4);
     check('reabertura: window abre novo fora da janela', (int) $result['id'] !== $prev4, 'id=' . $result['id']);
     $createdConvIds[] = (int) $result['id'];
 
     // ── 5) spam nunca é reaberto ─────────────────────────────────
-    $prev5 = $makePrevious('spam', date('Y-m-d H:i:s', time() - 60));
-    $result = $service->findOrCreateConversation($channelId, $contactId);
+    [$prev5, $contact5] = $makePrevious('spam', date('Y-m-d H:i:s', time() - 60));
+    $result = $service->findOrCreateConversation($channelId, $contact5);
     check('reabertura: spam nunca e reaberto', (int) $result['id'] !== $prev5, 'id=' . $result['id']);
     $createdConvIds[] = (int) $result['id'];
 
     // ── 6) a caixa sobrepoe o padrao global ──────────────────────
     \App\Models\Setting::set(AtendimentoPolicy::SETTING_MODE, 'unique');
     $db->update('inboxes', ['atendimento_modo' => 'always'], 'id = ?', [$inboxId]);
-    $prev6 = $makePrevious('closed', date('Y-m-d H:i:s', time() - 60));
-    $result = $service->findOrCreateConversation($channelId, $contactId);
+    [$prev6, $contact6] = $makePrevious('closed', date('Y-m-d H:i:s', time() - 60));
+    $result = $service->findOrCreateConversation($channelId, $contact6);
     check('reabertura: a caixa sobrepoe o padrao global', (int) $result['id'] === $prev6, 'id=' . $result['id']);
 
     // ── 7) sem override, herda o padrao global ───────────────────
     $db->update('inboxes', ['atendimento_modo' => null, 'atendimento_janela_minutos' => null], 'id = ?', [$inboxId]);
     \App\Models\Setting::set(AtendimentoPolicy::SETTING_MODE, 'always');
-    $prev7 = $makePrevious('closed', date('Y-m-d H:i:s', time() - 60));
-    $result = $service->findOrCreateConversation($channelId, $contactId);
+    [$prev7, $contact7] = $makePrevious('closed', date('Y-m-d H:i:s', time() - 60));
+    $result = $service->findOrCreateConversation($channelId, $contact7);
     check('reabertura: sem override herda o padrao global', (int) $result['id'] === $prev7, 'id=' . $result['id']);
 
     // ── 8) conversa de outro canal nao e candidata ───────────────
@@ -1237,8 +1254,8 @@ try {
         // Global em 'unique': a mensagem no canal A nao pode tocar no
         // atendimento do canal B (que fica no canal B).
         \App\Models\Setting::set(AtendimentoPolicy::SETTING_MODE, 'unique');
-        $prev8 = $makePrevious('closed', date('Y-m-d H:i:s', time() - 60), $otherChannelId);
-        $result = $service->findOrCreateConversation($channelId, $contactId);
+        [$prev8, $contact8] = $makePrevious('closed', date('Y-m-d H:i:s', time() - 60), $otherChannelId);
+        $result = $service->findOrCreateConversation($channelId, $contact8);
         check('reabertura: atendimento de outro canal nao e reaberto', (int) $result['id'] !== $prev8, 'id=' . $result['id']);
         $untouched = Conversation::find($prev8);
         check('reabertura: o atendimento do outro canal continua encerrado', ($untouched['status'] ?? '') === 'closed');
@@ -1253,9 +1270,16 @@ try {
         // Global em 'always': se a conversa de grupo fosse candidata,
         // ela seria reaberta. Com o filtro group_id IS NULL ela nao e.
         \App\Models\Setting::set(AtendimentoPolicy::SETTING_MODE, 'always');
+        $groupContact = (int) $db->insert('contacts', [
+            'name' => 'TESTE REABERTURA GRUPO',
+            'created_at' => date('Y-m-d H:i:s'),
+            'updated_at' => date('Y-m-d H:i:s'),
+        ]);
+        $createdContactIds[] = $groupContact;
+
         $groupConv = (int) $db->insert('conversations', [
             'public_id' => bin2hex(random_bytes(16)),
-            'contact_id' => $contactId,
+            'contact_id' => $groupContact,
             'channel_id' => $channelId,
             'inbox_id' => $inboxId,
             'group_id' => (int) $groupRow['id'],
@@ -1266,13 +1290,13 @@ try {
             'created_at' => date('Y-m-d H:i:s', time() - 3600),
         ]);
         $createdConvIds[] = $groupConv;
-        $candidate = AtendimentoPolicy::previousConversation($channelId, $contactId);
-    check(
-        'reabertura: conversa de grupo nao e candidata',
-        $candidate === null || (int) $candidate['id'] !== $groupConv,
-        'candidato=' . ($candidate['id'] ?? 'null')
-    );
-    } // fim if ($groupRow)
+        $candidate = AtendimentoPolicy::previousConversation($channelId, $groupContact);
+        check(
+            'reabertura: conversa de grupo nao e candidata',
+            $candidate === null || (int) $candidate['id'] !== $groupConv,
+            'candidato=' . ($candidate['id'] ?? 'null')
+        );
+    }
 } finally {
     // ── Limpeza ──────────────────────────────────────────────────
     foreach (array_unique($createdConvIds) as $cid) {
@@ -1282,11 +1306,10 @@ try {
         $db->delete('conversation_tags', 'conversation_id = ?', [$cid]);
         $db->delete('conversations', 'id = ?', [$cid]);
     }
-    if ($contactId) {
-        $db->delete('contacts', 'id = ?', [$contactId]);
+    foreach (array_unique($createdContactIds) as $cid) {
+        $db->delete('contacts', 'id = ?', [$cid]);
     }
     if ($inboxId) {
-        $db->update('inboxes', ['atendimento_modo' => null, 'atendimento_janela_minutos' => null], 'id = ?', [$inboxId]);
         $db->delete('inboxes', 'id = ?', [$inboxId]);
     }
     if ($globalBackup['mode'] === null) {
