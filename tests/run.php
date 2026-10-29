@@ -744,5 +744,19 @@ check('atendimento: o whatsapp consulta a politica antes de criar conversa', str
 check('atendimento: o whatsapp acha o atendimento anterior', str_contains($waServiceSrc, 'AtendimentoPolicy::previousConversation'));
 check('atendimento: o whatsapp reabre a conversa anterior', str_contains($waServiceSrc, 'reopenConversation'));
 
+$settingsCtlPath = __DIR__ . '/../app/Controllers/SettingsController.php';
+$settingsCtlSrc = is_file($settingsCtlPath) ? (string) file_get_contents($settingsCtlPath) : '';
+check('atendimento: o controller grava o padrao global', str_contains($settingsCtlSrc, 'atendimento_reabertura_modo'));
+check('atendimento: o controller grava o override da caixa', str_contains($settingsCtlSrc, 'atendimento_use_global'));
+check('atendimento: o controller guarda coluna ausente', str_contains($settingsCtlSrc, 'AtendimentoPolicy::hasColumns'));
+
+$inboxFormPath = __DIR__ . '/../app/Views/settings/inbox_form.php';
+$inboxFormSrc = is_file($inboxFormPath) ? (string) file_get_contents($inboxFormPath) : '';
+check('atendimento: a caixa tem o card de reabertura', str_contains($inboxFormSrc, 'atendimento_modo'));
+
+$generalPath = __DIR__ . '/../app/Views/settings/general.php';
+$generalSrc = is_file($generalPath) ? (string) file_get_contents($generalPath) : '';
+check('atendimento: as configuracoes gerais tem o padrao', str_contains($generalSrc, 'atendimento_reabertura_modo'));
+
 echo "\n$passes passed, $failures failed\n";
 exit($failures > 0 ? 1 : 0);

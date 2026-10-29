@@ -140,6 +140,18 @@ class SettingsController
 
         // SLA agora fica em /settings/notifications (saveNotifications).
 
+        // Reabertura de atendimento — padrão do sistema.
+        \App\Models\Setting::set(
+            \App\Models\AtendimentoPolicy::SETTING_MODE,
+            \App\Models\AtendimentoPolicy::normalizeMode($request->post('atendimento_reabertura_modo'))
+        );
+        \App\Models\Setting::set(
+            \App\Models\AtendimentoPolicy::SETTING_WINDOW,
+            \App\Models\AtendimentoPolicy::normalizeWindowMinutes(
+                $request->post('atendimento_reabertura_janela_minutos')
+            )
+        );
+
         // Guild (lojas/unidades do contato via painel externo).
         // O token nunca é reexibido na tela: em branco mantém o atual.
         \App\Models\Setting::set(
@@ -359,6 +371,7 @@ class SettingsController
 
         $sla = \App\Services\SlaService::configFor($id);
         $slaForm = $this->slaFormState($inbox, $sla);
+        $reabertura = $this->reaberturaFormState($inbox);
 
         $data = [
             'title' => $inbox ? 'Editar Caixa' : 'Nova Caixa',
@@ -371,6 +384,7 @@ class SettingsController
             'slaConfig' => $sla['config'],
             'slaHasOverride' => $sla['is_custom'],
             'slaForm' => $slaForm,
+            'reabertura' => $reabertura,
         ];
 
         if ($inbox) {
@@ -401,6 +415,10 @@ class SettingsController
             $data['conversation_scope'] = self::inboxScope($request, 'all');
         }
         $data = array_merge($data, $this->collectInboxSla($request));
+        // Reabertura de atendimento (NULL = usar o padrão do sistema).
+        if (\App\Models\AtendimentoPolicy::hasColumns()) {
+            $data = array_merge($data, $this->collectInboxReabertura($request));
+        }
         $inboxId = Inbox::create($data);
         \App\Services\SlaService::forgetConfig();
 
@@ -433,6 +451,10 @@ class SettingsController
             $data['conversation_scope'] = self::inboxScope($request, (string) ($inbox['conversation_scope'] ?? 'all'));
         }
         $data = array_merge($data, $this->collectInboxSla($request));
+        // Reabertura de atendimento (NULL = usar o padrão do sistema).
+        if (\App\Models\AtendimentoPolicy::hasColumns()) {
+            $data = array_merge($data, $this->collectInboxReabertura($request));
+        }
         Inbox::update($id, $data);
         \App\Services\SlaService::forgetConfig();
         $this->syncInboxLinks($id, $request);
@@ -557,6 +579,62 @@ class SettingsController
             : 'default';
 
         return $data;
+    }
+
+    /**
+     * Lê o POST e devolve os campos de reabertura por caixa.
+     * "Usar padrão do sistema" marcado zera os overrides (NULL), para
+     * que a caixa herde o padrão global.
+     */
+    private function collectInboxReabertura(Request $request): array
+    {
+        if ($request->post('atendimento_use_global')) {
+            return [
+                'atendimento_modo' => null,
+                'atendimento_janela_minutos' => null,
+            ];
+        }
+
+        return [
+            'atendimento_modo' => \App\Models\AtendimentoPolicy::normalizeMode(
+                $request->post('atendimento_modo')
+            ),
+            'atendimento_janela_minutos' => $request->post('atendimento_janela_minutos') !== ''
+                ? max(1, (int) $request->post('atendimento_janela_minutos'))
+                : null,
+        ];
+    }
+
+    /**
+     * Estado inicial do card de reabertura no formulário da caixa.
+     * Sem override, mostra o "usar padrão" marcado e os valores globais
+     * como preview.
+     *
+     * @return array{use_global:bool, mode:string, window_minutes:int}
+     */
+    private function reaberturaFormState(?array $inbox): array
+    {
+        $global = \App\Models\AtendimentoPolicy::globalConfig();
+
+        $hasOverride = !empty($inbox)
+            && array_key_exists('atendimento_modo', $inbox)
+            && $inbox['atendimento_modo'] !== null
+            && $inbox['atendimento_modo'] !== '';
+
+        $mode = $hasOverride
+            ? \App\Models\AtendimentoPolicy::normalizeMode((string) $inbox['atendimento_modo'])
+            : $global['mode'];
+
+        $window = $global['window_minutes'];
+        if ($hasOverride && !empty($inbox['atendimento_janela_minutos'])) {
+            $window = (int) $inbox['atendimento_janela_minutos'];
+        }
+
+        return [
+            'use_global' => !$hasOverride,
+            'mode' => $mode,
+            'window_minutes' => $window,
+        ];
     }
 
     /**

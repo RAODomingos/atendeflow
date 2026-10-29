@@ -3,6 +3,8 @@
 $sf = $slaForm;
 $sv = $sf['values'];
 $useGlobal = $sf['use_global'];
+/** @var array $reabertura estado inicial do card de reabertura (use_global + mode + janela) */
+$rb = $reabertura;
 ?>
 <div class="channels-page">
     <?php $subPage = 'inboxes'; require __DIR__ . '/_tabs.php'; ?>
@@ -269,6 +271,55 @@ $useGlobal = $sf['use_global'];
                     </div>
                 </div>
 
+                <div class="card" style="border-radius:12px;overflow:hidden;margin-top:18px;background:var(--bg-content);border:1px solid var(--border-soft)">
+                    <div class="card-header" style="background:transparent;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px">
+                        <h3 style="margin:0;font-size:15px;display:flex;align-items:center;gap:8px">
+                            <i class="fas fa-recycle" style="color:var(--primary)"></i>
+                            Reabertura de atendimento
+                        </h3>
+                        <div class="form-check" style="display:flex;align-items:center;gap:8px;margin:0;padding:8px 12px;background:var(--bg-card);border-radius:8px">
+                            <input type="checkbox" name="atendimento_use_global" value="1" id="atendimentoUseGlobal" <?= $rb['use_global'] ? 'checked' : '' ?> style="width:16px;height:16px;accent-color:var(--primary)">
+                            <label for="atendimentoUseGlobal" style="font-weight:500;cursor:pointer;margin:0;font-size:13px">
+                                Usar padrão do sistema
+                            </label>
+                        </div>
+                    </div>
+                    <div class="card-body">
+                        <p id="atendimentoUseGlobalHint" style="margin:0 0 14px;font-size:13px;color:var(--text-muted)">
+                            <i class="fas fa-info-circle"></i>
+                            Os valores abaixo são ignorados: esta caixa usará a regra definida em
+                            <a href="<?= url('settings') ?>">Configurações Gerais</a>.
+                        </p>
+
+                        <div id="atendimentoCustomFields" style="<?= $rb['use_global'] ? 'display:none' : '' ?>">
+                            <div class="form-group">
+                                <label><i class="fas fa-random"></i> Novo atendimento do mesmo cliente</label>
+                                <select name="atendimento_modo" class="form-control" id="atendimentoModo">
+                                    <option value="unique" <?= $rb['mode'] === 'unique' ? 'selected' : '' ?>>Sempre novo (único)</option>
+                                    <option value="always" <?= $rb['mode'] === 'always' ? 'selected' : '' ?>>Reabrir o atendimento anterior</option>
+                                    <option value="window" <?= $rb['mode'] === 'window' ? 'selected' : '' ?>>Reabrir se for em até X minutos</option>
+                                </select>
+                                <p class="form-hint">
+                                    Vale para as mensagens do WhatsApp. O WebChat do site e o "Novo Atendimento"
+                                    manual continuam abrindo um atendimento novo.
+                                </p>
+                            </div>
+                            <div class="form-group" id="atendimentoJanelaGroup" style="<?= $rb['mode'] === 'window' ? '' : 'display:none' ?>">
+                                <label><i class="fas fa-clock"></i> Janela de reabertura</label>
+                                <div style="display:flex;align-items:center;gap:8px">
+                                    <input type="number" min="1" max="10080" name="atendimento_janela_minutos" class="form-control"
+                                           id="atendimentoJanela" value="<?= e((string) $rb['window_minutes']) ?>" style="width:100px">
+                                    <span style="color:var(--text-muted)">minutos</span>
+                                </div>
+                                <small class="text-muted" style="display:block;margin-top:4px;font-size:12px">
+                                    Contada da última mensagem do atendimento anterior. Passado esse tempo,
+                                    o novo atendimento é único.
+                                </small>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
                 <div class="form-actions">
                     <button type="submit" class="btn btn-primary">
                         <i class="fas fa-save"></i> <?= $inbox ? 'Salvar' : 'Criar caixa' ?>
@@ -282,16 +333,41 @@ $useGlobal = $sf['use_global'];
 
 <script>
 (function() {
+    // SLA da caixa: "usar padrão do sistema" mostra/esconde os campos.
     var toggle = document.getElementById('slaUseGlobal');
     var hint = document.getElementById('slaUseGlobalHint');
     var fields = document.getElementById('slaCustomFields');
-    if (!toggle || !fields) return;
-    function apply() {
-        var on = toggle.checked;
-        fields.style.display = on ? 'none' : '';
-        if (hint) hint.style.display = on ? '' : 'none';
+    if (toggle && fields) {
+        var applySla = function() {
+            var on = toggle.checked;
+            fields.style.display = on ? 'none' : '';
+            if (hint) hint.style.display = on ? '' : 'none';
+        };
+        toggle.addEventListener('change', applySla);
+        applySla();
     }
-    toggle.addEventListener('change', apply);
-    apply();
+
+    // Reabertura de atendimento: "usar padrão do sistema" mostra/esconde
+    // os campos, e a janela em minutos só aparece no modo "reabrir por
+    // janela".
+    var reabToggle = document.getElementById('atendimentoUseGlobal');
+    var reabHint = document.getElementById('atendimentoUseGlobalHint');
+    var reabFields = document.getElementById('atendimentoCustomFields');
+    var reabModo = document.getElementById('atendimentoModo');
+    var reabJanela = document.getElementById('atendimentoJanelaGroup');
+
+    function applyReabertura() {
+        if (reabToggle && reabFields) {
+            reabFields.style.display = reabToggle.checked ? 'none' : '';
+            if (reabHint) reabHint.style.display = reabToggle.checked ? '' : 'none';
+        }
+        if (reabModo && reabJanela) {
+            reabJanela.style.display = reabModo.value === 'window' ? '' : 'none';
+        }
+    }
+
+    if (reabToggle) reabToggle.addEventListener('change', applyReabertura);
+    if (reabModo) reabModo.addEventListener('change', applyReabertura);
+    applyReabertura();
 })();
 </script>

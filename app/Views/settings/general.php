@@ -31,6 +31,38 @@
 
         <div class="card" style="border-radius:12px;overflow:hidden;margin-top:16px">
             <div class="card-header" style="background:var(--bg-card)">
+                <h3><i class="fas fa-recycle" style="color:var(--primary)"></i> Reabertura de atendimento</h3>
+            </div>
+            <div class="card-body">
+                <div class="form-group">
+                    <label>Novo atendimento do mesmo cliente</label>
+                    <select name="atendimento_reabertura_modo" class="form-control" id="atendimentoModoGlobal">
+                        <option value="unique" <?= (string) ($settings['atendimento_reabertura_modo'] ?? 'unique') === 'unique' ? 'selected' : '' ?>>Sempre novo (único)</option>
+                        <option value="always" <?= (string) ($settings['atendimento_reabertura_modo'] ?? 'unique') === 'always' ? 'selected' : '' ?>>Reabrir o atendimento anterior</option>
+                        <option value="window" <?= (string) ($settings['atendimento_reabertura_modo'] ?? 'unique') === 'window' ? 'selected' : '' ?>>Reabrir se for em até X minutos</option>
+                    </select>
+                    <small class="text-muted" style="display:block;margin-top:4px;font-size:12px">
+                        Padrão do sistema: o que acontece quando o mesmo cliente escreve de novo no WhatsApp
+                        depois de o atendimento anterior ter sido encerrado. Cada caixa pode ter a sua própria
+                        regra (Configurações → Caixas). Vale para as mensagens do WhatsApp.
+                    </small>
+                </div>
+                <div class="form-group" id="atendimentoJanelaGlobalGroup" style="<?= (string) ($settings['atendimento_reabertura_modo'] ?? 'unique') === 'window' ? '' : 'display:none' ?>">
+                    <label>Janela de reabertura</label>
+                    <div style="display:flex;align-items:center;gap:8px">
+                        <input type="number" min="1" max="10080" name="atendimento_reabertura_janela_minutos" class="form-control"
+                               id="atendimentoJanelaGlobal" value="<?= e((string) ($settings['atendimento_reabertura_janela_minutos'] ?? '120')) ?>" style="width:120px">
+                        <span style="color:var(--text-muted)">minutos</span>
+                    </div>
+                    <small class="text-muted" style="display:block;margin-top:4px;font-size:12px">
+                        Contada da última mensagem do atendimento anterior (padrão: 120 minutos).
+                    </small>
+                </div>
+            </div>
+        </div>
+
+        <div class="card" style="border-radius:12px;overflow:hidden;margin-top:16px">
+            <div class="card-header" style="background:var(--bg-card)">
                 <h3><i class="fas fa-store" style="color:var(--primary)"></i> Painel Guild (Lojas)</h3>
             </div>
             <div class="card-body">
@@ -70,3 +102,17 @@
         </div>
     </form>
 </div>
+
+<script>
+(function() {
+    // A janela de reabertura só faz sentido no modo "reabrir por janela".
+    var modo = document.getElementById('atendimentoModoGlobal');
+    var janela = document.getElementById('atendimentoJanelaGlobalGroup');
+    if (!modo || !janela) return;
+    function apply() {
+        janela.style.display = modo.value === 'window' ? '' : 'none';
+    }
+    modo.addEventListener('change', apply);
+    apply();
+})();
+</script>
