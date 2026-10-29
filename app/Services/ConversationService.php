@@ -349,6 +349,62 @@ class ConversationService
         }
     }
 
+    /**
+     * Reabre um atendimento encerrado, na MESMA conversa.
+     *
+     * O atendimento anterior volta para a fila com o historico junto:
+     * o status sai de "finalizada" para um status ativo, o fechamento
+     * e limpo e o ciclo do SLA recomeca (a medicao passa a ignorar as
+     * mensagens do ciclo anterior).
+     *
+     * Usado por dois gatilhos:
+     *  - a reabertura manual (changeStatus), que ja limpava o
+     *    fechamento antes — agora com uma regra so;
+     *  - a reabertura automatica (nova mensagem do cliente no
+     *    WhatsApp, conforme a politica da caixa).
+     *
+     * @param string|null $targetStatus Status alvo. null = 'new' (sem
+     *        responsavel) ou 'waiting_customer' (com responsavel).
+     * @return array a conversa atualizada
+     */
+    public function reopenConversation(int $conversationId, string $motivo = '', ?string $targetStatus = null): array
+    {
+        $conv = Conversation::find($conversationId);
+        if (!$conv) {
+            throw new \RuntimeException('Conversa nao encontrada para reabrir.');
+        }
+
+        $status = $targetStatus;
+        if ($status === null) {
+            // Sem responsavel a conversa volta para a fila de chegada;
+            // com responsavel ela fica aguardando o cliente.
+            $status = !empty($conv['assigned_user_id']) ? 'waiting_customer' : 'new';
+        }
+
+        Conversation::update($conversationId, [
+            'status' => $status,
+            'closed_at' => null,
+            'close_reason' => null,
+            'close_description' => null,
+            'csat_requested' => 0,
+            'after_hours_notified' => 0,
+        ]);
+
+        // Reabertura reinicia o ciclo do SLA: zera os acumulados e marca
+        // o inicio do novo ciclo (a medicao ignora as mensagens anteriores).
+        \App\Models\ConversationSla::reset($conversationId, date('Y-m-d H:i:s'));
+
+        Conversation::addEvent(
+            $conversationId,
+            'reopened',
+            $motivo !== '' ? $motivo : 'Atendimento reaberto',
+            null,
+            ['from' => $conv['status'] ?? null, 'to' => $status]
+        );
+
+        return Conversation::find($conversationId) ?? $conv;
+    }
+
     public function changeStatus(int $conversationId, string $status, ?string $reason = null, ?string $description = null): void
     {
         $conv = Conversation::find($conversationId);
@@ -395,23 +451,13 @@ class ConversationService
 
         Conversation::update($conversationId, $data);
 
-        // Reabertura (saída de resolved/closed/spam): permite nova validação
-        // de horário do departamento e novo pedido de CSAT ao resolver de novo.
+        // Reabertura (saída de resolved/closed/spam): a mesma regra que a
+        // reabertura automática usa — limpa o fechamento anterior, permite
+        // nova validação de horário do departamento e novo pedido de CSAT
+        // ao resolver de novo, e reinicia o ciclo do SLA.
         $finals = ['resolved', 'closed', 'spam'];
         if (in_array($old, $finals, true) && !in_array($status, $finals, true)) {
-            Conversation::update($conversationId, ['after_hours_notified' => 0, 'csat_requested' => 0]);
-            // Reabertura: limpa o fechamento anterior. Sem isso a conversa
-            // continua com `closed_at` preenchido e o SLA a trata como
-            // encerrada (primeira resposta nula e "violacao" consumada
-            // numa conversa que esta aberta).
-            Conversation::update($conversationId, [
-                'closed_at' => null,
-                'close_reason' => null,
-                'close_description' => null,
-            ]);
-            // Reabertura reinicia o ciclo do SLA: zera os acumulados e marca
-            // o início do novo ciclo (a medição ignora as mensagens anteriores).
-            \App\Models\ConversationSla::reset($conversationId, date('Y-m-d H:i:s'));
+            $this->reopenConversation($conversationId, "Atendimento reaberto (status: {$status})", $status);
         }
 
         Conversation::addEvent($conversationId, 'status_changed', "Status alterado para: {$status}", Auth::id(), [

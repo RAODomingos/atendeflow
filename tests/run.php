@@ -727,5 +727,16 @@ check('atendimento: a politica ignora conversa de grupo', str_contains($policySr
 check('atendimento: a politica ignora spam', str_contains($policySrc, "'resolved', 'closed'"));
 check('atendimento: a politica tem guarda de coluna ausente', str_contains($policySrc, 'hasColumns'));
 
+$convServicePath = __DIR__ . '/../app/Services/ConversationService.php';
+$convServiceSrc = is_file($convServicePath) ? (string) file_get_contents($convServicePath) : '';
+check('atendimento: existe o metodo de reabertura', str_contains($convServiceSrc, 'function reopenConversation'));
+check('atendimento: a reabertura limpa o fechamento', str_contains($convServiceSrc, "'close_reason' => null"));
+check('atendimento: a reabertura reinicia o ciclo de sla', str_contains($convServiceSrc, 'ConversationSla::reset'));
+check('atendimento: a reabertura grava o evento reopened', str_contains($convServiceSrc, "'reopened'"));
+check(
+    'atendimento: a mudanca de status usa a reabertura',
+    preg_match('/changeStatus[\s\S]{0,4000}reopenConversation/', $convServiceSrc) === 1
+);
+
 echo "\n$passes passed, $failures failed\n";
 exit($failures > 0 ? 1 : 0);
